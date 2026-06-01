@@ -8,6 +8,7 @@ interface DashboardViewProps {
   lists: List[];
   stats: Stats;
   userName: string;
+  userImage?: string; // Tillagd: Valfri prop för användarens profilbild
   onSelectList: (id: string) => void;
   onTriggerCreate: () => void;
   onAddListFromTemplate: (template: any) => void;
@@ -18,6 +19,7 @@ export default function DashboardView({
   lists,
   stats,
   userName,
+  userImage, // Inkluderad här
   onSelectList,
   onTriggerCreate,
   onAddListFromTemplate,
@@ -115,11 +117,15 @@ export default function DashboardView({
       {/* Top Bar AppBar */}
       <header className="w-full top-0 sticky z-40 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10">
+          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-white">
             <img
               alt="Profile"
               className="w-full h-full object-cover"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDozSzqxVqljucfmI2KbMHCz31aB8XJTlwjsuQBKIwBi2UfihM3YJWBGGg4gBHOMrD0xTxhodCmn-RbAhvGADooRReTPM47r4jARWz9e7c6nwZH6QNuxFW4f-aBXGLg0y9e_IGdU4Syd5ektDCqyfrmiDEu0kxvP0gsp2s2UPKwjQWLq8FflZqHptEhPXHwx2jQYrGt3FqcSXsBf5ymOWNXA_YlX9FywkT33dDrZoFkP_WsfP91IanCVdherTzzqWspYhavdZgt1c"
+              src={userImage || "/logo.png"}
+              onError={(e) => {
+                // Fallback om bildlänken skulle vara trasig eller inte kan laddas
+                e.currentTarget.src = "/logo.png";
+              }}
             />
           </div>
           <div>
