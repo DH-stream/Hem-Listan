@@ -1,4 +1,5 @@
-import { useState, useEffect, FormEvent } from "react";
+/** @jsxRuntime classic */
+import React, { useState, useEffect, FormEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
 import {

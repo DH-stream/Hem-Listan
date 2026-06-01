@@ -169,13 +169,13 @@ export default function DashboardView({
             </p>
 
             {userName && userName !== "Hem-Listan" ? (
-              // Om användaren har ett EGET namn (och inte standardnamnet), visa det som text
+              // Om användaren har ett EGET namn, visa det som text
               <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
                 {userName}
               </h1>
             ) : (
-              // Om namnet saknas ELLER är "Hem-Listan", visa logotypen istället
-              <div className="h-8 flex items-center mt-1">
+              // Här har vi ökat höjden ordentligt (h-20 = 80px) så loggan blir tydlig och stor
+              <div className="h-20 flex items-center mt-2">
                 <img
                   src="/logo.png"
                   alt="Hem-Listan"
