@@ -1,0 +1,6 @@
+{
+  "name": "Hem-Listan",
+  "description": "En stilren fullstack-applikation för att organisera hemmet. Hantera inköpslistor, matschema, renoveringsprojekt och mycket mer med inbyggd smart receptimport drivet av Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
