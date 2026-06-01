@@ -1,0 +1,173 @@
+import React, { useState } from "react";
+import { motion } from "motion/react";
+import LucideIcon from "./LucideIcon";
+
+interface CreateListViewProps {
+  onCancel: () => void;
+  onCreateList: (name: string, icon: string, themeColor: string, category: "renovation" | "grocery" | "general") => void;
+}
+
+export default function CreateListView({ onCancel, onCreateList }: CreateListViewProps) {
+  const [listName, setListName] = useState("");
+  const [selectedIcon, setSelectedIcon] = useState("construction");
+  const [selectedColor, setSelectedColor] = useState("#003b05"); // default primary green
+
+  // Standard icon library from design layout
+  const icons = [
+    { name: "home", label: "Hem" },
+    { name: "shopping_cart", label: "Inköp" },
+    { name: "construction", label: "Fixa" },
+    { name: "favorite", label: "Favorit" },
+    { name: "book", label: "Läsa" },
+    { name: "restaurant", label: "Mat" },
+    { name: "fitness_center", label: "Träna" },
+    { name: "flight", label: "Resa" }
+  ];
+
+  // Colors aligned with brand kit
+  const colors = [
+    { value: "#003b05", label: "Mörkgrön" },
+    { value: "#346a2f", label: "Skogsgrön" },
+    { value: "#ffb0c9", label: "Rosa" },
+    { value: "#7C2E00", label: "Eldbrun" },
+    { value: "#9ad68e", label: "Ljusgrön" }
+  ];
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!listName.trim()) return;
+
+    // Direct classification mapping based on keyword or icon selection to map categories nicely:
+    let category: "renovation" | "grocery" | "general" = "general";
+    if (selectedIcon === "shopping_cart" || selectedIcon === "restaurant" || listName.toLowerCase().includes("inköp") || listName.toLowerCase().includes("handla")) {
+      category = "grocery";
+    } else if (selectedIcon === "construction" || selectedIcon === "home" || listName.toLowerCase().includes("renovering") || listName.toLowerCase().includes("bygga")) {
+      category = "renovation";
+    }
+
+    onCreateList(listName.trim(), selectedIcon, selectedColor, category);
+  };
+
+  return (
+    <div className="w-full max-w-[768px] mx-auto min-h-screen flex flex-col bg-surface font-sans">
+      {/* Top Header Navigation */}
+      <header className="w-full px-5 py-4 top-0 sticky bg-surface z-50 flex justify-between items-center text-on-surface">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-on-surface-variant font-sans font-bold text-xs hover:opacity-85 transition-opacity active:scale-95"
+        >
+          Avbryt
+        </button>
+        <h1 className="font-display text-base font-bold text-text-main">
+          Ny lista
+        </h1>
+        <div className="w-10"></div> {/* Balanced Spacer for true centering */}
+      </header>
+
+      {/* Form Content body container */}
+      <main className="flex-1 px-5 py-6 flex flex-col gap-6 overflow-y-auto">
+        {/* Hero Visual Card showing selected icons preview */}
+        <div className="relative w-full h-40 rounded-xl overflow-hidden shadow-[0px_4px_20px_rgba(0,59,5,0.04)] bg-surface-container">
+          <img
+            className="w-full h-full object-cover opacity-50 mix-blend-multiply"
+            alt="Workspace serene notebook illustration"
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqUkh2LIQr96sauwB1wALltSEaNtd8lLK7xhm7gufW_UGfeIByaP7kYRT84Zkjl8v8FfzVL0flW-MTn4b-J-_IZKGZTVrsFiF6dNpOnF0RyZMZidPzj2sZ9JcR8daEsShf2Z8jG76WGQYWO52VDuovNFqw8c1GHiszYIVYezp5RlHYXl7LLDiqVVoxS4vu5uMDNkaWTNoicstvFIYvScAgheHV_he1n-1fcDSOp9gBL23TlVvBbuiNdlWCgGVvX7Kz_aVa-JO6DWw"
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-white/90 backdrop-blur-sm px-6 py-4 rounded-full shadow-md border border-white flex items-center justify-center gap-2">
+              <LucideIcon
+                name={selectedIcon}
+                className="w-8 h-8 transition-transform duration-300"
+                style={{ color: selectedColor }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6 flex-grow">
+          {/* List Name Text input */}
+          <div className="space-y-2">
+            <label className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
+              Listnamn
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={40}
+              value={listName}
+              onChange={(e) => setListName(e.target.value)}
+              className="w-full bg-surface-muted border-0 rounded-xl px-4 py-3.5 text-sm focus:ring-2 focus:ring-primary focus:bg-white transition-all outline-none text-on-surface placeholder:text-outline/50 font-sans"
+              placeholder="t.ex. Badrumsrenovering"
+            />
+          </div>
+
+          {/* Icon Choice Grid selection */}
+          <div className="space-y-3">
+            <label className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
+              Välj ikon
+            </label>
+            <div className="grid grid-cols-4 gap-3">
+              {icons.map((item) => {
+                const isActive = selectedIcon === item.name;
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    onClick={() => setSelectedIcon(item.name)}
+                    className={`p-3.5 rounded-xl flex items-center justify-center hover:bg-surface-variant/40 transition-all active:scale-95 cursor-pointer border ${
+                      isActive
+                        ? "bg-primary text-white border-primary"
+                        : "bg-surface-container-low border-transparent text-text-main"
+                    }`}
+                  >
+                    <LucideIcon name={item.name} className="w-5 h-5" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Theme Color selectors */}
+          <div className="space-y-3">
+            <label className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
+              Välj temafärg
+            </label>
+            <div className="flex flex-wrap gap-4 px-1 py-1">
+              {colors.map((color) => {
+                const isActive = selectedColor === color.value;
+                return (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => setSelectedColor(color.value)}
+                    className="w-10 h-10 rounded-full transition-all active:scale-90 relative cursor-pointer"
+                    style={{ backgroundColor: color.value }}
+                    title={color.label}
+                  >
+                    {isActive && (
+                      <span className="absolute inset-0 rounded-full ring-2 ring-offset-2 ring-primary border border-white" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </form>
+      </main>
+
+      {/* CTA Footer Form Submit button */}
+      <footer className="p-5 pb-8">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!listName.trim()}
+          className="w-full py-4 bg-primary text-white font-display text-sm font-bold rounded-full shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-45 disabled:pointer-events-none"
+        >
+          <span>Skapa lista</span>
+          <LucideIcon name="plus" className="w-4 h-4" />
+        </button>
+      </footer>
+    </div>
+  );
+}
