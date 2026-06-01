@@ -174,12 +174,12 @@ export default function DashboardView({
                 {userName}
               </h1>
             ) : (
-              // Här har vi ökat höjden ordentligt (h-20 = 80px) så loggan blir tydlig och stor
-              <div className="h-20 flex items-center mt-2">
+              // Containern är låg (h-7) så headern förblir kompakt, men bilden skalas upp
+              <div className="h-7 flex items-center relative overflow-visible select-none">
                 <img
                   src="/logo.png"
                   alt="Hem-Listan"
-                  className="h-full w-auto object-contain object-left"
+                  className="h-24 w-auto object-contain object-left scale-150 origin-left -ml-2 -mt-1"
                 />
               </div>
             )}
