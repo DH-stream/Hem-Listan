@@ -1,17 +1,49 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+/** @jsxRuntime classic */
+/** @jsx React.createElement */
+declare module "react/jsx-runtime" {
+  export function jsx(type: any, props?: any, key?: string | number): any;
+  export function jsxs(type: any, props?: any, key?: string | number): any;
+  export function jsxDEV(
+    type: any,
+    props?: any,
+    key?: string | number,
+    isStaticChildren?: boolean,
+    source?: any,
+    self?: any
+  ): any;
+}
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}
+
+import React, { useState, SyntheticEvent } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
+
+// Skapade ett interface för mallarna så slipper vi "any"-fel
+interface QuickTemplate {
+  name: string;
+  icon?: string;
+  themeColor?: string;
+  tasks?: Array<{ text: string; checked: boolean }>;
+  [key: string]: unknown; // Tillåter extra fält om det behövs
+}
 
 interface DashboardViewProps {
   lists: List[];
   stats: Stats;
   userName: string;
-  userImage?: string; // Tillagd: Valfri prop för användarens profilbild
+  userImage?: string;
   onSelectList: (id: string) => void;
   onTriggerCreate: () => void;
-  onAddListFromTemplate: (template: any) => void;
+  onAddListFromTemplate: (template: QuickTemplate) => void; // Ändrad från any
   onOpenSettings: () => void;
 }
 
@@ -19,7 +51,7 @@ export default function DashboardView({
   lists,
   stats,
   userName,
-  userImage, // Inkluderad här
+  userImage,
   onSelectList,
   onTriggerCreate,
   onAddListFromTemplate,
@@ -29,7 +61,7 @@ export default function DashboardView({
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
   };
 
-  const [isDismissed, setIsDismissed] = useState(() => {
+  const [isDismissed, setIsDismissed] = useState<boolean>(() => {
     try {
       const dismissedDate = localStorage.getItem("dismissed_dashboard_summary_date");
       return dismissedDate === getTodayDateString();
@@ -124,6 +156,10 @@ export default function DashboardView({
                 alt="Profile"
                 className="w-full h-full object-cover"
                 src={userImage}
+                onError={(e: SyntheticEvent<HTMLImageElement, Event>) => {
+                  // Säkerställer korrekt TS-typ om profilbilden mot förmodan dör
+                  e.currentTarget.style.display = 'none';
+                }}
               />
             </div>
           )}
@@ -132,14 +168,14 @@ export default function DashboardView({
               Välkommen tillbaka
             </p>
 
-            {userName ? (
-              // Om användaren har ett eget namn, visa det som text
+            {userName && userName !== "Hem-Listan" ? (
+              // Om användaren har ett EGET namn (och inte standardnamnet), visa det som text
               <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
                 {userName}
               </h1>
             ) : (
-              // Annars, visa logotypen logo.png som rubrik (anpassad höjd för att matcha textstorleken)
-              <div className="h-8 flex items-center">
+              // Om namnet saknas ELLER är "Hem-Listan", visa logotypen istället
+              <div className="h-8 flex items-center mt-1">
                 <img
                   src="/logo.png"
                   alt="Hem-Listan"
@@ -276,7 +312,7 @@ export default function DashboardView({
           {QUICK_TEMPLATES.map((tmpl) => (
             <motion.button
               key={tmpl.name}
-              onClick={() => onAddListFromTemplate(tmpl)}
+              onClick={() => onAddListFromTemplate(tmpl as QuickTemplate)} // Typas om här för att matcha interfacet perfekt
               className="flex items-center gap-2 bg-surface-container-low px-4 py-3 rounded-full font-sans text-xs font-bold text-text-main hover:bg-secondary-container hover:text-on-secondary-container transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 duration-200 shadow-sm"
               whileHover={{ y: -1 }}
             >
