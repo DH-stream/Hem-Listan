@@ -41,7 +41,7 @@ export default function DashboardView({
   const handleDismiss = () => {
     try {
       localStorage.setItem("dismissed_dashboard_summary_date", getTodayDateString());
-    } catch (_) {}
+    } catch (_) { }
     setIsDismissed(true);
   };
 
@@ -117,24 +117,36 @@ export default function DashboardView({
       {/* Top Bar AppBar */}
       <header className="w-full top-0 sticky z-40 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-white">
-            <img
-              alt="Profile"
-              className="w-full h-full object-cover"
-              src={userImage || "/logo.png"}
-              onError={(e) => {
-                // Fallback om bildlänken skulle vara trasig eller inte kan laddas
-                e.currentTarget.src = "/logo.png";
-              }}
-            />
-          </div>
+          {/* Visar endast profilbildscirkeln om userImage faktiskt är satt */}
+          {userImage && (
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-white shrink-0">
+              <img
+                alt="Profile"
+                className="w-full h-full object-cover"
+                src={userImage}
+              />
+            </div>
+          )}
           <div>
-            <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1">
+            <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1.5">
               Välkommen tillbaka
             </p>
-            <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
-              {userName || "Hem-Listan"}
-            </h1>
+
+            {userName ? (
+              // Om användaren har ett eget namn, visa det som text
+              <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
+                {userName}
+              </h1>
+            ) : (
+              // Annars, visa logotypen logo.png som rubrik (anpassad höjd för att matcha textstorleken)
+              <div className="h-8 flex items-center">
+                <img
+                  src="/logo.png"
+                  alt="Hem-Listan"
+                  className="h-full w-auto object-contain object-left"
+                />
+              </div>
+            )}
           </div>
         </div>
         <button
