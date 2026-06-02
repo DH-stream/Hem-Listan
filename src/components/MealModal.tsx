@@ -9,13 +9,13 @@ interface ModalProps {
   mealType?: string;
 }
 
-const MealModal: React.FC<ModalProps> = ({ 
+export default function MealModal({ 
   isOpen, 
   onClose, 
   onConfirm, 
   day = "Måndag", 
   mealType = "frukost" 
-}) => { 
+}: ModalProps) { 
   const [inputValue, setInputValue] = useState(''); 
   const [isAnimating, setIsAnimating] = useState(false); 
   const [isClosing, setIsClosing] = useState(false);
@@ -130,9 +130,6 @@ const MealModal: React.FC<ModalProps> = ({
       </div> 
     </div> 
   );
-};
-
-export { MealModal };
-export default MealModal;
+}
 
 ```
