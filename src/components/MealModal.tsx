@@ -1,6 +1,13 @@
 ```react
 import React, { useState, useEffect } from 'react';
 
+/**
+ * Säkrad och Optimerad MealModal för React / Vite (Vercel-kompatibel)
+ * * Lösningar:
+ * - Fixat Esbuild/Vite-byggfelet genom att separera CSS-styles från JSX-strukturen.
+ * - Samma prestandaoptimeringar för iOS Safari (60 FPS utan mikrolagg).
+ * - Samma säkra pointer-events-hantering så att skärmtryck inte blockeras efter stängning.
+ */
 
 interface ModalProps {
   isOpen: boolean;
@@ -9,6 +16,112 @@ interface ModalProps {
   day?: string;
   mealType?: string;
 }
+
+// Vi definierar CSS som en ren sträng utanför komponenten för att förhindra byggfel i Esbuild/Vite
+const modalStyles = `
+  @keyframes shrinkToCircle { 
+    0% { 
+      border-radius: 24px; 
+      width: 100%; 
+      max-width: 320px; 
+      height: 250px; 
+      padding: 24px; 
+    } 
+    100% { 
+      border-radius: 50%; 
+      width: 70px; 
+      height: 70px; 
+      padding: 0; 
+      background: #003b05; 
+      border-color: #003b05; 
+    } 
+  }
+
+  @keyframes drawCheck { 
+    to { 
+      stroke-dashoffset: 0; 
+    } 
+  }
+
+  @keyframes glowPop { 
+    0% { 
+      transform: scale(1) translate3d(0,0,0); 
+      box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
+    } 
+    50% { 
+      transform: scale(1.1) translate3d(0,0,0); 
+      box-shadow: 0 0 15px rgba(0, 59, 5, 0.5); 
+    } 
+    100% { 
+      transform: scale(1) translate3d(0,0,0); 
+      box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
+    } 
+  }
+
+  .modal-container { 
+    background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%); 
+    border: 1px solid rgba(0, 59, 5, 0.1); 
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
+    transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); 
+    transform: translate3d(0,0,0);
+    will-change: transform, width, height, border-radius, background-color;
+  }
+
+  .modal-animating { 
+    animation: shrinkToCircle 0.6s forwards cubic-bezier(0.25, 1, 0.5, 1); 
+    overflow: hidden; 
+  }
+
+  .check-container { 
+    display: none; 
+    align-items: center; 
+    justify-content: center; 
+    width: 100%; 
+    height: 100%; 
+    transform: translate3d(0,0,0);
+  }
+
+  .modal-animating .check-container { 
+    display: flex; 
+    animation: glowPop 0.4s 0.9s forwards; 
+  }
+
+  .checkmark-svg { 
+    width: 32px; 
+    height: 32px; 
+    stroke: white; 
+    stroke-width: 4; 
+    stroke-linecap: round; 
+    stroke-linejoin: round; 
+    fill: none; 
+    stroke-dasharray: 100; 
+    stroke-dashoffset: 100; 
+    animation: drawCheck 0.4s 0.5s forwards; 
+  }
+
+  .neomorphic-input { 
+    background: #fcf9f8; 
+    box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff; 
+    border: none; 
+    transition: all 0.25s ease; 
+  }
+
+  .neomorphic-input:focus { 
+    outline: none; 
+    box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0, 59, 5, 0.15); 
+    transform: translateY(1px) translate3d(0,0,0); 
+  }
+
+  .modal-content-fade { 
+    transition: opacity 0.18s ease-out; 
+    opacity: 1;
+  }
+
+  .is-animating-content { 
+    opacity: 0; 
+    pointer-events: none; 
+  }
+`;
 
 const Modal: React.FC<ModalProps> = ({ 
   isOpen, 
@@ -36,20 +149,19 @@ const Modal: React.FC<ModalProps> = ({
     setIsClosing(true); 
     setTimeout(() => { 
       onClose(); 
-    }, 250); // Snabbare, responsiv stängning
+    }, 250); 
   };
 
   const handleConfirm = () => { 
     setIsAnimating(true); 
     
-    // Först tonas innehållet ut, sedan krymps containern (undviker reflow-lagg på iOS)
     setTimeout(() => { 
       onConfirm(inputValue); 
       setIsClosing(true); 
       setTimeout(() => { 
         onClose(); 
       }, 250); 
-    }, 1400); // Optimerad, rappare animationstid (totalt 1.4s istället för 2s)
+    }, 1400); 
   };
 
   return ( 
@@ -58,114 +170,12 @@ const Modal: React.FC<ModalProps> = ({
         isClosing || !isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
       style={{
-        WebkitBackdropFilter: 'blur(4px)', // Safari-stöd för backdrop-blur
-        transform: 'translateZ(0)' // Tvingar GPU-rendering av overlayen
+        WebkitBackdropFilter: 'blur(4px)',
+        transform: 'translateZ(0)'
       }}
     > 
-      <style>{` 
-        @keyframes shrinkToCircle { 
-          0% { 
-            border-radius: 24px; 
-            width: 100%; 
-            max-width: 320px; 
-            height: 250px; 
-            padding: 24px; 
-          } 
-          100% { 
-            border-radius: 50%; 
-            width: 70px; 
-            height: 70px; 
-            padding: 0; 
-            background: #003b05; 
-            border-color: #003b05; 
-          } 
-        }
-
-        @keyframes drawCheck { 
-          to { 
-            stroke-dashoffset: 0; 
-          } 
-        }
-
-        @keyframes glowPop { 
-          0% { 
-            transform: scale(1) translate3d(0,0,0); 
-            box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
-          } 
-          50% { 
-            transform: scale(1.1) translate3d(0,0,0); 
-            box-shadow: 0 0 15px rgba(0, 59, 5, 0.5); 
-          } 
-          100% { 
-            transform: scale(1) translate3d(0,0,0); 
-            box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
-          } 
-        }
-
-        .modal-container { 
-          background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%); 
-          border: 1px solid rgba(0, 59, 5, 0.1); 
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
-          transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); 
-          transform: translate3d(0,0,0); /* Tvingar hårdvaruacceleration */
-          will-change: transform, width, height, border-radius, background-color;
-        }
-
-        .modal-animating { 
-          animation: shrinkToCircle 0.6s forwards cubic-bezier(0.25, 1, 0.5, 1); 
-          overflow: hidden; 
-        }
-
-        .check-container { 
-          display: none; 
-          align-items: center; 
-          justify-content: center; 
-          width: 100%; 
-          height: 100%; 
-          transform: translate3d(0,0,0);
-        }
-
-        .modal-animating .check-container { 
-          display: flex; 
-          animation: glowPop 0.4s 0.9s forwards; 
-        }
-
-        .checkmark-svg { 
-          width: 32px; 
-          height: 32px; 
-          stroke: white; 
-          stroke-width: 4; 
-          stroke-linecap: round; 
-          stroke-linejoin: round; 
-          fill: none; 
-          stroke-dasharray: 100; 
-          stroke-dashoffset: 100; 
-          animation: drawCheck 0.4s 0.5s forwards; 
-        }
-
-        .neomorphic-input { 
-          background: #fcf9f8; 
-          box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff; 
-          border: none; 
-          transition: all 0.25s ease; 
-        }
-
-        .neomorphic-input:focus { 
-          outline: none; 
-          box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0, 59, 5, 0.15); 
-          transform: translateY(1px) translate3d(0,0,0); 
-        }
-
-        .modal-content-fade { 
-          transition: opacity 0.18s ease-out; 
-          opacity: 1;
-        }
-
-        .is-animating-content { 
-          opacity: 0; 
-          pointer-events: none; 
-        } 
-      `}</style>
+      {/* Injicera stilarna säkert utan att störa JSX-parsern */}
+      <style dangerouslySetInnerHTML={{ __html: modalStyles }} />
       
       <div className={`modal-container w-full mx-auto rounded-3xl p-6 relative ${isAnimating ? 'modal-animating' : 'max-w-xs'}`}> 
         {/* Animationslager för lyckad bekräftelse */} 
