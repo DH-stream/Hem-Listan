@@ -9,7 +9,7 @@ interface ModalProps {
   mealType?: string;
 }
 
-const MealModal: React.FC<ModalProps> = ({ 
+const Modal: React.FC<ModalProps> = ({ 
   isOpen, 
   onClose, 
   onConfirm, 
@@ -132,6 +132,6 @@ const MealModal: React.FC<ModalProps> = ({
   );
 };
 
-export default MealModal;
+export default Modal;
 
 ```
