@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, TaskItem, MealSlot, MealType } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -260,6 +260,19 @@ export default function ListDetailGrocery({
         return "today";
     }
   };
+
+  const handleMealModalClose = useCallback(() => {
+    setMealModalOpen(false);
+    setPendingMeal(null);
+  }, []);
+
+  const handleMealModalConfirm = useCallback((name: string) => {
+    if (pendingMeal && name.trim()) {
+      onAddMeal(list.id, pendingMeal.day, pendingMeal.type, name.trim());
+    }
+    setMealModalOpen(false);
+    setPendingMeal(null);
+  }, [pendingMeal, onAddMeal, list.id]);
 
   return (
     <div className="w-full max-w-[768px] mx-auto pb-[170px]">
@@ -806,17 +819,8 @@ export default function ListDetailGrocery({
       </footer>
       <MealModal
         isOpen={mealModalOpen}
-        onClose={() => {
-          setMealModalOpen(false);
-          setPendingMeal(null);
-        }}
-        onConfirm={(name: string) => {
-          if (pendingMeal && name.trim()) {
-            onAddMeal(list.id, pendingMeal.day, pendingMeal.type, name.trim());
-          }
-          setMealModalOpen(false);
-          setPendingMeal(null);
-        }}
+        onClose={handleMealModalClose}
+        onConfirm={handleMealModalConfirm}
         day={pendingMeal?.day ?? ""}
         mealType={pendingMeal?.type ?? "middag"}
       />
