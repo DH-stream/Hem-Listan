@@ -177,19 +177,14 @@ export default function DashboardView({
               <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
                 {userName}
               </h1>
-            ) : (
+             ) : (
               <img
-                src="/logo.png"
-                alt="Hem-Listan"
-                className="block max-w-none"
-                style={{
-                  height: "2rem", // Samma visuella höjd som h1-texten ovan
-                  width: "auto",
-                  objectFit: "contain",
-                  objectPosition: "left center",
-                }}
-              />
-            )}
+                 src="/logo.png"
+                 alt="Hem-Listan"
+                  style={{ height: '2.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
+                  className="block select-none"
+               />
+             )}
           </div>
         </div>
         <button
