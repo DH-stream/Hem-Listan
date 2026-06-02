@@ -178,12 +178,14 @@ export default function DashboardView({
                 {userName}
               </h1>
              ) : (
-              <img
-                 src="/logo.png"
-                 alt="Hem-Listan"
-                  style={{ height: '3.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
-                  className="block select-none"
-               />
+              <div style={{ margin: '-0.5rem 0', overflow: 'hidden' }}>
+                <img
+                   src="/logo.png"
+                   alt="Hem-Listan"
+                   style={{ height: '4.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
+                   className="block select-none"
+                />
+              </div>
              )}
           </div>
         </div>
