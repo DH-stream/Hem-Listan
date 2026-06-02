@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 
 const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
-  const [inputValue, setInputValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<'idle' | 'open' | 'confirming' | 'check' | 'closing'>('idle');
 
   useEffect(() => {
     if (isOpen) {
-      setInputValue('');
       setPhase('open');
+      // Rensa input utan controlled state
+      if (inputRef.current) inputRef.current.value = '';
     }
   }, [isOpen]);
 
@@ -18,24 +19,21 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
   }, [onClose]);
 
   const handleConfirm = useCallback(() => {
+    const value = inputRef.current?.value ?? '';
     setPhase('confirming');
     setTimeout(() => setPhase('check'), 600);
     setTimeout(() => {
-      onConfirm(inputValue);
+      onConfirm(value);
       setPhase('closing');
       setTimeout(() => { setPhase('idle'); onClose(); }, 300);
     }, 1200);
-  }, [onConfirm, onClose, inputValue]);
-
-  const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(e.target.value);
-  }, []);
+  }, [onConfirm, onClose]);
 
   if (phase === 'idle') return null;
 
   const isConfirming = phase === 'confirming' || phase === 'check';
-  const isClosing = phase === 'closing';
   const isVisible = phase === 'open';
+  const isClosing = phase === 'closing';
 
   return createPortal(
     <div
@@ -47,9 +45,8 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
         alignItems: 'center',
         justifyContent: 'center',
         padding: '16px',
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
+        // Ingen backdrop-filter — orsakar repaint på mobil
+        backgroundColor: 'rgba(0,0,0,0.5)',
         opacity: isClosing ? 0 : 1,
         transition: 'opacity 300ms ease',
         pointerEvents: isClosing ? 'none' : 'auto',
@@ -59,13 +56,8 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
         @keyframes drawCheck {
           to { stroke-dashoffset: 0; }
         }
-        @keyframes popIn {
-          from { opacity: 0; transform: scale(0.6); }
-          to   { opacity: 1; transform: scale(1); }
-        }
       `}</style>
 
-      {/* Outer: alltid 80×80, centrerad — ingen layout-förändring någonsin */}
       <div style={{
         position: 'relative',
         width: 80,
@@ -75,20 +67,20 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
         justifyContent: 'center',
       }}>
 
-        {/* Gröna cirkeln — alltid i DOM, skalas upp/ner */}
+        {/* Grön cirkel */}
         <div style={{
           position: 'absolute',
           width: 80,
           height: 80,
           borderRadius: '50%',
-          backgroundColor: '#003b05',
+          backgroundColor: '#1a6b20',
           transform: isConfirming ? 'scale(1)' : 'scale(0)',
           opacity: isConfirming ? 1 : 0,
-          transition: 'transform 600ms cubic-bezier(0.4,0,0.2,1), opacity 600ms ease',
+          transition: 'transform 600ms cubic-bezier(0.4,0,0.2,1), opacity 400ms ease',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: isConfirming ? '0 0 20px rgba(0,59,5,0.6)' : 'none',
+          boxShadow: isConfirming ? '0 0 24px rgba(26,107,32,0.5)' : 'none',
           willChange: 'transform, opacity',
         }}>
           {phase === 'check' && (
@@ -109,14 +101,14 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
           )}
         </div>
 
-        {/* Modal-kortet — skalas upp från 0 vid open, ner vid confirming */}
+        {/* Modal-kort */}
         <div style={{
           position: 'absolute',
           width: 320,
           borderRadius: 24,
           background: 'linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%)',
-          border: '1px solid rgba(0,59,5,0.1)',
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+          border: '1px solid rgba(0,90,10,0.1)',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
           padding: 24,
           transform: isVisible ? 'scale(1)' : 'scale(0)',
           opacity: isVisible ? 1 : 0,
@@ -133,7 +125,9 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
           </p>
 
           <input
+            ref={inputRef}
             type="text"
+            defaultValue=""
             style={{
               width: '100%',
               padding: '14px 16px',
@@ -148,8 +142,6 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
               outline: 'none',
             }}
             placeholder="T.ex. Havregrynsgröt"
-            value={inputValue}
-            onChange={handleInput}
             autoFocus
           />
 
@@ -168,9 +160,9 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
               onClick={handleConfirm}
               style={{
                 flex: 1, padding: '14px 20px', borderRadius: 16,
-                border: 'none', background: '#003b05', color: 'white',
+                border: 'none', background: '#1a6b20', color: 'white',
                 fontWeight: 600, fontSize: '1rem', cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(0,59,5,0.3)',
+                boxShadow: '0 4px 14px rgba(26,107,32,0.35)',
               }}
             >
               OK
