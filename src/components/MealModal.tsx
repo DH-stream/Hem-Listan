@@ -132,6 +132,7 @@ const MealModal: React.FC<ModalProps> = ({
   );
 };
 
+export { MealModal };
 export default MealModal;
 
 ```
