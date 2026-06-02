@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { List, TaskItem, MealSlot, MealType } from "../types";
 import LucideIcon from "./LucideIcon";
 import CelebrationCard from "./CelebrationCard";
+import MealModal from "./MealModal";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -10,11 +11,24 @@ interface ListDetailGroceryProps {
   onToggleTask: (listId: string, taskId: string) => void;
   onAddTask: (listId: string, text: string, categoryName?: string) => void;
   onDeleteTask: (listId: string, taskId: string) => void;
-  onUpdateTask: (listId: string, taskId: string, updates: Partial<TaskItem>) => void;
+  onUpdateTask: (
+    listId: string,
+    taskId: string,
+    updates: Partial<TaskItem>,
+  ) => void;
   onResetList: (listId: string) => void;
-  onAddMeal: (listId: string, day: string, type: MealType, name: string) => void;
+  onAddMeal: (
+    listId: string,
+    day: string,
+    type: MealType,
+    name: string,
+  ) => void;
   onDeleteMeal: (listId: string, mealId: string) => void;
-  onBulkAddGroceryDetails: (listId: string, mealName: string, ingredients: { text: string; quantity: string; category: string }[]) => void;
+  onBulkAddGroceryDetails: (
+    listId: string,
+    mealName: string,
+    ingredients: { text: string; quantity: string; category: string }[],
+  ) => void;
 }
 
 export default function ListDetailGrocery({
@@ -27,7 +41,7 @@ export default function ListDetailGrocery({
   onResetList,
   onAddMeal,
   onDeleteMeal,
-  onBulkAddGroceryDetails
+  onBulkAddGroceryDetails,
 }: ListDetailGroceryProps) {
   // Navigation within list: 0 = "Schema" view, 1 = "Lista" view
   const [activeTab, setActiveTab] = useState<number>(0);
@@ -42,11 +56,24 @@ export default function ListDetailGrocery({
   // States for adding item / meals
   const [newItemText, setNewItemText] = useState("");
 
+  const [mealModalOpen, setMealModalOpen] = useState(false);
+  const [pendingMeal, setPendingMeal] = useState<{
+    day: string;
+    type: MealType;
+  } | null>(null);
   const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
 
-  const defaultDays = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "LÖrdag", "Söndag"];
+  const defaultDays = [
+    "Måndag",
+    "Tisdag",
+    "Onsdag",
+    "Torsdag",
+    "Fredag",
+    "LÖrdag",
+    "Söndag",
+  ];
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,20 +87,28 @@ export default function ListDetailGrocery({
       const response = await fetch("/api/import-recipe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: recipeUrl.trim() })
+        body: JSON.stringify({ url: recipeUrl.trim() }),
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Gick inte att hämta eller tolka receptet.");
+        throw new Error(
+          errData.error || "Gick inte att hämta eller tolka receptet.",
+        );
       }
 
       const data = await response.json();
       if (data && data.ingredients) {
         // Bulk import ingredients and meal slot dynamically!
-        onBulkAddGroceryDetails(list.id, data.mealName || data.recipeName, data.ingredients);
+        onBulkAddGroceryDetails(
+          list.id,
+          data.mealName || data.recipeName,
+          data.ingredients,
+        );
 
-        setImportSuccess(`Framgångsrikt importerat: "${data.recipeName}"! Ny middag inlagd och ${data.ingredients.length} varor tillagda i inköpslistan.`);
+        setImportSuccess(
+          `Framgångsrikt importerat: "${data.recipeName}"! Ny middag inlagd och ${data.ingredients.length} varor tillagda i inköpslistan.`,
+        );
         setRecipeUrl("");
       } else {
         throw new Error("Receptet verkar sakna ingredienser.");
@@ -88,18 +123,84 @@ export default function ListDetailGrocery({
   // Helper categorization heuristic in Swedish
   const predictCategory = (text: string): string => {
     const textLower = text.toLowerCase();
-    
-    const fruitVeg = ["äpple", "banan", "avokado", "päron", "lök", "vitlök", "morot", "tomat", "sallad", "gurka", "paprika", "citron", "lime", "potatis", "ingefära", "frukt", "grönt", "spenat", "svamp"];
-    const dairy = ["mjölk", "grädde", "smör", "ost", "creme fraiche", "kvarg", "yoghurt", "ägg", "milda", "mejeri"];
-    const pantry = ["pasta", "spagetti", "makaroner", "ris", "vete", "mjöl", "socker", "solrosolja", "olja", "vinäger", "salt", "peppar", "krossade", "burk", "buljong", "bröd", "gryn", "skafferi", "krydda", "ketchup", "senap"];
-    const meats = ["lax", "torsks", "fisk", "kyckling", "bacon", "färs", "nötfärs", "fläsk", "kött", "skinka", "korv", "räkor"];
+
+    const fruitVeg = [
+      "äpple",
+      "banan",
+      "avokado",
+      "päron",
+      "lök",
+      "vitlök",
+      "morot",
+      "tomat",
+      "sallad",
+      "gurka",
+      "paprika",
+      "citron",
+      "lime",
+      "potatis",
+      "ingefära",
+      "frukt",
+      "grönt",
+      "spenat",
+      "svamp",
+    ];
+    const dairy = [
+      "mjölk",
+      "grädde",
+      "smör",
+      "ost",
+      "creme fraiche",
+      "kvarg",
+      "yoghurt",
+      "ägg",
+      "milda",
+      "mejeri",
+    ];
+    const pantry = [
+      "pasta",
+      "spagetti",
+      "makaroner",
+      "ris",
+      "vete",
+      "mjöl",
+      "socker",
+      "solrosolja",
+      "olja",
+      "vinäger",
+      "salt",
+      "peppar",
+      "krossade",
+      "burk",
+      "buljong",
+      "bröd",
+      "gryn",
+      "skafferi",
+      "krydda",
+      "ketchup",
+      "senap",
+    ];
+    const meats = [
+      "lax",
+      "torsks",
+      "fisk",
+      "kyckling",
+      "bacon",
+      "färs",
+      "nötfärs",
+      "fläsk",
+      "kött",
+      "skinka",
+      "korv",
+      "räkor",
+    ];
     const frozen = ["fryst", "glass", "frysta", "wok"];
 
-    if (fruitVeg.some(kw => textLower.includes(kw))) return "Frukt & Grönt";
-    if (dairy.some(kw => textLower.includes(kw))) return "Mejeri";
-    if (pantry.some(kw => textLower.includes(kw))) return "Skafferi";
-    if (meats.some(kw => textLower.includes(kw))) return "Kött & Fisk";
-    if (frozen.some(kw => textLower.includes(kw))) return "Fryst";
+    if (fruitVeg.some((kw) => textLower.includes(kw))) return "Frukt & Grönt";
+    if (dairy.some((kw) => textLower.includes(kw))) return "Mejeri";
+    if (pantry.some((kw) => textLower.includes(kw))) return "Skafferi";
+    if (meats.some((kw) => textLower.includes(kw))) return "Kött & Fisk";
+    if (frozen.some((kw) => textLower.includes(kw))) return "Fryst";
     return "Övrigt";
   };
 
@@ -113,21 +214,19 @@ export default function ListDetailGrocery({
   };
 
   const triggerAddMealPrompt = (day: string, type: MealType) => {
-    const mealName = prompt(`Vad vill du lägga till för ${type} på ${day}?`);
-    if (mealName && mealName.trim()) {
-      onAddMeal(list.id, day, type, mealName.trim());
-    }
+    setPendingMeal({ day, type });
+    setMealModalOpen(true);
   };
 
   // Group list items by category for display (only active, unchecked items):
   const getCategorizedTasks = () => {
     const grouped: { [category: string]: TaskItem[] } = {
       "Frukt & Grönt": [],
-      "Mejeri": [],
-      "Skafferi": [],
+      Mejeri: [],
+      Skafferi: [],
       "Kött & Fisk": [],
-      "Fryst": [],
-      "Övrigt": []
+      Fryst: [],
+      Övrigt: [],
     };
 
     const activeTasks = list.tasks.filter((t) => !t.checked);
@@ -175,19 +274,25 @@ export default function ListDetailGrocery({
         </button>
 
         <div className="flex flex-col items-center flex-1 pr-4">
-          <h1 className="font-display text-lg font-bold text-text-main line-clamp-1">{list.name}</h1>
+          <h1 className="font-display text-lg font-bold text-text-main line-clamp-1">
+            {list.name}
+          </h1>
           {/* Dot Pagination indicators */}
           <div className="flex gap-1.5 mt-1.5">
             <span
               onClick={() => setActiveTab(0)}
               className={`w-2 h-2 rounded-full cursor-pointer transition-all duration-300 ${
-                activeTab === 0 ? "bg-primary w-4" : "bg-surface-container-highest"
+                activeTab === 0
+                  ? "bg-primary w-4"
+                  : "bg-surface-container-highest"
               }`}
             />
             <span
               onClick={() => setActiveTab(1)}
               className={`w-2 h-2 rounded-full cursor-pointer transition-all duration-300 ${
-                activeTab === 1 ? "bg-primary w-4" : "bg-surface-container-highest"
+                activeTab === 1
+                  ? "bg-primary w-4"
+                  : "bg-surface-container-highest"
               }`}
             />
           </div>
@@ -220,7 +325,8 @@ export default function ListDetailGrocery({
                 </h2>
               </div>
               <p className="font-sans text-xs text-on-surface-variant font-medium mb-3">
-                Klistra in en länk från ICA, Tasteline, Arla m.fl. så hämtar Gemini ingredienser samt rätter direkt.
+                Klistra in en länk från ICA, Tasteline, Arla m.fl. så hämtar
+                Gemini ingredienser samt rätter direkt.
               </p>
 
               {importError && (
@@ -252,7 +358,10 @@ export default function ListDetailGrocery({
                 >
                   {isImporting ? (
                     <>
-                      <LucideIcon name="loader" className="w-3.5 h-3.5 animate-spin" />
+                      <LucideIcon
+                        name="loader"
+                        className="w-3.5 h-3.5 animate-spin"
+                      />
                       Hämtar...
                     </>
                   ) : (
@@ -270,13 +379,15 @@ export default function ListDetailGrocery({
 
               {defaultDays.map((day, idx) => {
                 // Fetch existing meals for this day
-                const mealsForDay = list.meals?.filter((m) => m.day === day) || [];
+                const mealsForDay =
+                  list.meals?.filter((m) => m.day === day) || [];
                 const breakfast = mealsForDay.find((m) => m.type === "frukost");
                 const lunch = mealsForDay.find((m) => m.type === "lunch");
                 const dinner = mealsForDay.find((m) => m.type === "middag");
 
                 // Give each day an accent border tone similar to screenshot 2
-                const dayBorderColor = idx % 2 === 0 ? "border-t-[#FFE4E1]" : "border-t-[#E0F2F1]";
+                const dayBorderColor =
+                  idx % 2 === 0 ? "border-t-[#FFE4E1]" : "border-t-[#E0F2F1]";
 
                 return (
                   <div
@@ -293,7 +404,10 @@ export default function ListDetailGrocery({
                         {breakfast ? (
                           <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="sunny" className="w-4 h-4 text-[#FFB347]" />
+                              <LucideIcon
+                                name="sunny"
+                                className="w-4 h-4 text-[#FFB347]"
+                              />
                               <div>
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Frukost
@@ -304,10 +418,15 @@ export default function ListDetailGrocery({
                               </div>
                             </div>
                             <button
-                              onClick={() => onDeleteMeal(list.id, breakfast.id)}
+                              onClick={() =>
+                                onDeleteMeal(list.id, breakfast.id)
+                              }
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
-                              <LucideIcon name="close" className="w-3.5 h-3.5" />
+                              <LucideIcon
+                                name="close"
+                                className="w-3.5 h-3.5"
+                              />
                             </button>
                           </div>
                         ) : (
@@ -316,8 +435,13 @@ export default function ListDetailGrocery({
                             className="border border-dashed border-surface-container-highest bg-[#FCF9F8] rounded-xl p-3 flex items-center justify-between text-outline/50 hover:bg-primary-fixed/5 transition-colors cursor-pointer"
                           >
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="sunny" className="w-4 h-4 text-[#FFB347]/55" />
-                              <span className="font-sans text-xs font-medium">Frukost</span>
+                              <LucideIcon
+                                name="sunny"
+                                className="w-4 h-4 text-[#FFB347]/55"
+                              />
+                              <span className="font-sans text-xs font-medium">
+                                Frukost
+                              </span>
                             </div>
                             <LucideIcon name="add" className="w-4 h-4" />
                           </div>
@@ -327,7 +451,10 @@ export default function ListDetailGrocery({
                         {lunch ? (
                           <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="partly_sunny" className="w-4 h-4 text-[#FFD700]" />
+                              <LucideIcon
+                                name="partly_sunny"
+                                className="w-4 h-4 text-[#FFD700]"
+                              />
                               <div>
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Lunch
@@ -341,7 +468,10 @@ export default function ListDetailGrocery({
                               onClick={() => onDeleteMeal(list.id, lunch.id)}
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
-                              <LucideIcon name="close" className="w-3.5 h-3.5" />
+                              <LucideIcon
+                                name="close"
+                                className="w-3.5 h-3.5"
+                              />
                             </button>
                           </div>
                         ) : (
@@ -350,8 +480,13 @@ export default function ListDetailGrocery({
                             className="border border-dashed border-surface-container-highest bg-[#FCF9F8] rounded-xl p-3 flex items-center justify-between text-outline/50 hover:bg-primary-fixed/5 transition-colors cursor-pointer"
                           >
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="partly_sunny" className="w-4 h-4 text-[#FFD700]/55" />
-                              <span className="font-sans text-xs font-medium">Lunch</span>
+                              <LucideIcon
+                                name="partly_sunny"
+                                className="w-4 h-4 text-[#FFD700]/55"
+                              />
+                              <span className="font-sans text-xs font-medium">
+                                Lunch
+                              </span>
                             </div>
                             <LucideIcon name="add" className="w-4 h-4" />
                           </div>
@@ -361,7 +496,10 @@ export default function ListDetailGrocery({
                         {dinner ? (
                           <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="bedtime" className="w-4 h-4 text-[#FF8C00]" />
+                              <LucideIcon
+                                name="bedtime"
+                                className="w-4 h-4 text-[#FF8C00]"
+                              />
                               <div>
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Middag
@@ -375,7 +513,10 @@ export default function ListDetailGrocery({
                               onClick={() => onDeleteMeal(list.id, dinner.id)}
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
-                              <LucideIcon name="close" className="w-3.5 h-3.5" />
+                              <LucideIcon
+                                name="close"
+                                className="w-3.5 h-3.5"
+                              />
                             </button>
                           </div>
                         ) : (
@@ -384,8 +525,13 @@ export default function ListDetailGrocery({
                             className="border border-dashed border-surface-container-highest bg-[#FCF9F8] rounded-xl p-3 flex items-center justify-between text-outline/50 hover:bg-primary-fixed/5 transition-colors cursor-pointer"
                           >
                             <div className="flex items-center gap-3">
-                              <LucideIcon name="bedtime" className="w-4 h-4 text-[#FF8C00]/55" />
-                              <span className="font-sans text-xs font-medium">Middag</span>
+                              <LucideIcon
+                                name="bedtime"
+                                className="w-4 h-4 text-[#FF8C00]/55"
+                              />
+                              <span className="font-sans text-xs font-medium">
+                                Middag
+                              </span>
                             </div>
                             <LucideIcon name="add" className="w-4 h-4" />
                           </div>
@@ -425,7 +571,9 @@ export default function ListDetailGrocery({
               <div className="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
                 <div
                   className="bg-primary h-full rounded-full transition-all duration-700"
-                  style={{ width: `${totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0}%` }}
+                  style={{
+                    width: `${totalTasks > 0 ? (completedCount / totalTasks) * 100 : 0}%`,
+                  }}
                 />
               </div>
             </div>
@@ -480,12 +628,17 @@ export default function ListDetailGrocery({
                                   }`}
                                 >
                                   {item.checked && (
-                                    <LucideIcon name="close" className="w-3.5 h-3.5 text-white" />
+                                    <LucideIcon
+                                      name="close"
+                                      className="w-3.5 h-3.5 text-white"
+                                    />
                                   )}
                                 </div>
                                 <span
                                   className={`font-sans text-sm text-text-main font-medium truncate ${
-                                    item.checked ? "line-through opacity-70" : ""
+                                    item.checked
+                                      ? "line-through opacity-70"
+                                      : ""
                                   }`}
                                 >
                                   {item.text}
@@ -548,7 +701,10 @@ export default function ListDetailGrocery({
                             className="flex items-center gap-3.5 flex-1 min-w-0"
                           >
                             <div className="w-5 h-5 rounded-full border border-primary bg-primary flex items-center justify-center shrink-0">
-                              <LucideIcon name="close" className="w-3.5 h-3.5 text-white" />
+                              <LucideIcon
+                                name="close"
+                                className="w-3.5 h-3.5 text-white"
+                              />
                             </div>
                             <span className="font-sans text-sm text-text-main font-medium line-through truncate">
                               {item.text}
@@ -648,6 +804,22 @@ export default function ListDetailGrocery({
           </button>
         </nav>
       </footer>
+      <MealModal
+        isOpen={mealModalOpen}
+        onClose={() => {
+          setMealModalOpen(false);
+          setPendingMeal(null);
+        }}
+        onConfirm={(name: string) => {
+          if (pendingMeal && name.trim()) {
+            onAddMeal(list.id, pendingMeal.day, pendingMeal.type, name.trim());
+          }
+          setMealModalOpen(false);
+          setPendingMeal(null);
+        }}
+        day={pendingMeal?.day ?? ""}
+        mealType={pendingMeal?.type ?? "middag"}
+      />
     </div>
   );
 }
