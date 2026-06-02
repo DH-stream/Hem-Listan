@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 
-const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
+const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
   const [inputValue, setInputValue] = useState('');
   const [isAnimating, setIsAnimating] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -16,20 +16,24 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
     }
   }, [isOpen]);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => onClose(), 300);
-  };
+  }, [onClose]);
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     setIsAnimating(true);
-    setTimeout(() => setShowCheck(true), 900);
+    setTimeout(() => setShowCheck(true), 700);
     setTimeout(() => {
       onConfirm(inputValue);
       setIsClosing(true);
       setTimeout(() => onClose(), 300);
-    }, 1800);
-  };
+    }, 1400);
+  }, [onConfirm, onClose, inputValue]);
+
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(e.target.value);
+  }, []);
 
   if (!isOpen && !isClosing) return null;
 
@@ -57,7 +61,7 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
           contain: layout paint;
         }
         .modal-animating {
-          animation: shrinkToCircle 0.9s forwards cubic-bezier(0.4,0,0.2,1) !important;
+          animation: shrinkToCircle 0.7s forwards cubic-bezier(0.4,0,0.2,1) !important;
           overflow: hidden;
           box-shadow: 0 0 20px rgba(0,59,5,0.6) !important;
         }
@@ -88,7 +92,7 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
                 strokeLinecap: 'round', strokeLinejoin: 'round',
                 fill: 'none',
                 strokeDasharray: 100, strokeDashoffset: 100,
-                animation: 'drawCheck 0.4s ease-out forwards',
+                animation: 'drawCheck 0.35s ease-out forwards',
               }}
             >
               <path d="M14.1 27.2l7.1 7.2 16.7-16.8" />
@@ -109,21 +113,15 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
             className="neomorphic-input w-full p-4 rounded-2xl text-gray-700 mb-8"
             placeholder="T.ex. Havregrynsgröt"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={handleInput}
             autoFocus
           />
 
           <div className="flex gap-4">
-            <button
-              onClick={handleCancel}
-              className="flex-1 py-4 px-6 rounded-2xl font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
-            >
+            <button onClick={handleCancel} className="flex-1 py-4 px-6 rounded-2xl font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors">
               Avbryt
             </button>
-            <button
-              onClick={handleConfirm}
-              className="flex-1 py-4 px-6 rounded-2xl font-semibold text-white bg-[#003b05] shadow-lg shadow-green-900/20 hover:bg-[#002b04] transition-all"
-            >
+            <button onClick={handleConfirm} className="flex-1 py-4 px-6 rounded-2xl font-semibold text-white bg-[#003b05] shadow-lg shadow-green-900/20 hover:bg-[#002b04] transition-all">
               OK
             </button>
           </div>
@@ -132,6 +130,6 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
     </div>,
     document.body
   );
-};
+});
 
-export default Modal;
+export default MealModal;
