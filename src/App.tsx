@@ -10,13 +10,10 @@ import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
 
 export default function App() {
-  // Initialize from LocalStorage or default seeded lists
   const [lists, setLists] = useState<List[]>(() => {
     try {
       const saved = localStorage.getItem("hem-listan-lists");
-      if (saved) {
-        return JSON.parse(saved);
-      }
+      if (saved) return JSON.parse(saved);
     } catch (e) {
       console.error("Could not load lists from localStorage", e);
     }
@@ -32,12 +29,19 @@ export default function App() {
 
   const [userName, setUserName] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem("hem-listan-user-name");
-      if (saved) return saved;
-    } catch (e) {
-      console.error("Could not load username", e);
+      return localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan";
+    } catch {
+      return "Hem-Listan";
     }
-    return "Hem-Listan";
+  });
+
+  // ── NY: userImage från localStorage ──
+  const [userImage, setUserImage] = useState<string>(() => {
+    try {
+      return localStorage.getItem("user_profile_image") ?? "";
+    } catch {
+      return "";
+    }
   });
 
   const handleUpdateUserName = (newName: string) => {
@@ -49,7 +53,20 @@ export default function App() {
     }
   };
 
-  // Helper helper to state mutation with auto saving to localStorage
+  // ── NY: handleUpdateUserImage ──
+  const handleUpdateUserImage = (base64: string) => {
+    setUserImage(base64);
+    try {
+      if (base64) {
+        localStorage.setItem("user_profile_image", base64);
+      } else {
+        localStorage.removeItem("user_profile_image");
+      }
+    } catch (e) {
+      console.warn("Could not save user image", e);
+    }
+  };
+
   const saveLists = (updatedLists: List[]) => {
     setLists(updatedLists);
     setPulseCount((prev) => prev + 1);
@@ -60,30 +77,19 @@ export default function App() {
     }
   };
 
-  // 1. Stats builder
   const getStats = (): Stats => {
     const listCount = lists.length;
     let itemsLeft = 0;
     let completed = 0;
-
     lists.forEach((list) => {
       list.tasks.forEach((t) => {
-        if (t.checked) {
-          completed++;
-        } else {
-          itemsLeft++;
-        }
+        if (t.checked) completed++;
+        else itemsLeft++;
       });
     });
-
-    return {
-      listsCount: listCount,
-      itemsLeftCount: itemsLeft,
-      completedCount: completed
-    };
+    return { listsCount: listCount, itemsLeftCount: itemsLeft, completedCount: completed };
   };
 
-  // 2. Event Handlers - Task & List updates
   const handleToggleTask = (listId: string, taskId: string) => {
     const updated = lists.map((list) => {
       if (list.id === listId) {
@@ -117,14 +123,8 @@ export default function App() {
       url,
       progress
     };
-
     const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return {
-          ...list,
-          tasks: [newTask, ...list.tasks]
-        };
-      }
+      if (list.id === listId) return { ...list, tasks: [newTask, ...list.tasks] };
       return list;
     });
     saveLists(updated);
@@ -153,7 +153,6 @@ export default function App() {
           tasks: list.tasks.map((task) => ({
             ...task,
             checked: false,
-            // reset progress to 0 if it exists
             progress: task.progress !== undefined ? 0 : undefined
           }))
         };
@@ -166,40 +165,22 @@ export default function App() {
   const handleDeleteTask = (listId: string, taskId: string) => {
     const updated = lists.map((list) => {
       if (list.id === listId) {
-        return {
-          ...list,
-          tasks: list.tasks.filter((task) => task.id !== taskId)
-        };
+        return { ...list, tasks: list.tasks.filter((task) => task.id !== taskId) };
       }
       return list;
     });
     saveLists(updated);
   };
 
-  // 3. Event Handlers - Meal updates
   const handleAddMeal = (listId: string, day: string, type: MealType, name: string) => {
     const updated = lists.map((list) => {
       if (list.id === listId) {
         const currentMeals = list.meals ? [...list.meals] : [];
         const existingIdx = currentMeals.findIndex((m) => m.day === day && m.type === type);
-
-        const newMeal = {
-          id: `meal-${Date.now()}`,
-          day,
-          type,
-          name
-        };
-
-        if (existingIdx !== -1) {
-          currentMeals[existingIdx] = newMeal;
-        } else {
-          currentMeals.push(newMeal);
-        }
-
-        return {
-          ...list,
-          meals: currentMeals
-        };
+        const newMeal = { id: `meal-${Date.now()}`, day, type, name };
+        if (existingIdx !== -1) currentMeals[existingIdx] = newMeal;
+        else currentMeals.push(newMeal);
+        return { ...list, meals: currentMeals };
       }
       return list;
     });
@@ -209,17 +190,13 @@ export default function App() {
   const handleDeleteMeal = (listId: string, mealId: string) => {
     const updated = lists.map((list) => {
       if (list.id === listId) {
-        return {
-          ...list,
-          meals: list.meals ? list.meals.filter((m) => m.id !== mealId) : []
-        };
+        return { ...list, meals: list.meals ? list.meals.filter((m) => m.id !== mealId) : [] };
       }
       return list;
     });
     saveLists(updated);
   };
 
-  // Bulk add Details from imported recipe
   const handleBulkAddGroceryDetails = (
     listId: string,
     mealName: string,
@@ -227,46 +204,27 @@ export default function App() {
   ) => {
     const updated = lists.map((list) => {
       if (list.id === listId) {
-        // 1. Add meal to Wednesday (or first open spot)
         const currentMeals = list.meals ? [...list.meals] : [];
         const targetedDays = ["Tisdag", "Onsdag", "Torsdag", "Fredag", "Måndag", "Lördag", "Söndag"];
         let slottedDay = "Onsdag";
-
         for (const day of targetedDays) {
           const hasDinnerSelection = currentMeals.some((m) => m.day === day && m.type === "middag");
-          if (!hasDinnerSelection) {
-            slottedDay = day;
-            break;
-          }
+          if (!hasDinnerSelection) { slottedDay = day; break; }
         }
-
-        currentMeals.push({
-          id: `meal-${Date.now()}-imported`,
-          day: slottedDay,
-          type: "middag",
-          name: mealName
-        });
-
-        // 2. Map parsed ingredients to grocery tasks
+        currentMeals.push({ id: `meal-${Date.now()}-imported`, day: slottedDay, type: "middag", name: mealName });
         const newGroceryItems = ingredients.map((ing, idx) => ({
           id: `task-imported-${Date.now()}-${idx}`,
           text: `${ing.text} (${ing.quantity})`,
           checked: false,
-          notes: ing.category // category mapping
+          notes: ing.category
         }));
-
-        return {
-          ...list,
-          meals: currentMeals,
-          tasks: [...newGroceryItems, ...list.tasks]
-        };
+        return { ...list, meals: currentMeals, tasks: [...newGroceryItems, ...list.tasks] };
       }
       return list;
     });
     saveLists(updated);
   };
 
-  // 4. Create new list from overlay form input
   const handleAddNewList = (
     name: string,
     icon: string,
@@ -275,20 +233,13 @@ export default function App() {
   ) => {
     const newList: List = {
       id: `list-${Date.now()}`,
-      name,
-      icon,
-      themeColor,
-      category,
+      name, icon, themeColor, category,
       tasks: [],
-      // Prep seeded meals if it is a grocery category
       meals: category === "grocery" ? [] : undefined
     };
-
     saveLists([newList, ...lists]);
     setPulseCount((prev) => prev + 1);
-    startTransition(() => {
-      setCurrentView("dashboard");
-    });
+    startTransition(() => setCurrentView("dashboard"));
   };
 
   const handleAddListFromTemplate = (template: any) => {
@@ -298,12 +249,8 @@ export default function App() {
       icon: template.icon,
       themeColor: template.themeColor,
       category: template.category,
-      tasks: template.tasks.map((t: any, idx: number) => ({
-        ...t,
-        id: `task-${Date.now()}-${idx}`
-      }))
+      tasks: template.tasks.map((t: any, idx: number) => ({ ...t, id: `task-${Date.now()}-${idx}` }))
     };
-
     saveLists([instantiated, ...lists]);
   };
 
@@ -312,58 +259,30 @@ export default function App() {
     saveLists(INITIAL_LISTS);
   };
 
-  // Nav actions
   const handleSelectList = (id: string) => {
     setSelectedListId(id);
     setPulseCount((prev) => prev + 1);
-    startTransition(() => {
-      setCurrentView("detail");
-    });
+    startTransition(() => setCurrentView("detail"));
   };
 
   const activeList = lists.find((l) => l.id === selectedListId);
 
-  // Dynamic Background Blob Color Logic based on current state
   const getAmbientColors = () => {
-    if (currentView === "create") {
-      return {
-        blob1: "bg-[#FFE4E1]/40", // Soft pink
-        blob2: "bg-[#E0F2F1]/50", // Soft teal
-        scale: 1.15
-      };
-    }
+    if (currentView === "create") return { blob1: "bg-[#FFE4E1]/40", blob2: "bg-[#E0F2F1]/50", scale: 1.15 };
     if (currentView === "detail" && activeList) {
-      if (activeList.category === "grocery") {
-        return {
-          blob1: "bg-[#A5D6A7]/30", // Lush green
-          blob2: "bg-[#80DEEA]/35", // Ocean cyan
-          scale: 1.25
-        };
-      } else if (activeList.category === "renovation") {
-        return {
-          blob1: "bg-[#FFCC80]/25", // Terracotta/Peach warm clay
-          blob2: "bg-[#FFE082]/25", // Dusty sand gold
-          scale: 1.1
-        };
-      }
+      if (activeList.category === "grocery") return { blob1: "bg-[#A5D6A7]/30", blob2: "bg-[#80DEEA]/35", scale: 1.25 };
+      if (activeList.category === "renovation") return { blob1: "bg-[#FFCC80]/25", blob2: "bg-[#FFE082]/25", scale: 1.1 };
     }
-    // Default dashboard tranquil sage and sunrise gold
-    return {
-      blob1: "bg-[#C8E6C9]/25", // Quiet sage morning green
-      blob2: "bg-[#FFE0B2]/30", // Quiet sunrise apricot glow
-      scale: 1.0
-    };
+    return { blob1: "bg-[#C8E6C9]/25", blob2: "bg-[#FFE0B2]/30", scale: 1.0 };
   };
 
   const ambient = getAmbientColors();
 
   return (
     <div className="min-h-screen bg-transparent font-sans antialiased text-on-surface flex flex-col items-center relative">
-      {/* Dynamic Ambient Background Layers */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute inset-0 bg-[#fcf9f8] transition-colors duration-1000" />
         <AnimatePresence mode="popLayout">
-          {/* Blob 1 (Top Left) */}
           <motion.div
             key={`blob1-${currentView}-${activeList?.category}-${pulseCount}`}
             className={`absolute top-[-10%] left-[-10%] w-[80vw] md:w-[600px] h-[80vw] md:h-[600px] rounded-full filter blur-[70px] md:blur-[110px] mix-blend-multiply ${ambient.blob1}`}
@@ -381,8 +300,6 @@ export default function App() {
               y: { repeat: Infinity, duration: 20, ease: "easeInOut" }
             }}
           />
-
-          {/* Blob 2 (Bottom Right) */}
           <motion.div
             key={`blob2-${currentView}-${activeList?.category}-${pulseCount}`}
             className={`absolute bottom-[-10%] right-[-10%] w-[85vw] md:w-[650px] h-[85vw] md:h-[650px] rounded-full filter blur-[80px] md:blur-[120px] mix-blend-multiply ${ambient.blob2}`}
@@ -401,32 +318,20 @@ export default function App() {
             }}
           />
         </AnimatePresence>
-
-        {/* Dynamic Vignette / Subtle ambient texture overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/[0.01]" />
       </div>
 
-      {/* Dynamic Content Pages with Transition effects */}
       <main className="w-full flex-1 z-10">
         <AnimatePresence mode="wait">
           {currentView === "dashboard" && (
-            <motion.div
-              key="dashboard"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
+            <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
               <DashboardView
                 lists={lists}
                 stats={getStats()}
                 userName={userName}
+                userImage={userImage}
                 onSelectList={handleSelectList}
-                onTriggerCreate={() => {
-                  startTransition(() => {
-                    setCurrentView("create");
-                  });
-                }}
+                onTriggerCreate={() => startTransition(() => setCurrentView("create"))}
                 onAddListFromTemplate={handleAddListFromTemplate}
                 onOpenSettings={() => setShowSettings(true)}
               />
@@ -434,40 +339,20 @@ export default function App() {
           )}
 
           {currentView === "create" && (
-            <motion.div
-              key="create"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
-              transition={{ duration: 0.25 }}
-            >
+            <motion.div key="create" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.25 }}>
               <CreateListView
-                onCancel={() => {
-                  startTransition(() => {
-                    setCurrentView("dashboard");
-                  });
-                }}
+                onCancel={() => startTransition(() => setCurrentView("dashboard"))}
                 onCreateList={handleAddNewList}
               />
             </motion.div>
           )}
 
           {currentView === "detail" && activeList && (
-            <motion.div
-              key={`detail-${activeList.id}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
+            <motion.div key={`detail-${activeList.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
               {activeList.category === "grocery" ? (
                 <ListDetailGrocery
                   list={activeList}
-                  onBack={() => {
-                    startTransition(() => {
-                      setCurrentView("dashboard");
-                    });
-                  }}
+                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
                   onDeleteTask={handleDeleteTask}
@@ -480,11 +365,7 @@ export default function App() {
               ) : (
                 <ListDetailRenovation
                   list={activeList}
-                  onBack={() => {
-                    startTransition(() => {
-                      setCurrentView("dashboard");
-                    });
-                  }}
+                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
                   onDeleteTask={handleDeleteTask}
@@ -497,19 +378,19 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Global Setting Modal overlay drawer */}
       <AnimatePresence>
         {showSettings && (
           <SettingsModal
             userName={userName}
+            userImage={userImage}
             onUpdateUserName={handleUpdateUserName}
+            onUpdateUserImage={handleUpdateUserImage}
             onClose={() => setShowSettings(false)}
             onResetLists={handleResetLists}
           />
         )}
       </AnimatePresence>
 
-      {/* Dynamic Native-Experience Search Modal overlay */}
       <AnimatePresence>
         {showSearch && (
           <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm pt-[10vh]">
@@ -519,19 +400,13 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="w-full max-w-lg bg-white rounded-2xl p-5 shadow-2xl relative border border-surface-container overflow-hidden text-left"
             >
-              <button
-                onClick={() => setShowSearch(false)}
-                className="absolute top-4 right-4 p-1.5 text-outline hover:bg-surface-container-high rounded-full transition-colors cursor-pointer z-10 outline-none"
-                title="Stäng sök"
-              >
+              <button onClick={() => setShowSearch(false)} className="absolute top-4 right-4 p-1.5 text-outline hover:bg-surface-container-high rounded-full transition-colors cursor-pointer z-10 outline-none">
                 <LucideIcon name="close" className="w-5 h-5" />
               </button>
 
               <div className="flex items-center gap-3 mb-4">
                 <LucideIcon name="search" className="w-5 h-5 text-primary" />
-                <h3 className="font-display text-sm font-bold text-text-main leading-none">
-                  Sök i dina bento-listor
-                </h3>
+                <h3 className="font-display text-sm font-bold text-text-main leading-none">Sök i dina bento-listor</h3>
               </div>
 
               <div className="relative mb-4">
@@ -547,16 +422,12 @@ export default function App() {
                   <LucideIcon name="search" className="w-4 h-4" />
                 </div>
                 {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3.5 top-3.5 text-outline/50 hover:text-text-main p-0.5 rounded-full hover:bg-surface-container transition-colors outline-none cursor-pointer"
-                  >
+                  <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-3.5 text-outline/50 hover:text-text-main p-0.5 rounded-full hover:bg-surface-container transition-colors outline-none cursor-pointer">
                     <LucideIcon name="close" className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
 
-              {/* Search outputs */}
               <div className="max-h-[50vh] overflow-y-auto no-scrollbar space-y-2 pr-1">
                 {searchQuery.trim() === "" ? (
                   <div className="text-center py-6 text-outline font-sans text-xs">
@@ -568,10 +439,7 @@ export default function App() {
                   const results: { list: List; task: TaskItem }[] = [];
                   lists.forEach((list) => {
                     list.tasks.forEach((task) => {
-                      if (
-                        task.text.toLowerCase().includes(query) ||
-                        (task.notes && task.notes.toLowerCase().includes(query))
-                      ) {
+                      if (task.text.toLowerCase().includes(query) || (task.notes && task.notes.toLowerCase().includes(query))) {
                         results.push({ list, task });
                       }
                     });
@@ -592,55 +460,32 @@ export default function App() {
                         Hittade matchningar ({results.length})
                       </p>
                       {results.map(({ list, task }) => (
-                        <div
-                          key={task.id}
-                          className="p-3 rounded-xl border border-surface-container bg-white flex items-center justify-between gap-3 hover:border-primary-container hover:bg-surface-container-lowest transition-all group"
-                        >
+                        <div key={task.id} className="p-3 rounded-xl border border-surface-container bg-white flex items-center justify-between gap-3 hover:border-primary-container hover:bg-surface-container-lowest transition-all group">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            {/* Checkbox wrapper */}
                             <button
                               onClick={() => handleToggleTask(list.id, task.id)}
-                              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer outline-none ${
-                                task.checked
-                                  ? "bg-secondary border-secondary text-white"
-                                  : "hover:border-primary border-outline-variant bg-white"
-                              }`}
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer outline-none ${task.checked ? "bg-secondary border-secondary text-white" : "hover:border-primary border-outline-variant bg-white"}`}
                             >
                               {task.checked && <LucideIcon name="check" className="w-3.5 h-3.5 stroke-[3]" />}
                             </button>
-
                             <div className="min-w-0 pr-1 flex-1">
                               <p
-                                onClick={() => {
-                                  handleSelectList(list.id);
-                                  setShowSearch(false);
-                                }}
-                                className={`font-sans text-xs font-semibold leading-snug cursor-pointer hover:text-primary transition-colors truncate ${
-                                  task.checked ? "line-through text-outline/60" : "text-text-main"
-                                }`}
+                                onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
+                                className={`font-sans text-xs font-semibold leading-snug cursor-pointer hover:text-primary transition-colors truncate ${task.checked ? "line-through text-outline/60" : "text-text-main"}`}
                               >
                                 {task.text}
                               </p>
-                              <span 
-                                onClick={() => {
-                                  handleSelectList(list.id);
-                                  setShowSearch(false);
-                                }}
+                              <span
+                                onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
                                 className="inline-flex items-center gap-1 font-sans text-[9px] font-bold text-outline hover:text-text-main transition-colors mt-0.5 cursor-pointer"
                               >
                                 📂 {list.name}
                               </span>
                             </div>
                           </div>
-                          
-                          {/* Go to list chevron */}
                           <button
-                            onClick={() => {
-                              handleSelectList(list.id);
-                              setShowSearch(false);
-                            }}
+                            onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
                             className="opacity-0 group-hover:opacity-100 p-1 text-outline hover:text-text-main hover:bg-surface-container rounded-full transition-all outline-none"
-                            title="Öppna bento-lista"
                           >
                             <LucideIcon name="chevron_right" className="w-4 h-4" />
                           </button>
@@ -655,7 +500,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Visual background brand watermark or label footer if in home view */}
       {currentView === "dashboard" && (
         <div className="fixed bottom-0 left-0 w-full z-10 flex justify-around items-center px-4 pb-4 pt-1 bg-surface-container-low dark:bg-surface-container-lowest border-t border-surface-container-high shadow-lg">
           <button className="flex flex-col items-center justify-center text-primary bg-secondary-container rounded-full px-5 py-2 active:scale-95 transition-all text-xs font-bold gap-1 cursor-pointer">
@@ -663,10 +507,7 @@ export default function App() {
             <span>Hem</span>
           </button>
           <button
-            onClick={() => {
-              setSearchQuery("");
-              setShowSearch(true);
-            }}
+            onClick={() => { setSearchQuery(""); setShowSearch(true); }}
             className="flex flex-col items-center justify-center text-on-surface-variant font-medium text-xs hover:bg-surface-variant/30 px-5 py-2 rounded-full active:scale-95 transition-all gap-1 cursor-pointer"
           >
             <LucideIcon name="search" className="w-5 h-5 text-outline" />
