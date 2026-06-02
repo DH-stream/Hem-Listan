@@ -2,14 +2,10 @@
 import React, { useState, useEffect } from 'react';
 
 /**
- * Modal Component for React/Vite
- * * Funktioner bevarade från original:
- * - Exakt samma timings, storlekar och kubiska bezier-kurvor.
- * - Samma neomorfiska skuggor.
- * * Tillagda fixar:
- * - Utbruten CSS-sträng för att lösa Vercels (Esbuild) byggfel.
- * - GPU-acceleration (will-change, translateZ) för att få bort lagg på iOS.
- * - Pointer-events-none när modalen stängs för att inte blockera skärmen.
+ * PWA/Vercel-säkrad Modal
+ * * Fixat PWA-pluginets byggfel genom att slå ihop CSS-strängen
+ * utan radbrytningar och backticks.
+ * * All design och optimering från tidigare är kvar.
  */
 
 interface ModalProps {
@@ -19,111 +15,6 @@ interface ModalProps {
   day?: string;
   mealType?: string;
 }
-
-// All original-CSS bevarad exakt som den var, men utbruten för att klara Vercel-bygget
-const modalStyles = `
-  @keyframes shrinkToCircle { 
-    0% { 
-      border-radius: 24px; 
-      width: 100%; 
-      max-width: 320px; 
-      height: auto; 
-      padding: 24px; 
-    } 
-    100% { 
-      border-radius: 50%; 
-      width: 80px; 
-      height: 80px; 
-      padding: 0; 
-      background: #003b05; 
-      border-color: #003b05; 
-    } 
-  }
-
-  @keyframes drawCheck { 
-    to { 
-      stroke-dashoffset: 0; 
-    } 
-  }
-
-  @keyframes glowPop { 
-    0% { 
-      transform: scale(1); 
-      box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
-    } 
-    50% { 
-      transform: scale(1.1); 
-      box-shadow: 0 0 20px rgba(0, 59, 5, 0.6); 
-    } 
-    100% { 
-      transform: scale(1); 
-      box-shadow: 0 0 0 rgba(0, 59, 5, 0); 
-    } 
-  }
-
-  .modal-container { 
-    background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%); 
-    border: 1px solid rgba(0, 59, 5, 0.1); 
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
-    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
-    /* Dolda iOS-optimeringar som inte påverkar utseendet */
-    transform: translateZ(0);
-    will-change: transform, width, height, border-radius, background-color;
-  }
-
-  .modal-animating { 
-    animation: shrinkToCircle 0.8s forwards cubic-bezier(0.4, 0, 0.2, 1); 
-    overflow: hidden; 
-  }
-
-  .check-container { 
-    display: none; 
-    align-items: center; 
-    justify-content: center; 
-    width: 100%; 
-    height: 100%; 
-  }
-
-  .modal-animating .check-container { 
-    display: flex; 
-    animation: glowPop 0.6s 1.2s forwards; 
-  }
-
-  .checkmark-svg { 
-    width: 40px; 
-    height: 40px; 
-    stroke: white; 
-    stroke-width: 4; 
-    stroke-linecap: round; 
-    stroke-linejoin: round; 
-    fill: none; 
-    stroke-dasharray: 100; 
-    stroke-dashoffset: 100; 
-    animation: drawCheck 0.5s 0.8s forwards; 
-  }
-
-  .neomorphic-input { 
-    background: #fcf9f8; 
-    box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff; 
-    border: none; 
-    transition: all 0.3s ease; 
-  }
-
-  .neomorphic-input:focus { 
-    outline: none; 
-    box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0, 59, 5, 0.2); 
-    transform: translateY(1px); 
-  }
-
-  .modal-content-fade { 
-    transition: opacity 0.3s ease; 
-  }
-
-  .is-animating-content { 
-    opacity: 0; 
-    pointer-events: none; 
-  } 
-`;
 
 const Modal: React.FC<ModalProps> = ({ 
   isOpen, 
@@ -136,7 +27,6 @@ const Modal: React.FC<ModalProps> = ({
   const [isAnimating, setIsAnimating] = useState(false); 
   const [isClosing, setIsClosing] = useState(false);
 
-  // Återställ tillstånd när modalen öppnas
   useEffect(() => { 
     if (isOpen) { 
       setIsAnimating(false); 
@@ -149,44 +39,50 @@ const Modal: React.FC<ModalProps> = ({
 
   const handleCancel = () => { 
     setIsClosing(true); 
-    setTimeout(() => { 
-      onClose(); 
-    }, 300); // Matchar uttoningens varaktighet (originaltid)
+    setTimeout(() => { onClose(); }, 300); 
   };
 
   const handleConfirm = () => { 
     setIsAnimating(true); 
-    // Timing for the "mighty" animation sequence (originaltid)
     setTimeout(() => { 
       onConfirm(inputValue); 
       setIsClosing(true); 
-      setTimeout(() => { 
-        onClose(); 
-      }, 300); 
-    }, 2000); // Duration for shrink + checkmark + glow (originaltid)
+      setTimeout(() => { onClose(); }, 300); 
+    }, 2000); 
   };
+
+  // En enda sammanslagen rad utan backticks/mall-literaler skyddar mot vite-plugin-pwa-kraschen.
+  // Vi använder vanlig sträng-konkatenering (+) här.
+  const safeCSS = 
+    "@keyframes shrinkToCircle { 0% { border-radius: 24px; width: 100%; max-width: 320px; height: auto; padding: 24px; } 100% { border-radius: 50%; width: 80px; height: 80px; padding: 0; background: #003b05; border-color: #003b05; } }" +
+    "@keyframes drawCheck { to { stroke-dashoffset: 0; } }" +
+    "@keyframes glowPop { 0% { transform: scale(1); box-shadow: 0 0 0 rgba(0, 59, 5, 0); } 50% { transform: scale(1.1); box-shadow: 0 0 20px rgba(0, 59, 5, 0.6); } 100% { transform: scale(1); box-shadow: 0 0 0 rgba(0, 59, 5, 0); } }" +
+    ".modal-container { background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%); border: 1px solid rgba(0, 59, 5, 0.1); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); transform: translateZ(0); will-change: transform, width, height, border-radius, background-color; }" +
+    ".modal-animating { animation: shrinkToCircle 0.8s forwards cubic-bezier(0.4, 0, 0.2, 1); overflow: hidden; }" +
+    ".check-container { display: none; align-items: center; justify-content: center; width: 100%; height: 100%; }" +
+    ".modal-animating .check-container { display: flex; animation: glowPop 0.6s 1.2s forwards; }" +
+    ".checkmark-svg { width: 40px; height: 40px; stroke: white; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; fill: none; stroke-dasharray: 100; stroke-dashoffset: 100; animation: drawCheck 0.5s 0.8s forwards; }" +
+    ".neomorphic-input { background: #fcf9f8; box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff; border: none; transition: all 0.3s ease; }" +
+    ".neomorphic-input:focus { outline: none; box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0, 59, 5, 0.2); transform: translateY(1px); }" +
+    ".modal-content-fade { transition: opacity 0.3s ease; }" +
+    ".is-animating-content { opacity: 0; pointer-events: none; }";
 
   return ( 
     <div 
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${
-        isClosing || !isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-      }`}
-      style={{
-        WebkitBackdropFilter: 'blur(4px)' // Säkrar att backdrop-blur fungerar smidigt i iOS
-      }}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isClosing || !isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      style={{ WebkitBackdropFilter: 'blur(4px)' }}
     > 
-      {/* Sätter in CSS-koden utan att Vercels bygge kraschar */}
-      <style dangerouslySetInnerHTML={{ __html: modalStyles }} />
+      {/* Sätt in CSS med attributet 'type' för att hjälpa Vites minifierare */}
+      <style type="text/css" dangerouslySetInnerHTML={{ __html: safeCSS }} />
       
       <div className={`modal-container w-full mx-auto rounded-3xl p-6 relative ${isAnimating ? 'modal-animating' : 'max-w-xs'}`}> 
-        {/* Success Animation Layer */} 
+        
         <div className="check-container"> 
           <svg className="checkmark-svg" viewBox="0 0 52 52"> 
             <path d="M14.1 27.2l7.1 7.2 16.7-16.8" /> 
           </svg> 
         </div>
 
-        {/* Modal UI Content */} 
         <div className={`modal-content-fade ${isAnimating ? 'is-animating-content' : ''}`}> 
           <h2 className="text-xl font-semibold text-gray-800 mb-2 leading-tight"> 
             Vad vill du lägga till för {mealType} på {day}? 
