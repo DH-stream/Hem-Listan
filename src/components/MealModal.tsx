@@ -2,10 +2,12 @@
 import React, { useState, useEffect } from 'react';
 
 /**
- * MealModal för React/Vite
- * * Fixat Esbuild/PWA-parserfelet permanent genom att Base64-koda CSS-strängen.
- * Detta förhindrar att Esbuild försöker tolka CSS-koden under server-bygget.
- * * Alla originalanimationer, utseende och prestandafixar är helt oförändrade!
+ * MealModal Component for React/Vite (Säkrad, Optimerad & Finjusterad)
+ * * Uppdateringar:
+ * - Snabbare krympning (från 0.8s till 0.5s) för en rappare känsla på mobilen.
+ * - Bocken visas betydligt längre innan modalen stängs (eftersom den ritas ut snabbare).
+ * - Exakt samma färger, neomorfiska skuggor och layout som i originalfilen.
+ * - Fullt skyddad mot Esbuild-byggfel på Vercel samt synkad default-export till 'MealModal'.
  */
 
 interface ModalProps {
@@ -16,41 +18,95 @@ interface ModalProps {
   mealType?: string;
 }
 
-// Denna sträng är din exakta original-CSS, men Base64-kodad.
-// På så sätt ser Esbuild bara en vanlig textsträng utan specialtecken som kraschar bygget.
-const base64CSS = 
-  "QGtleWZyYW1lcyBzaHJpbmtUb0NpcmNsZSB7IDAlIHsgYm9yZGVyLXJhZGl1czogMjRweDsgd2lkdGg6IDEw" +
-  "MCU7IG1heC13aWR0aDogMzIwcHg7IGhlaWdodDogYXV0bzsgcGFkZGluZzogMjRweDsgfSAxMDAlIHsgYm9y" +
-  "ZGVyLXJhZGl1czogNTAlOyB3aWR0aDogODBweDsgaGVpZ2h0OiA4MHB4OyBwYWRkaW5nOiAwOyBiYWNrZ3Jv" +
-  "dW5kOiAjMDAzYjA1OyBib3JkZXItY29sb3I6ICMwMDNiMDU7IH0gfSBAa2V5ZnJhbWVzIGRyYXdDaGVjayB7" +
-  "IHRvIHsgc3Ryb2tlLWRhc2hvZmZzZXQ6IDA7IH0gfSBAa2V5ZnJhbWVzIGdsb3dQb3AgeyAwJSB7IHRyYW5z" +
-  "Zm9ybTogc2NhbGUoMSk7IGJveC1zaGFkb3c6IDAgMCAwIHJyYmEoMCwgNTksIDUsIDApOyB9IDUwJSB7IHRy" +
-  "YW5zZm9ybTogc2NhbGUoMS4xKTsgYm94LXNoYWRvdzogMCAwIDIwcHggcmdiYSgwLCA1OSwgNSwgMC42KTsg" +
-  "fSAxMDAlIHsgdHJhbnNmb3JtOiBzY2FsZSgxKTsgYm94LXNoYWRvdzogMCAwIDAgcmdiYSgwLCA1OSwgNSwg" +
-  "MCk7IH0gfSAubW9kYWwtY29udGFpbmVyIHsgYmFja2dyb3VuZDogbGluZWFyLWdyYWRpZW50KDEzNWRlZywg" +
-  "I2ZjZjlmOCAwJSwgI2U4ZjVlOSAxMDAlKTsgYm9yZGVyOiAxcHggc29saWQgcmdiYSgwLCA1OSwgNSwgMC4x" +
-  "KTsgYm94LXNoYWRvdzogMCAyMHB4IDI1cHggLTVweCByZ2JhKDAsIDAsIDAsIDAuMSksIDAgMTBweCAxMHB4" +
-  "IC01cHggcmdiYSgwLCAwLCAwLCAwLjA0KTsgdHJhbnNpdGlvbjogYWxsIDAuNXMgY3ViaWMtYmV6aWVyKDAu" +
-  "NCwgMCwgMC4yLCAxKTsgdHJhbnNmb3JtOiB0cmFuc2xhdGVaKDApOyB3aWxsLWNoYW5nZTogdHJhbnNmb3Jt" +
-  "LCB3aWR0aCwgaGVpZ2h0LCBib3JkZXItcmFkaXVzLCBiYWNrZ3JvdW5kLWNvbG9yOyB9IC5tb2RhbC1hbmlt" +
-  "YXRpbmcgeyBhbmltYXRpb246IHNocmlua1RvQ2lyY2xlIDAuOHMgZm9yd2FyZHMgY3ViaWMtYmV6aWVyKDAu" +
-  "NCwgMCwgMC4yLCAxKTsgb3ZlcmZsb3c6IGhpZGRlbjsgfSAuY2hlY2stY29udGFpbmVyIHsgZGlzcGxheTog" +
-  "bm9uZTsgYWxpZ24taXRlbXM6IGNlbnRlcjsganVzdGlmeS1jb250ZW50OiBjZW50ZXI7IHdpZHRoOiAxMDAl" +
-  "OyBoZWlnaHQ6IDEwMCU7IH0gLm1vZGFsLWFuaW1hdGluZyAuY2hlY2stY29udGFpbmVyIHsgZGlzcGxheTog" +
-  "ZmxleDsgYW5pbWF0aW9uOiBnbG93UG9wIDAuNnMgMS4ycyBmb3J3YXJkczsgfSAuY2hlY2ttYXJrLXN2ZyB7" +
-  "IHdpZHRoOiA0MHB4OyBoZWlnaHQ6IDQwcHg7IHN0cm9rZTogd2hpdGU7IHN0cm9rZS13aWR0aDogNDsgc3Ry" +
-  "b2tlLWxpbmVjYXA6IHJvdW5kOyBzdHJva2UtbGluZWpvaW46IHJvdW5kOyBmaWxsOiBub25lOyBzdHJva2Ut" +
-  "ZGFzaGFycmF5OiAxMDA7IHN0cm9rZS1kYXNob2Zmc2V0OiAxMDA7IGFuaW1hdGlvbjogZHJhd0NoZWNrIDAu" +
-  "NXMgMC44cyBmb3J3YXJkczsgfSAubmVvbW9ycGhpYy1pbnB1dCB7IGJhY2tncm91bmQ6ICNmY2Y5Zjg7IGJv" +
-  "eC1zaGFkb3c6IGluc2V0IDRweCA0cHggOHB4ICNkY2Q5ZDgsIGluc2V0IC00cHggLTRweCA4cHggI2ZmZmZm" +
-  "ZjsgYm9yZGVyOiBub25lOyB0cmFuc2l0aW9uOiBhbGwgMC4zcyBlYXNlOyB9IC5uZW9tb3JwaGljLWlucHV0" +
-  "OmZvY3VzIHsgb3V0bGluZTogbm9uZTsgYm94LXNoYWRvdzogaW5zZXQgMnB4IDJweCA1cHggI2RjZDlkOCwg" +
-  "aW5zZXQgLTJweCAtMnB4IDVweCAjZmZmZmZmLCAwIDAgOHB4IHJnYmEoMCwgNTksIDUsIDAuMik7IHRyYW5z" +
-  "Zm9ybTogdHJhbnNsYXRlWSgxcHgpOyB9IC5tb2RhbC1jb250ZW50LWZhZGUgeyB0cmFuc2l0aW9uOiBvcGFj" +
-  "aXR5IDAuM3MgZWFzZTsgfSAuaXMtYW5pbWF0aW5nLWNvbnRlbnQgeyBvcGFjaXR5OiAwOyBwb2ludGVyLWV2" +
-  "ZW50czogbm9uZTsgfQ==";
+// Genom att pussla ihop "@" och "keyframes" förhindrar vi att Esbuild tror att det är en JS-dekoratör
+const shrinkAnim = "@" + "keyframes shrinkToCircle { " +
+  "0% { border-radius: 24px; width: 100%; max-width: 320px; height: auto; padding: 24px; } " +
+  "100% { border-radius: 50%; width: 80px; height: 80px; padding: 0; background: #003b05; border-color: #003b05; } " +
+  "}";
 
-const Modal: React.FC<ModalProps> = ({ 
+const drawAnim = "@" + "keyframes drawCheck { " +
+  "to { stroke-dashoffset: 0; } " +
+  "}";
+
+const glowAnim = "@" + "keyframes glowPop { " +
+  "0% { transform: scale(1); box-shadow: 0 0 0 rgba(0, 59, 5, 0); } " +
+  "50% { transform: scale(1.1); box-shadow: 0 0 20px rgba(0, 59, 5, 0.6); } " +
+  "100% { transform: scale(1); box-shadow: 0 0 0 rgba(0, 59, 5, 0); } " +
+  "}";
+
+const modalStyles = `
+  ${shrinkAnim}
+  ${drawAnim}
+  ${glowAnim}
+
+  .modal-container { 
+    background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%); 
+    border: 1px solid rgba(0, 59, 5, 0.1); 
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
+    /* Hårdvaruacceleration för absolut bästa flyt på iPhone (60 FPS) */
+    transform: translateZ(0);
+    will-change: transform, width, height, border-radius, background-color;
+  }
+
+  .modal-animating { 
+    /* Sänkt från 0.8s till 0.5s för snabbare krympning */
+    animation: shrinkToCircle 0.5s forwards cubic-bezier(0.4, 0, 0.2, 1); 
+    overflow: hidden; 
+  }
+
+  .check-container { 
+    display: none; 
+    align-items: center; 
+    justify-content: center; 
+    width: 100%; 
+    height: 100%; 
+  }
+
+  .modal-animating .check-container { 
+    display: flex; 
+    /* glowPop startar nu vid 0.9s (istället för 1.2s) och varar i 0.5s */
+    animation: glowPop 0.5s 0.9s forwards; 
+  }
+
+  .checkmark-svg { 
+    width: 40px; 
+    height: 40px; 
+    stroke: white; 
+    stroke-width: 4; 
+    stroke-linecap: round; 
+    stroke-linejoin: round; 
+    fill: none; 
+    stroke-dasharray: 100; 
+    stroke-dashoffset: 100; 
+    /* Bocken börjar ritas ut direkt när krympningen är klar (vid 0.5s istället för 0.8s) */
+    animation: drawCheck 0.4s 0.5s forwards; 
+  }
+
+  .neomorphic-input { 
+    background: #fcf9f8; 
+    box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff; 
+    border: none; 
+    transition: all 0.3s ease; 
+  }
+
+  .neomorphic-input:focus { 
+    outline: none; 
+    box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0, 59, 5, 0.2); 
+    transform: translateY(1px); 
+  }
+
+  .modal-content-fade { 
+    transition: opacity 0.2s ease; 
+  }
+
+  .is-animating-content { 
+    opacity: 0; 
+    pointer-events: none; 
+  } 
+`;
+
+const MealModal: React.FC<ModalProps> = ({ 
   isOpen, 
   onClose, 
   onConfirm, 
@@ -60,19 +116,8 @@ const Modal: React.FC<ModalProps> = ({
   const [inputValue, setInputValue] = useState(''); 
   const [isAnimating, setIsAnimating] = useState(false); 
   const [isClosing, setIsClosing] = useState(false);
-  const [decodedCSS, setDecodedCSS] = useState('');
 
-  // Avkoda CSS-strängen säkert på klientsidan efter första renderingen
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        setDecodedCSS(window.atob(base64CSS));
-      } catch (e) {
-        console.error("Kunde inte avkoda CSS-strängen", e);
-      }
-    }
-  }, []);
-
+  // Återställ tillstånd när modalen öppnas
   useEffect(() => { 
     if (isOpen) { 
       setIsAnimating(false); 
@@ -87,11 +132,14 @@ const Modal: React.FC<ModalProps> = ({
     setIsClosing(true); 
     setTimeout(() => { 
       onClose(); 
-    }, 300); 
+    }, 300); // uttoningens varaktighet (originaltid)
   };
 
   const handleConfirm = () => { 
     setIsAnimating(true); 
+    
+    // Behåller den totala bekräftelsetiden på 2.0s (2000ms).
+    // Eftersom krympningen nu är snabbare kommer bocken att ligga kvar längre och synas tydligare!
     setTimeout(() => { 
       onConfirm(inputValue); 
       setIsClosing(true); 
@@ -101,6 +149,7 @@ const Modal: React.FC<ModalProps> = ({
     }, 2000); 
   };
 
+  // Flyttar ut klassnamnen för att hålla JSX-strukturen ren och säker för Esbuild
   const overlayClass = "fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-300 " + 
     (isClosing || !isOpen ? "opacity-0 pointer-events-none" : "opacity-100");
 
@@ -111,9 +160,13 @@ const Modal: React.FC<ModalProps> = ({
     (isAnimating ? "is-animating-content" : "");
 
   return ( 
-    <div className={overlayClass} style={{ WebkitBackdropFilter: 'blur(4px)' }}> 
-      {/* Stilarna laddas dynamiskt så att Esbuild/Vite aldrig ser några kraschande tecken */}
-      {decodedCSS && <style dangerouslySetInnerHTML={{ __html: decodedCSS }} />}
+    <div 
+      className={overlayClass} 
+      style={{
+        WebkitBackdropFilter: 'blur(4px)' // Säkrar blur-effekten på iOS Safari
+      }}
+    > 
+      <style dangerouslySetInnerHTML={{ __html: modalStyles }} />
       
       <div className={containerClass}> 
         {/* Success Animation Layer */} 
@@ -161,6 +214,6 @@ const Modal: React.FC<ModalProps> = ({
   );
 };
 
-export default Modal;
+export default MealModal;
 
 ```
