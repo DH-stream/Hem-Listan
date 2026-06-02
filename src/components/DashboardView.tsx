@@ -178,7 +178,7 @@ export default function DashboardView({
                 {userName}
               </h1>
              ) : (
-              <div style={{ margin: '-2.45rem 0', overflow: 'hidden' }}>
+              <div style={{ margin: '-2.15rem 0', overflow: 'hidden' }}>
                 <img
                    src="/logo.png"
                    alt="Hem-Listan"
