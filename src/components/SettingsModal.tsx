@@ -2,7 +2,12 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
-import { getSupabaseClient } from "../lib/supabase";
+import {
+  isSupabaseConfigured,
+  getSupabaseClient,
+  saveLocalStorageCredentials,
+  getLocalCredentials
+} from "../lib/supabase";
 
 interface SettingsModalProps {
   userName: string;
@@ -13,7 +18,7 @@ interface SettingsModalProps {
   onResetLists: () => void;
 }
 
-// ── Bildkomprimering ───────────────────────────────────────────────
+// ── Image compress ─────────────────────────────
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -52,13 +57,13 @@ async function compressImage(file: File): Promise<string> {
   });
 }
 
-// ── Namn ───────────────────────────────────────────────────────────
+// ── Name form ─────────────────────────────
 const NameForm = memo(({ userName, onSave }: any) => {
   const ref = useRef<HTMLInputElement>(null);
 
   return (
     <div className="space-y-2 pt-1 border-t border-surface-container-high/60">
-      <label className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider block">
+      <label className="text-[10px] font-bold uppercase text-outline">
         Visningsnamn
       </label>
 
@@ -66,7 +71,7 @@ const NameForm = memo(({ userName, onSave }: any) => {
         <input
           ref={ref}
           defaultValue={userName}
-          className="flex-1 bg-white border border-surface-container-high rounded-lg px-3 py-2 text-xs outline-none"
+          className="flex-1 bg-white border rounded-lg px-3 py-2 text-xs"
         />
 
         <button
@@ -74,7 +79,7 @@ const NameForm = memo(({ userName, onSave }: any) => {
             const v = ref.current?.value?.trim();
             if (v) onSave(v);
           }}
-          className="bg-primary text-white rounded-lg px-4 py-2 text-xs font-bold"
+          className="bg-primary text-white px-4 rounded-lg text-xs font-bold"
         >
           Spara
         </button>
@@ -83,48 +88,44 @@ const NameForm = memo(({ userName, onSave }: any) => {
   );
 });
 
-// ── Auth ───────────────────────────────────────────────────────────
+// ── Auth ─────────────────────────────
 const AuthForm = memo(({ onSuccess, onError }: any) => {
-  const emailRef = useRef<HTMLInputElement>(null);
-  const passRef = useRef<HTMLInputElement>(null);
+  const email = useRef<HTMLInputElement>(null);
+  const pass = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    const email = emailRef.current?.value ?? "";
-    const password = passRef.current?.value ?? "";
+    const client = getSupabaseClient();
+    if (!client) return onError("Ingen molnkonfiguration");
 
-    if (!email || !password) return;
+    const e = email.current?.value || "";
+    const p = pass.current?.value || "";
+
+    if (!e || !p) return;
 
     setLoading(true);
-
-    const client = getSupabaseClient();
-    if (!client) {
-      onError("Ingen anslutning till molnet.");
-      setLoading(false);
-      return;
-    }
 
     try {
       if (mode === "login") {
         const { data, error } = await client.auth.signInWithPassword({
-          email,
-          password,
+          email: e,
+          password: p,
         });
 
         if (error) throw error;
-        onSuccess(`Inloggad: ${data.user?.email}`);
+        onSuccess("Inloggad", data.user?.user_metadata?.display_name);
       } else {
         const { error } = await client.auth.signUp({
-          email,
-          password,
+          email: e,
+          password: p,
         });
 
         if (error) throw error;
-        onSuccess("Konto skapat!");
+        onSuccess("Konto skapat");
       }
-    } catch (e: any) {
-      onError(e.message);
+    } catch (err: any) {
+      onError(err.message);
     } finally {
       setLoading(false);
     }
@@ -132,18 +133,8 @@ const AuthForm = memo(({ onSuccess, onError }: any) => {
 
   return (
     <div className="space-y-3">
-      <input
-        ref={emailRef}
-        placeholder="E-post"
-        className="w-full border rounded-lg px-3 py-2 text-xs"
-      />
-
-      <input
-        ref={passRef}
-        type="password"
-        placeholder="Lösenord"
-        className="w-full border rounded-lg px-3 py-2 text-xs"
-      />
+      <input ref={email} placeholder="E-post" className="w-full border p-2 rounded" />
+      <input ref={pass} placeholder="Lösenord" type="password" className="w-full border p-2 rounded" />
 
       <div className="flex justify-between items-center">
         <button
@@ -156,7 +147,7 @@ const AuthForm = memo(({ onSuccess, onError }: any) => {
         <button
           onClick={submit}
           disabled={loading}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold"
+          className="bg-black text-white px-4 py-2 rounded text-xs"
         >
           {loading ? "..." : mode === "login" ? "Logga in" : "Skapa"}
         </button>
@@ -165,7 +156,7 @@ const AuthForm = memo(({ onSuccess, onError }: any) => {
   );
 });
 
-// ── MAIN ───────────────────────────────────────────────────────────
+// ── MAIN ─────────────────────────────
 export default function SettingsModal({
   userName,
   userImage,
@@ -175,145 +166,113 @@ export default function SettingsModal({
   onResetLists,
 }: SettingsModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState(userImage);
-  const [sessionUser, setSessionUser] = useState<any>(null);
+
+  const [image, setImage] = useState(userImage || "");
+  const [supabaseActive, setSupabaseActive] = useState(isSupabaseConfigured());
+  const [session, setSession] = useState<any>(null);
+
   const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     const client = getSupabaseClient();
     if (!client) return;
 
-    client.auth.getUser().then(({ data }) => {
-      setSessionUser(data.user);
-    });
+    client.auth.getUser().then(({ data }) => setSession(data.user));
 
-    const { data } = client.auth.onAuthStateChange((_e, session) => {
-      setSessionUser(session?.user ?? null);
+    const { data } = client.auth.onAuthStateChange((_e, s) => {
+      setSession(s?.user || null);
     });
 
     return () => data.subscription.unsubscribe();
-  }, []);
+  }, [supabaseActive]);
 
-  const saveName = (name: string) => {
+  const saveName = useCallback((name: string) => {
     onUpdateUserName(name);
     localStorage.setItem("user_profile_name", name);
-    setMsg("Namn sparat");
-  };
+    setMsg("Namn uppdaterat");
+  }, []);
 
   const uploadImage = async (e: any) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const img = await compressImage(file);
-    setPreview(img);
-    onUpdateUserImage(img);
-    localStorage.setItem("user_profile_image", img);
-    setMsg("Bild sparad");
+    const compressed = await compressImage(file);
+    setImage(compressed);
+    onUpdateUserImage(compressed);
   };
 
   const removeImage = () => {
-    setPreview(undefined);
+    setImage("");
     onUpdateUserImage("");
-    localStorage.removeItem("user_profile_image");
+  };
+
+  const saveCreds = (url: string, key: string) => {
+    saveLocalStorageCredentials(url, key);
+    setSupabaseActive(isSupabaseConfigured());
+    setMsg("Moln uppdaterat");
+  };
+
+  const clearCreds = () => {
+    saveLocalStorageCredentials("", "");
+    setSupabaseActive(false);
   };
 
   const logout = async () => {
     const client = getSupabaseClient();
     await client?.auth.signOut();
-    setSessionUser(null);
-    setMsg("Utloggad");
+    setSession(null);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0 }}
-        className="w-full max-w-md bg-white rounded-2xl p-6 relative"
-      >
-        <button onClick={onClose} className="absolute top-3 right-3">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4">
+      <motion.div className="bg-white w-full max-w-md rounded-2xl p-6">
+
+        <button onClick={onClose} className="absolute top-4 right-4">
           <LucideIcon name="close" />
         </button>
 
-        <h2 className="font-bold text-lg mb-4">Inställningar</h2>
+        <h2 className="text-lg font-bold mb-4">Inställningar</h2>
 
-        {(msg || error) && (
-          <div className="text-xs mb-3 text-green-600">{msg || error}</div>
+        {/* Profile */}
+        <div className="mb-4">
+          <input type="file" ref={fileRef} hidden onChange={uploadImage} />
+
+          <button onClick={() => fileRef.current?.click()}>
+            {image ? "Byt bild" : "Lägg till bild"}
+          </button>
+
+          {image && <button onClick={removeImage}>Ta bort</button>}
+
+          <NameForm userName={userName} onSave={saveName} />
+        </div>
+
+        {/* Auth */}
+        {supabaseActive && (
+          <div className="mb-4">
+            {session ? (
+              <>
+                <p>{session.email}</p>
+                <button onClick={logout}>Logga ut</button>
+              </>
+            ) : (
+              <AuthForm onSuccess={setMsg} onError={setErr} />
+            )}
+          </div>
         )}
 
-        {/* PROFILE */}
-        <div className="flex gap-3 items-center mb-4">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="w-14 h-14 rounded-full overflow-hidden bg-gray-100"
-          >
-            {preview ? (
-              <img src={preview} className="w-full h-full object-cover" />
-            ) : (
-              <LucideIcon name="person" />
-            )}
-          </button>
+        {/* Reset */}
+        <button
+          onClick={() => {
+            if (confirm("Återställ?")) onResetLists();
+          }}
+          className="bg-red-500 text-white w-full p-2 rounded"
+        >
+          Återställ listor
+        </button>
 
-          <div className="flex-1">
-            <p className="text-xs font-bold">{userName}</p>
-            <p className="text-[10px] opacity-60">
-              {sessionUser?.email ?? "Lokal profil"}
-            </p>
-
-            <div className="flex gap-2 text-[10px] mt-1">
-              <button onClick={() => fileRef.current?.click()}>
-                Byt bild
-              </button>
-              {preview && <button onClick={removeImage}>Ta bort</button>}
-            </div>
-          </div>
-
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={uploadImage}
-          />
-        </div>
-
-        {/* NAME */}
-        <NameForm userName={userName} onSave={saveName} />
-
-        {/* AUTH */}
-        <div className="mt-4 border-t pt-4">
-          {sessionUser ? (
-            <div className="space-y-2">
-              <p className="text-xs">Inloggad som {sessionUser.email}</p>
-
-              <button
-                onClick={logout}
-                className="text-xs bg-gray-200 px-3 py-1 rounded"
-              >
-                Logga ut
-              </button>
-            </div>
-          ) : (
-            <AuthForm onSuccess={setMsg} onError={setError} />
-          )}
-        </div>
-
-        {/* RESET */}
-        <div className="mt-5 border-t pt-4">
-          <button
-            onClick={() => {
-              if (confirm("Återställ alla listor?")) {
-                onResetLists();
-                onClose();
-              }
-            }}
-            className="text-xs bg-red-500 text-white px-3 py-2 rounded w-full"
-          >
-            Återställ listor
-          </button>
-        </div>
+        {msg && <p className="text-green-600 text-xs">{msg}</p>}
+        {err && <p className="text-red-600 text-xs">{err}</p>}
       </motion.div>
     </div>
   );
