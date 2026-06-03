@@ -1,16 +1,49 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+/** @jsxRuntime classic */
+/** @jsx React.createElement */
+declare module "react/jsx-runtime" {
+  export function jsx(type: any, props?: any, key?: string | number): any;
+  export function jsxs(type: any, props?: any, key?: string | number): any;
+  export function jsxDEV(
+    type: any,
+    props?: any,
+    key?: string | number,
+    isStaticChildren?: boolean,
+    source?: any,
+    self?: any,
+  ): any;
+}
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}
+
+import React, { useState, SyntheticEvent } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
+
+// Skapade ett interface för mallarna så slipper vi "any"-fel
+interface QuickTemplate {
+  name: string;
+  icon?: string;
+  themeColor?: string;
+  tasks?: Array<{ text: string; checked: boolean }>;
+  [key: string]: unknown; // Tillåter extra fält om det behövs
+}
 
 interface DashboardViewProps {
   lists: List[];
   stats: Stats;
   userName: string;
+  userImage?: string;
   onSelectList: (id: string) => void;
   onTriggerCreate: () => void;
-  onAddListFromTemplate: (template: any) => void;
+  onAddListFromTemplate: (template: QuickTemplate) => void; // Ändrad från any
   onOpenSettings: () => void;
 }
 
@@ -18,18 +51,21 @@ export default function DashboardView({
   lists,
   stats,
   userName,
+  userImage,
   onSelectList,
   onTriggerCreate,
   onAddListFromTemplate,
-  onOpenSettings
+  onOpenSettings,
 }: DashboardViewProps) {
   const getTodayDateString = () => {
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
   };
 
-  const [isDismissed, setIsDismissed] = useState(() => {
+  const [isDismissed, setIsDismissed] = useState<boolean>(() => {
     try {
-      const dismissedDate = localStorage.getItem("dismissed_dashboard_summary_date");
+      const dismissedDate = localStorage.getItem(
+        "dismissed_dashboard_summary_date",
+      );
       return dismissedDate === getTodayDateString();
     } catch (_) {
       return false;
@@ -38,7 +74,10 @@ export default function DashboardView({
 
   const handleDismiss = () => {
     try {
-      localStorage.setItem("dismissed_dashboard_summary_date", getTodayDateString());
+      localStorage.setItem(
+        "dismissed_dashboard_summary_date",
+        getTodayDateString(),
+      );
     } catch (_) {}
     setIsDismissed(true);
   };
@@ -57,38 +96,38 @@ export default function DashboardView({
       {
         emoji: "😊",
         title: ":) Hej!",
-        text: `Du har just nu ${listsCount} ${listsCount === 1 ? "planeringslista" : "planeringslistor"} igång. Skoj!`
+        text: `Du har just nu ${listsCount} ${listsCount === 1 ? "planeringslista" : "planeringslistor"} igång. Skoj!`,
       },
       {
         emoji: "✨",
         title: ":) God dag!",
-        text: `Framsteg föder framsteg! Du har totalt bockat av ${completedCount} uppgifter i dina listor sedan start!`
+        text: `Framsteg föder framsteg! Du har totalt bockat av ${completedCount} uppgifter i dina listor sedan start!`,
       },
       {
         emoji: "💡",
         title: ":) Kul fakta!",
-        text: `Visste du att du har totalt ${totalItems} saker inlagda i dina bento-listor? Bra struktur underlättar vardagen.`
+        text: `Visste du att du har totalt ${totalItems} saker inlagda i dina bento-listor? Bra struktur underlättar vardagen.`,
       },
       {
         emoji: "🌿",
         title: ":) Ekologiskt tips!",
-        text: `Idag är en perfekt dag att hålla koll på miljön. Glöm inte lägga till ekologiska varor på dina inköpslistor!`
+        text: `Idag är en perfekt dag att hålla koll på miljön. Glöm inte lägga till ekologiska varor på dina inköpslistor!`,
       },
       {
         emoji: "🏡",
         title: ":) Hemmet i fokus!",
-        text: `Planering gör skillnad. Se till att lägga till Webbadresser eller Frimärken för att hålla dina projekt levande.`
+        text: `Planering gör skillnad. Se till att lägga till Webbadresser eller Frimärken för att hålla dina projekt levande.`,
       },
       {
         emoji: "🎉",
         title: ":) Heja dig!",
-        text: `Halva jobbet är planering. ${completedCount > 0 ? `Dina ${completedCount} avklarade punkter visar att du är på helt rätt spår!` : "Dina listor väntar på dig - bocka av ditt första föremål idag!"}`
+        text: `Halva jobbet är planering. ${completedCount > 0 ? `Dina ${completedCount} avklarade punkter visar att du är på helt rätt spår!` : "Dina listor väntar på dig - bocka av ditt första föremål idag!"}`,
       },
       {
         emoji: "☕",
         title: ":) Pausa och andas!",
-        text: `Minska stressen i vardagen. Skriv ner dina tankar direkt i en "notering" i stället för att hålla dem i huvudet.`
-      }
+        text: `Minska stressen i vardagen. Skriv ner dina tankar direkt i en "notering" i stället för att hålla dem i huvudet.`,
+      },
     ];
 
     // Simple deterministic index rotation by combining calendar properties
@@ -115,20 +154,39 @@ export default function DashboardView({
       {/* Top Bar AppBar */}
       <header className="w-full top-0 sticky z-40 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10">
-            <img
-              alt="Profile"
-              className="w-full h-full object-cover"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDozSzqxVqljucfmI2KbMHCz31aB8XJTlwjsuQBKIwBi2UfihM3YJWBGGg4gBHOMrD0xTxhodCmn-RbAhvGADooRReTPM47r4jARWz9e7c6nwZH6QNuxFW4f-aBXGLg0y9e_IGdU4Syd5ektDCqyfrmiDEu0kxvP0gsp2s2UPKwjQWLq8FflZqHptEhPXHwx2jQYrGt3FqcSXsBf5ymOWNXA_YlX9FywkT33dDrZoFkP_WsfP91IanCVdherTzzqWspYhavdZgt1c"
-            />
-          </div>
+          {/* Visar endast profilbildscirkeln om userImage faktiskt är satt */}
+          {userImage && (
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-white shrink-0">
+              <img
+                alt="Profile"
+                className="w-full h-full object-cover"
+                src={userImage}
+                onError={(e: SyntheticEvent<HTMLImageElement, Event>) => {
+                  // Säkerställer korrekt TS-typ om profilbilden mot förmodan dör
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
+          )}
           <div>
-            <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1">
+            <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1.5">
               Välkommen tillbaka
             </p>
-            <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
-              {userName || "Hem-Listan"}
-            </h1>
+
+            {userName && userName !== "Hem-Listan" ? (
+              <h1 className="font-display text-2xl font-bold text-text-main line-clamp-1">
+                {userName}
+              </h1>
+             ) : (
+              <div style={{ margin: '-2.15rem 0', overflow: 'hidden' }}>
+                <img
+                   src="/logo.png"
+                   alt="Hem-Listan"
+                   style={{ height: '6.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
+                   className="block select-none"
+                />
+              </div>
+             )}
           </div>
         </div>
         <button
@@ -187,7 +245,9 @@ export default function DashboardView({
             const totalTasks = list.tasks.length;
             const checkedTasks = list.tasks.filter((t) => t.checked).length;
             const progressPercent =
-              totalTasks > 0 ? Math.round((checkedTasks / totalTasks) * 100) : 0;
+              totalTasks > 0
+                ? Math.round((checkedTasks / totalTasks) * 100)
+                : 0;
 
             return (
               <motion.div
@@ -197,7 +257,9 @@ export default function DashboardView({
                 layoutId={`list-card-${list.id}`}
               >
                 <div className="flex items-center gap-4 flex-1">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(list.icon)}`}>
+                  <div
+                    className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(list.icon)}`}
+                  >
                     <LucideIcon name={list.icon} className="w-6 h-6" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
@@ -219,7 +281,7 @@ export default function DashboardView({
                         className="h-full rounded-full transition-all duration-500"
                         style={{
                           width: `${progressPercent}%`,
-                          backgroundColor: list.themeColor || "#1a5319"
+                          backgroundColor: list.themeColor || "#1a5319",
                         }}
                       />
                     </div>
@@ -258,7 +320,7 @@ export default function DashboardView({
           {QUICK_TEMPLATES.map((tmpl) => (
             <motion.button
               key={tmpl.name}
-              onClick={() => onAddListFromTemplate(tmpl)}
+              onClick={() => onAddListFromTemplate(tmpl as QuickTemplate)} // Typas om här för att matcha interfacet perfekt
               className="flex items-center gap-2 bg-surface-container-low px-4 py-3 rounded-full font-sans text-xs font-bold text-text-main hover:bg-secondary-container hover:text-on-secondary-container transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 duration-200 shadow-sm"
               whileHover={{ y: -1 }}
             >

@@ -1,128 +1,169 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 
-const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
-  const [inputValue, setInputValue] = useState('');
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-  const [showCheck, setShowCheck] = useState(false);
+const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [phase, setPhase] = useState<'idle' | 'open' | 'confirming' | 'check' | 'closing'>('idle');
 
   useEffect(() => {
     if (isOpen) {
-      setIsAnimating(false);
-      setIsClosing(false);
-      setShowCheck(false);
-      setInputValue('');
+      setPhase('open');
+      // Rensa input utan controlled state
+      if (inputRef.current) inputRef.current.value = '';
     }
   }, [isOpen]);
 
-  const handleCancel = () => {
-    setIsClosing(true);
-    setTimeout(() => onClose(), 300);
-  };
+  const handleCancel = useCallback(() => {
+    setPhase('closing');
+    setTimeout(() => { setPhase('idle'); onClose(); }, 300);
+  }, [onClose]);
 
-  const handleConfirm = () => {
-    setIsAnimating(true);
-    setTimeout(() => setShowCheck(true), 900);
+  const handleConfirm = useCallback(() => {
+    const value = inputRef.current?.value ?? '';
+    setPhase('confirming');
+    setTimeout(() => setPhase('check'), 600);
     setTimeout(() => {
-      onConfirm(inputValue);
-      setIsClosing(true);
-      setTimeout(() => onClose(), 300);
-    }, 1800);
-  };
+      onConfirm(value);
+      setPhase('closing');
+      setTimeout(() => { setPhase('idle'); onClose(); }, 300);
+    }, 1200);
+  }, [onConfirm, onClose]);
 
-  if (!isOpen && !isClosing) return null;
+  if (phase === 'idle') return null;
+
+  const isConfirming = phase === 'confirming' || phase === 'check';
+  const isVisible = phase === 'open';
+  const isClosing = phase === 'closing';
 
   return createPortal(
     <div
-      style={{ WebkitBackdropFilter: 'blur(4px)' }}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isClosing || !isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
+        // Ingen backdrop-filter — orsakar repaint på mobil
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        opacity: isClosing ? 0 : 1,
+        transition: 'opacity 300ms ease',
+        pointerEvents: isClosing ? 'none' : 'auto',
+      }}
     >
       <style>{`
-        @keyframes shrinkToCircle {
-          0%   { border-radius: 24px; width: 320px; height: 260px; padding: 24px; }
-          100% { border-radius: 50%; width: 80px; height: 80px; padding: 0; background: #003b05; }
-        }
         @keyframes drawCheck {
           to { stroke-dashoffset: 0; }
         }
-        @keyframes fadeScaleIn {
-          from { opacity: 0; transform: scale(0.5); }
-          to   { opacity: 1; transform: scale(1); }
-        }
-        .modal-container {
-          background: linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%);
-          border: 1px solid rgba(0,59,5,0.1);
-          box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
-          contain: layout paint;
-        }
-        .modal-animating {
-          animation: shrinkToCircle 0.9s forwards cubic-bezier(0.4,0,0.2,1) !important;
-          overflow: hidden;
-          box-shadow: 0 0 20px rgba(0,59,5,0.6) !important;
-        }
-        .neomorphic-input {
-          background: #fcf9f8;
-          box-shadow: inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff;
-          border: none;
-          transition: box-shadow 0.3s ease;
-        }
-        .neomorphic-input:focus {
-          outline: none;
-          box-shadow: inset 2px 2px 5px #dcd9d8, inset -2px -2px 5px #ffffff, 0 0 8px rgba(0,59,5,0.2);
-        }
       `}</style>
 
-      <div className={`modal-container w-full max-w-xs mx-auto rounded-3xl p-6 relative ${isAnimating ? 'modal-animating' : ''}`}>
+      <div style={{
+        position: 'relative',
+        width: 80,
+        height: 80,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
 
-        {isAnimating && showCheck && (
-          <div
-            className="absolute inset-0 flex items-center justify-center"
-            style={{ animation: 'fadeScaleIn 200ms ease-out forwards' }}
-          >
+        {/* Grön cirkel */}
+        <div style={{
+          position: 'absolute',
+          width: 80,
+          height: 80,
+          borderRadius: '50%',
+          backgroundColor: '#1a6b20',
+          transform: isConfirming ? 'scale(1)' : 'scale(0)',
+          opacity: isConfirming ? 1 : 0,
+          transition: 'transform 600ms cubic-bezier(0.4,0,0.2,1), opacity 400ms ease',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: isConfirming ? '0 0 24px rgba(26,107,32,0.5)' : 'none',
+          willChange: 'transform, opacity',
+        }}>
+          {phase === 'check' && (
             <svg
               viewBox="0 0 52 52"
               style={{
-                width: 40, height: 40,
+                width: 36, height: 36,
                 stroke: 'white', strokeWidth: 4,
                 strokeLinecap: 'round', strokeLinejoin: 'round',
                 fill: 'none',
-                strokeDasharray: 100, strokeDashoffset: 100,
-                animation: 'drawCheck 0.4s ease-out forwards',
+                strokeDasharray: 100,
+                strokeDashoffset: 100,
+                animation: 'drawCheck 0.35s ease-out forwards',
               }}
             >
               <path d="M14.1 27.2l7.1 7.2 16.7-16.8" />
             </svg>
-          </div>
-        )}
+          )}
+        </div>
 
-        <div className={`transition-opacity duration-150 ${isAnimating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          <h2 className="text-xl font-semibold text-gray-800 mb-2 leading-tight">
+        {/* Modal-kort */}
+        <div style={{
+          position: 'absolute',
+          width: 320,
+          borderRadius: 24,
+          background: 'linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%)',
+          border: '1px solid rgba(0,90,10,0.1)',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+          padding: 24,
+          transform: isVisible ? 'scale(1)' : 'scale(0)',
+          opacity: isVisible ? 1 : 0,
+          transition: 'transform 400ms cubic-bezier(0.4,0,0.2,1), opacity 300ms ease',
+          willChange: 'transform, opacity',
+          transformOrigin: 'center center',
+          contain: 'layout paint',
+        }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#1f2937', marginBottom: 8, lineHeight: 1.3 }}>
             Vad vill du lägga till för {mealType} på {day}?
           </h2>
-          <p className="text-sm text-gray-600 mb-6">
+          <p style={{ fontSize: '0.875rem', color: '#4b5563', marginBottom: 24 }}>
             Skriv in en maträtt eller en länk.
           </p>
 
           <input
+            ref={inputRef}
             type="text"
-            className="neomorphic-input w-full p-4 rounded-2xl text-gray-700 mb-8"
+            defaultValue=""
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              borderRadius: 16,
+              border: 'none',
+              background: '#fcf9f8',
+              boxShadow: 'inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff',
+              color: '#374151',
+              fontSize: '1rem',
+              marginBottom: 28,
+              boxSizing: 'border-box' as const,
+              outline: 'none',
+            }}
             placeholder="T.ex. Havregrynsgröt"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
             autoFocus
           />
 
-          <div className="flex gap-4">
+          <div style={{ display: 'flex', gap: 12 }}>
             <button
               onClick={handleCancel}
-              className="flex-1 py-4 px-6 rounded-2xl font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors"
+              style={{
+                flex: 1, padding: '14px 20px', borderRadius: 16,
+                border: 'none', background: '#f3f4f6', color: '#374151',
+                fontWeight: 500, fontSize: '1rem', cursor: 'pointer',
+              }}
             >
               Avbryt
             </button>
             <button
               onClick={handleConfirm}
-              className="flex-1 py-4 px-6 rounded-2xl font-semibold text-white bg-[#003b05] shadow-lg shadow-green-900/20 hover:bg-[#002b04] transition-all"
+              style={{
+                flex: 1, padding: '14px 20px', borderRadius: 16,
+                border: 'none', background: '#1a6b20', color: 'white',
+                fontWeight: 600, fontSize: '1rem', cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(26,107,32,0.35)',
+              }}
             >
               OK
             </button>
@@ -132,6 +173,6 @@ const Modal = ({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukos
     </div>,
     document.body
   );
-};
+});
 
-export default Modal;
+export default MealModal;
