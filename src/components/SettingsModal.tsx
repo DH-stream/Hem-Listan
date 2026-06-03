@@ -1,13 +1,8 @@
 /** @jsxRuntime classic */
-import React, { useState, useEffect, useRef, useCallback, memo, FormEvent } from "react";
+import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
-import {
-  isSupabaseConfigured,
-  getSupabaseClient,
-  saveLocalStorageCredentials,
-  getLocalCredentials
-} from "../lib/supabase";
+import { getSupabaseClient } from "../lib/supabase";
 
 interface SettingsModalProps {
   userName: string;
@@ -18,59 +13,79 @@ interface SettingsModalProps {
   onResetLists: () => void;
 }
 
+// ── Bildkomprimering ───────────────────────────────────────────────
 async function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement("canvas");
         const MAX = 200;
+
         let { width, height } = img;
         if (width > height) {
-          if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; }
-        } else {
-          if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; }
+          if (width > MAX) {
+            height = Math.round((height * MAX) / width);
+            width = MAX;
+          }
+        } else if (height > MAX) {
+          width = Math.round((width * MAX) / height);
+          height = MAX;
         }
+
         canvas.width = width;
         canvas.height = height;
-        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
+        canvas.getContext("2d")!.drawImage(img, 0, 0, width, height);
+
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
       };
+
       img.onerror = reject;
       img.src = e.target?.result as string;
     };
+
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-// ── Sub-komponent: Namnfält ──────────────────────────────────────────
-const NameForm = memo(({ userName, sessionUser, onSave }: {
-  userName: string;
-  sessionUser: any;
-  onSave: (name: string) => void;
-}) => {
-  const inputRef = useRef<HTMLInputElement>(null);
+// ── Google-symbol ─────────────────────────────────────────────────
+function GoogleIcon() {
   return (
-    <div className="space-y-2 pt-1 border-t border-surface-container-high/60">
+    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+    </svg>
+  );
+}
+
+// ── Namn ───────────────────────────────────────────────────────────
+const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: string) => void }) => {
+  const ref = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="space-y-2 pt-2.5 border-t border-gray-200">
       <label className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider block">
         Visningsnamn
       </label>
+
       <div className="flex gap-2">
         <input
-          ref={inputRef}
-          type="text"
+          ref={ref}
           defaultValue={userName}
           placeholder="Hem-Listan"
-          className="flex-1 bg-white border border-surface-container-high rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-outline/40 outline-none font-sans font-medium"
+          className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 placeholder:text-gray-400 outline-none font-sans font-medium"
         />
+
         <button
           onClick={() => {
-            const val = inputRef.current?.value.trim() ?? '';
-            if (val && val !== userName) onSave(val);
+            const v = ref.current?.value?.trim();
+            if (v) onSave(v);
           }}
-          className="bg-primary hover:bg-primary-container text-white rounded-lg px-4 py-2 font-sans text-xs font-bold active:scale-95 transition-all outline-none cursor-pointer shrink-0"
+          className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg px-4 py-2 font-sans text-xs font-bold transition-all outline-none cursor-pointer shrink-0 min-h-[40px] flex items-center justify-center"
         >
           Spara
         </button>
@@ -79,402 +94,421 @@ const NameForm = memo(({ userName, sessionUser, onSave }: {
   );
 });
 
-// ── Sub-komponent: Molnsynk-konfiguration ───────────────────────────
-const CloudConfigForm = memo(({ onSave, onClear }: {
-  onSave: (url: string, key: string) => void;
-  onClear: () => void;
-}) => {
-  const urlRef = useRef<HTMLInputElement>(null);
-  const keyRef = useRef<HTMLInputElement>(null);
-  const creds = getLocalCredentials();
-  return (
-    <div className="space-y-3 pt-1 border-t border-[#EDEADF]/70 text-left">
-      <div className="space-y-1">
-        <label className="font-sans text-[9px] font-bold text-[#706B5C] uppercase tracking-wider block">
-          Projekt-URL
-        </label>
-        <input
-          ref={urlRef}
-          type="text"
-          defaultValue={creds.url}
-          placeholder="https://ditt-projekt.supabase.co"
-          className="w-full bg-white border border-[#E1DEC7] rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none font-sans font-medium text-text-main"
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="font-sans text-[9px] font-bold text-[#706B5C] uppercase tracking-wider block">
-          API-nyckel
-        </label>
-        <input
-          ref={keyRef}
-          type="password"
-          defaultValue={creds.anonKey}
-          placeholder="eyJhbGci..."
-          className="w-full bg-white border border-[#E1DEC7] rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none font-sans font-medium text-text-main"
-        />
-      </div>
-      <div className="flex gap-2 pt-1.5">
-        <button
-          onClick={() => onSave(urlRef.current?.value ?? '', keyRef.current?.value ?? '')}
-          className="flex-1 bg-text-main text-white py-1.5 rounded-lg text-xs font-bold hover:bg-neutral-800 transition-colors cursor-pointer text-center"
-        >
-          Spara anslutning
-        </button>
-        <button
-          onClick={onClear}
-          className="bg-neutral-200 text-neutral-700 hover:bg-neutral-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-        >
-          Rensa
-        </button>
-      </div>
-    </div>
-  );
-});
+NameForm.displayName = "NameForm";
 
-// ── Sub-komponent: Inloggningsformulär ──────────────────────────────
-const AuthForm = memo(({ onSuccess, onError }: {
-  onSuccess: (msg: string, displayName?: string) => void;
-  onError: (msg: string) => void;
-}) => {
+// ── Auth ───────────────────────────────────────────────────────────
+const AuthForm = memo(({ onSuccess, onError }: { onSuccess: (message: string) => void; onError: (message: string) => void }) => {
   const emailRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [isLoading, setIsLoading] = useState(false);
+  const passRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
-    const email = emailRef.current?.value.trim() ?? '';
-    const password = passwordRef.current?.value.trim() ?? '';
+  const submit = async () => {
+    const email = emailRef.current?.value.trim() ?? "";
+    const password = passRef.current?.value.trim() ?? "";
+
     if (!email || !password) return;
 
-    setIsLoading(true);
     const client = getSupabaseClient();
-    if (!client) { onError("Ingen molnanslutning konfigurerad."); setIsLoading(false); return; }
+    if (!client) {
+      onError("Inloggning är inte konfigurerad ännu. Försök igen senare.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
-      if (authMode === "login") {
-        const { data, error } = await client.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        const displayName = data.user?.user_metadata?.display_name;
-        onSuccess(`Inloggad som ${data.user?.email}`, displayName);
-        if (emailRef.current) emailRef.current.value = '';
-        if (passwordRef.current) passwordRef.current.value = '';
-      } else {
-        const { data, error } = await client.auth.signUp({
-          email, password,
-          options: { emailRedirectTo: window.location.origin }
+      if (mode === "login") {
+        const { data, error } = await client.auth.signInWithPassword({
+          email,
+          password,
         });
+
         if (error) throw error;
-        onSuccess(data.session ? "Konto skapat och inloggad!" : "Bekräftelsemejl skickat!");
-        if (emailRef.current) emailRef.current.value = '';
-        if (passwordRef.current) passwordRef.current.value = '';
+        onSuccess(`Inloggad som ${data.user?.email ?? email}`);
+      } else {
+        const { error } = await client.auth.signUp({
+          email,
+          password,
+        });
+
+        if (error) throw error;
+        onSuccess("Konto skapat! Kolla din e-post för att bekräfta kontot.");
       }
-    } catch (err: any) {
-      onError(err.message || "Något gick fel.");
+    } catch (e: any) {
+      onError(e.message || "Något gick fel vid inloggningen.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <label className="font-sans text-[9px] font-bold text-outline uppercase tracking-wider block">E-post</label>
+      <div className="space-y-2">
         <input
           ref={emailRef}
           type="email"
-          placeholder="anna@gmail.com"
-          className="w-full bg-white border border-surface-container-high rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none font-sans"
+          placeholder="E-post"
+          className="w-full bg-white border border-[#EDEADF] rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-emerald-500 outline-none font-sans min-h-[40px]"
         />
-      </div>
-      <div className="space-y-1">
-        <label className="font-sans text-[9px] font-bold text-outline uppercase tracking-wider block">Lösenord</label>
+
         <input
-          ref={passwordRef}
+          ref={passRef}
           type="password"
-          placeholder="minst 6 tecken"
-          className="w-full bg-white border border-surface-container-high rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none font-sans"
+          placeholder="Lösenord"
+          className="w-full bg-white border border-[#EDEADF] rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-emerald-500 outline-none font-sans min-h-[40px]"
         />
       </div>
-      <div className="flex items-center justify-between gap-4 pt-1">
+
+      <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
-          className="text-[11px] font-bold text-primary hover:underline cursor-pointer select-none"
+          onClick={() => setMode(mode === "login" ? "signup" : "login")}
+          className="text-xs text-primary font-bold"
         >
-          {authMode === "login" ? "Ny här? Skapa konto" : "Redan konto? Logga in"}
+          {mode === "login" ? "Skapa konto" : "Logga in"}
         </button>
+
         <button
-          onClick={handleSubmit}
-          disabled={isLoading}
-          className="bg-[#2D3E50] hover:bg-neutral-800 text-white rounded-lg px-5 py-2 font-sans text-xs font-bold transition-all disabled:opacity-40 cursor-pointer shadow-sm"
+          type="button"
+          onClick={submit}
+          disabled={loading}
+          className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold min-h-[40px] transition-transform active:scale-[0.97] disabled:opacity-50"
         >
-          {isLoading ? "Väntar..." : authMode === "login" ? "Logga in" : "Skapa konto"}
+          {loading ? "Väntar..." : mode === "login" ? "Logga in" : "Skapa"}
         </button>
       </div>
     </div>
   );
 });
 
-// ── Huvudkomponent ───────────────────────────────────────────────────
+AuthForm.displayName = "AuthForm";
+
+// ── MAIN ───────────────────────────────────────────────────────────
 export default function SettingsModal({
   userName,
   userImage,
   onUpdateUserName,
   onUpdateUserImage,
   onClose,
-  onResetLists
+  onResetLists,
 }: SettingsModalProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [imagePreview, setImagePreview] = useState<string | undefined>(userImage);
-  const [supabaseActive, setSupabaseActive] = useState(isSupabaseConfigured());
-  const [showConfig, setShowConfig] = useState(!isSupabaseConfigured());
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState(userImage);
   const [sessionUser, setSessionUser] = useState<any>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showSharingInfo, setShowSharingInfo] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
     const client = getSupabaseClient();
-    if (client) {
-      client.auth.getUser().then(({ data: { user } }) => setSessionUser(user)).catch(() => setSessionUser(null));
-      const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
-        setSessionUser(session?.user ?? null);
-      });
-      return () => subscription.unsubscribe();
-    } else {
-      setSessionUser(null);
-    }
-  }, [supabaseActive]);
+    if (!client) return;
+
+    client.auth.getUser().then(({ data }) => {
+      setSessionUser(data.user);
+    }).catch(() => setSessionUser(null));
+
+    const { data } = client.auth.onAuthStateChange((_e, session) => {
+      setSessionUser(session?.user ?? null);
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
-    if (success || error) {
-      const timer = setTimeout(() => { setSuccess(null); setError(null); }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
 
-  const handleImageClick = () => fileInputRef.current?.click();
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
 
-  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!msg && !error) return;
+
+    const timer = window.setTimeout(() => {
+      setMsg(null);
+      setError(null);
+    }, 3000);
+
+    return () => window.clearTimeout(timer);
+  }, [msg, error]);
+
+  const showSuccess = useCallback((message: string) => {
+    setError(null);
+    setMsg(message);
+  }, []);
+
+  const showError = useCallback((message: string) => {
+    setMsg(null);
+    setError(message);
+  }, []);
+
+  const saveName = useCallback((name: string) => {
+    onUpdateUserName(name);
+    localStorage.setItem("user_profile_name", name);
+    showSuccess("Namn sparat");
+  }, [onUpdateUserName, showSuccess]);
+
+  const uploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    try {
-      const compressed = await compressImage(file);
-      setImagePreview(compressed);
-      onUpdateUserImage(compressed);
-      localStorage.setItem('user_profile_image', compressed);
-      setSuccess("Profilbild sparad!");
-    } catch {
-      setError("Kunde inte läsa bilden.");
-    }
+
+    const img = await compressImage(file);
+    setPreview(img);
+    onUpdateUserImage(img);
+    localStorage.setItem("user_profile_image", img);
+    showSuccess("Bild sparad");
+    e.target.value = "";
   };
 
-  const handleRemoveImage = () => {
-    setImagePreview(undefined);
-    onUpdateUserImage('');
-    localStorage.removeItem('user_profile_image');
-    setSuccess("Profilbild borttagen.");
+  const removeImage = () => {
+    setPreview(undefined);
+    onUpdateUserImage("");
+    localStorage.removeItem("user_profile_image");
+    showSuccess("Bild borttagen");
   };
 
-  const handleNameSave = useCallback(async (name: string) => {
-    onUpdateUserName(name);
-    localStorage.setItem('user_profile_name', name);
+  const handleGoogleLogin = useCallback(async () => {
     const client = getSupabaseClient();
-    if (client && sessionUser) {
-      try { await client.auth.updateUser({ data: { display_name: name } }); } catch {}
+    if (!client) {
+      showError("Inloggning med Google är inte konfigurerad ännu. Försök igen senare.");
+      return;
     }
-    setSuccess("Namn uppdaterat!");
-  }, [onUpdateUserName, sessionUser]);
 
-  const handleSaveCredentials = useCallback((url: string, key: string) => {
-    saveLocalStorageCredentials(url, key);
-    const active = isSupabaseConfigured();
-    setSupabaseActive(active);
-    setSuccess(active ? "Molnanslutning aktiverad!" : "Inställningar rensade.");
-    if (active) setShowConfig(false);
-  }, []);
+    setGoogleLoading(true);
+    setError(null);
+    setMsg(null);
 
-  const handleClearCredentials = useCallback(() => {
-    saveLocalStorageCredentials("", "");
-    setSupabaseActive(false);
-    setSuccess("Molnanslutning borttagen.");
-  }, []);
+    const { error: authError } = await client.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
 
-  const handleAuthSuccess = useCallback((msg: string, displayName?: string) => {
-    if (displayName) {
-      onUpdateUserName(displayName);
-      localStorage.setItem('user_profile_name', displayName);
+    if (authError) {
+      showError(authError.message || "Kunde inte logga in med Google.");
+      setGoogleLoading(false);
     }
-    setSuccess(msg);
-  }, [onUpdateUserName]);
+  }, [showError]);
 
-  const handleLogout = async () => {
+  const logout = async () => {
     const client = getSupabaseClient();
-    if (client) await client.auth.signOut();
+    if (!client) {
+      showError("Inloggning är inte konfigurerad, så det går inte att logga ut just nu.");
+      return;
+    }
+
+    await client.auth.signOut();
     setSessionUser(null);
-    setSuccess("Du har loggat ut.");
+    showSuccess("Utloggad");
   };
+
+  const displayName = sessionUser?.user_metadata?.display_name || userName || "Användare";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-sm font-sans">
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl relative border border-surface-container my-8"
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+        className="relative my-8 w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
       >
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 text-outline hover:bg-surface-container-high rounded-full transition-colors cursor-pointer z-10">
-          <LucideIcon name="close" className="w-5 h-5" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 transition-transform hover:text-gray-600 active:scale-[0.94]"
+          aria-label="Stäng inställningar"
+        >
+          <LucideIcon name="close" className="h-5 w-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-4">
-          <LucideIcon name="settings" className="w-6 h-6 text-text-main" />
-          <h2 className="font-display text-lg font-bold text-text-main leading-none">Inställningar</h2>
+        <div className="mb-4 flex items-center gap-3">
+          <LucideIcon name="settings" className="h-5 w-5 text-gray-800" />
+          <h2 className="text-lg font-bold leading-none text-gray-800">Inställningar</h2>
         </div>
 
         <AnimatePresence>
-          {(success || error) && (
+          {(msg || error) && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className={`mb-4 p-3 rounded-xl text-xs font-sans font-bold border flex items-center gap-2 ${error ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"}`}
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              className="pointer-events-none absolute left-6 right-6 top-14 z-20 flex justify-center"
             >
-              <LucideIcon name={error ? "warning" : "info"} className="w-4 h-4 shrink-0" />
-              <span className="flex-1">{error || success}</span>
+              <div className={`flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold shadow-lg ${
+                error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+              }`}>
+                <LucideIcon name={error ? "close" : "check"} className="h-4 w-4 shrink-0" />
+                <span className="truncate">{error || msg}</span>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1 no-scrollbar">
-
-          {/* Profilkort */}
-          <div className="bg-surface-container-low p-4 rounded-xl flex flex-col gap-3.5 border border-surface-container/30">
-            <div className="flex items-center gap-4">
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto overscroll-contain pr-1" style={{ WebkitOverflowScrolling: "touch" }}>
+          {/* PROFILE */}
+          <div className="bg-gray-50 p-4 rounded-xl flex flex-col gap-3.5 border border-gray-200">
+            <div className="mb-3 flex items-center gap-4">
               <div className="relative shrink-0">
                 <button
-                  onClick={handleImageClick}
-                  className="w-16 h-16 rounded-full overflow-hidden border-2 border-primary/20 bg-secondary/10 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="w-16 h-16 rounded-full overflow-hidden border-2 border-emerald-600/20 bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-85 transition-opacity"
+                  aria-label="Byt profilbild"
                 >
-                  {imagePreview
-                    ? <img src={imagePreview} alt="Profilbild" className="w-full h-full object-cover" />
-                    : <LucideIcon name="person" className="w-7 h-7 text-secondary/50" />
-                  }
+                  {preview ? (
+                    <img src={preview} className="h-full w-full object-cover" alt="Profilbild" />
+                  ) : (
+                    <LucideIcon name="person" className="h-7 w-7 text-gray-400" />
+                  )}
                 </button>
-                <div className="absolute bottom-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center pointer-events-none border-2 border-white">
-                  <LucideIcon name="photo_camera" className="w-2.5 h-2.5 text-white" />
-                </div>
+                <span className="pointer-events-none absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
+                  <LucideIcon name="plus" className="h-3 w-3" />
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-sans text-xs font-bold text-text-main truncate">{userName || "Hem-Listan"}</p>
-                <p className="font-sans text-[10px] text-outline mt-0.5">{sessionUser ? sessionUser.email : "Lokal profil"}</p>
-                <div className="flex gap-2 mt-2">
-                  <button onClick={handleImageClick} className="text-[10px] font-bold text-primary hover:underline cursor-pointer">
-                    {imagePreview ? "Byt bild" : "Lägg till bild"}
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-gray-900">{userName || "Hem-Listan"}</p>
+                <p className="mt-0.5 truncate text-[10px] text-gray-500">{sessionUser?.email ?? "Lokal profil"}</p>
+
+                <div className="mt-2 flex gap-3 text-[10px] font-bold">
+                  <button type="button" onClick={() => fileRef.current?.click()} className="text-[10px] font-bold text-emerald-600 hover:underline cursor-pointer py-1">
+                    {preview ? "Byt bild" : "Lägg till bild"}
                   </button>
-                  {imagePreview && (
-                    <button onClick={handleRemoveImage} className="text-[10px] font-bold text-red-400 hover:underline cursor-pointer">Ta bort</button>
+                  {preview && (
+                    <button type="button" onClick={removeImage} className="py-1 text-gray-500 hover:text-red-600">
+                      Ta bort
+                    </button>
                   )}
                 </div>
               </div>
+
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={uploadImage}
+              />
             </div>
 
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
-
-            <NameForm userName={userName} sessionUser={sessionUser} onSave={handleNameSave} />
+            <NameForm userName={userName} onSave={saveName} />
           </div>
 
-          {/* Molnsynk-kort */}
+          {/* ACCOUNT & SHARING */}
           <div className="bg-[#FAF9F5] p-4 rounded-xl border border-[#EDEADF] space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-1 px-2 rounded-md bg-[#EDF6F0] text-[#3ECF8E] font-sans text-[10px] font-extrabold tracking-wide border border-[#A4E0C3]/30">
-                  MOLN
-                </div>
-                <h3 className="font-sans text-xs font-bold text-text-main">Molnsynk & Listdelning</h3>
-              </div>
-              <span className={`w-2 h-2 rounded-full ${supabaseActive ? "bg-emerald-500 animate-pulse" : "bg-neutral-300"}`} />
-            </div>
-
-            <p className="font-sans text-[11px] text-[#706B5C] leading-normal font-medium">
-              Anslut till molnet för att synka och dela listor i realtid med familj och vänner.
-            </p>
-
-            <div className="flex items-center justify-between border-t border-[#EDEADF] pt-2">
-              <button
-                onClick={() => setShowConfig(!showConfig)}
-                className="text-[11px] font-bold text-outline hover:text-text-main flex items-center gap-1 transition-colors cursor-pointer select-none"
-              >
-                <span>{showConfig ? "Dölj inställningar" : "Konfigurera anslutning"}</span>
-                <LucideIcon name={showConfig ? "chevron_up" : "chevron_down"} className="w-3.5 h-3.5" />
-              </button>
-              <span className="font-sans text-[10px] font-bold text-[#3ECF8E] select-none">
-                {supabaseActive ? "✓ Ansluten" : "Ej ansluten"}
-              </span>
-            </div>
-
-            <AnimatePresence>
-              {showConfig && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-xs font-bold text-gray-900">Konto &amp; Delning</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowSharingInfo((v) => !v)}
+                  className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                  aria-expanded={showSharingInfo}
+                  aria-label="Visa information om konto och delning"
                 >
-                  <CloudConfigForm onSave={handleSaveCredentials} onClear={handleClearCredentials} />
+                  <span className="text-sm font-bold leading-none">i</span>
+                </button>
+              </div>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {showSharingInfo && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+                  className="bg-white p-3 rounded-lg border border-[#EDEADF] text-[11px] text-[#706B5C] leading-relaxed shadow-sm"
+                >
+                  Logga in för att spara dina listor och dela dem med andra.
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {sessionUser ? (
+              <div className="space-y-3">
+                <div className="bg-white p-3 rounded-lg border border-[#EDEADF] shadow-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Inloggad som</p>
+                  <p className="mt-1 truncate text-xs font-bold text-gray-900">{displayName}</p>
+                  {sessionUser.email && (
+                    <p className="mt-0.5 truncate text-[10px] text-gray-500">{sessionUser.email}</p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="bg-white border border-[#EDEADF] hover:bg-gray-50 active:scale-95 text-gray-800 py-2 px-4 rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-sm min-h-[40px] w-full"
+                >
+                  Logga ut
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <ul className="text-[11px] font-medium text-[#706B5C] space-y-1.5 ml-1">
+                  {[
+                    "Spara listor mellan enheter",
+                    "Dela listor från själva listan",
+                    "Koppla till Homeboard",
+                  ].map((benefit) => (
+                    <li key={benefit} className="flex items-center gap-2">
+                      <LucideIcon name="check" className="h-3.5 w-3.5 text-[#3ECF8E] shrink-0" />
+                      <span>{benefit}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={googleLoading}
+                  className="w-full bg-white border border-[#EDEADF] py-2.5 rounded-lg text-xs font-bold text-gray-900 flex items-center justify-center gap-2 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-sm cursor-pointer min-h-[44px] disabled:opacity-50"
+                >
+                  <GoogleIcon />
+                  {googleLoading ? "Skickar vidare..." : "Fortsätt med Google"}
+                </button>
+
+                <div className="flex items-center py-1">
+                  <div className="flex-grow border-t border-[#EDEADF]" />
+                  <span className="mx-3 flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-gray-400">eller via e-post</span>
+                  <div className="flex-grow border-t border-[#EDEADF]" />
+                </div>
+
+                <AuthForm onSuccess={showSuccess} onError={showError} />
+              </div>
+            )}
           </div>
 
-          {/* Auth-panel */}
-          {supabaseActive && (
-            <div className="bg-[#EEF4F8] p-4 rounded-xl border border-[#D5E1EA] space-y-3.5 text-left">
-              <div className="flex items-center gap-2">
-                <LucideIcon name="lock" className="w-4 h-4 text-primary" />
-                <h3 className="font-display text-xs font-extrabold text-on-surface">
-                  {sessionUser ? "Ditt synkkonto" : "Logga in för listdelning"}
-                </h3>
-              </div>
-
-              {sessionUser ? (
-                <div className="space-y-3">
-                  <div className="p-2.5 bg-white/60 border border-stroke rounded-lg">
-                    <p className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider">Inloggad som</p>
-                    <p className="font-mono text-xs font-bold text-text-main truncate mt-0.5">{sessionUser.email}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => { const e = prompt("Kompis e-post:"); if (e?.trim()) setSuccess(`Inbjudan skickad till ${e.trim()}`); }}
-                      className="flex-1 bg-primary text-white py-1.5 px-3 rounded-lg text-xs font-bold hover:bg-primary-container transition-all active:scale-95 cursor-pointer"
-                    >
-                      Bjud in till lista
-                    </button>
-                    <button onClick={handleLogout} className="bg-neutral-200 hover:bg-neutral-300 text-neutral-800 py-1.5 px-3 rounded-lg text-xs font-bold cursor-pointer">
-                      Logga ut
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <AuthForm onSuccess={handleAuthSuccess} onError={setError} />
-              )}
-            </div>
-          )}
-
-          {/* Återställning */}
-          <div className="space-y-2 pt-2 border-t border-surface-container-high/60">
-            <h3 className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider px-1">Fara & återställning</h3>
+          {/* RESET */}
+          <div className="space-y-2 border-t border-[#EDEADF] pt-2">
+            <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fara &amp; återställning</h3>
             <button
-              onClick={() => { if (window.confirm("Återställa alla listor?")) { onResetLists(); onClose(); } }}
-              className="w-full py-3 bg-error text-white font-sans text-xs font-bold rounded-xl hover:bg-error/90 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              type="button"
+              onClick={() => {
+                if (window.confirm("Är du säker på att du vill återställa alla listor?")) {
+                  onResetLists();
+                  onClose();
+                }
+              }}
+              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-xs font-bold text-white transition-transform hover:bg-red-600 active:scale-[0.97]"
             >
-              <LucideIcon name="archive" className="w-4 h-4" />
+              <LucideIcon name="archive" className="h-4 w-4" />
               <span>Återställ standardlistor</span>
             </button>
           </div>
         </div>
 
-        <div className="text-center font-sans text-[10px] text-outline mt-6 font-medium">
-          Hem-Listan v1.3 &bull; Molnsynk &bull; Smidig Listdelning
+        <div className="text-center text-[10px] text-gray-400 mt-6 font-medium">
+          Hem-Listan v1.3 &bull; Smarta listor för hemmet
         </div>
       </motion.div>
     </div>

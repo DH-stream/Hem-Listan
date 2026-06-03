@@ -52,51 +52,59 @@ export const getLocalCredentials = () => ({
 
 // ── Databasoperationer ───────────────────────────────────────────────
 
-// Hämta alla listor för inloggad användare
+// Hämta alla listor för inloggad användare (egna + delade)
 export const fetchLists = async (): Promise<List[]> => {
   const client = getSupabaseClient();
   if (!client) return [];
   const { data: { user } } = await client.auth.getUser();
   if (!user) return [];
 
+  // Hämta listor som användaren äger eller är medlem i
   const { data: listsData, error } = await client
     .from('hl_lists')
     .select('*')
     .order('created_at', { ascending: false });
 
-  if (error || !listsData) return [];
+  if (error || !listsData || listsData.length === 0) return [];
 
-  // Hämta tasks + meals för alla listor parallellt
   const listIds = listsData.map(l => l.id);
 
+  // Hämta tasks + meals för alla dessa listor parallellt
   const [{ data: tasksData }, { data: mealsData }] = await Promise.all([
-    client.from('hl_tasks').select('*').in('list_id', listIds).order('sort_order', { ascending: true }),
-    client.from('hl_meals').select('*').in('list_id', listIds)
+    client
+      .from('hl_tasks')
+      .select('*')
+      .in('list_id', listIds)
+      .order('sort_order', { ascending: true }),
+    client
+      .from('hl_meals')
+      .select('*')
+      .in('list_id', listIds)
   ]);
 
   return listsData.map(l => ({
     id: l.id,
     name: l.name,
-    icon: l.icon,
-    themeColor: l.theme_color,
-    category: l.category,
+    icon: l.icon || 'list',
+    themeColor: l.theme_color || '#1a5319',
+    category: l.category as "renovation" | "grocery" | "general",
     tasks: (tasksData || [])
       .filter(t => t.list_id === l.id)
       .map(t => ({
         id: t.id,
         text: t.text,
-        checked: t.checked,
-        notes: t.notes,
-        type: t.type,
-        url: t.url,
-        progress: t.progress,
+        checked: t.checked ?? false,
+        notes: t.notes || undefined,
+        type: (t.type || 'task') as "task" | "note" | "progress" | "link",
+        url: t.url || undefined,
+        progress: t.progress !== null ? t.progress : undefined,
       })),
     meals: (mealsData || [])
       .filter(m => m.list_id === l.id)
       .map(m => ({
         id: m.id,
         day: m.day,
-        type: m.type,
+        type: m.type as any,
         name: m.name,
       })),
   }));
@@ -109,19 +117,31 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<s
   const { data: { user } } = await client.auth.getUser();
   if (!user) return null;
 
+  // Förbered datan. Om list.id skickas med från App.tsx men är ett tillfälligt sträng-id
+  // (och inte en giltig UUID), låter vi Postgres gen_random_uuid() generera ett riktigt UUID.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(list.id);
+  const insertData: any = {
+    owner_id: user.id,
+    name: list.name,
+    icon: list.icon || 'list',
+    theme_color: list.themeColor || '#1a5319',
+    category: list.category || 'general',
+  };
+
+  if (isUuid) {
+    insertData.id = list.id;
+  }
+
   const { data, error } = await client
     .from('hl_lists')
-    .insert({
-      owner_id: user.id,
-      name: list.name,
-      icon: list.icon,
-      theme_color: list.themeColor,
-      category: list.category,
-    })
+    .insert(insertData)
     .select('id')
     .single();
 
-  if (error || !data) return null;
+  if (error || !data) {
+    console.error("Error creating list:", error);
+    return null;
+  }
   return data.id;
 };
 
@@ -144,23 +164,35 @@ export const deleteList = async (listId: string) => {
 };
 
 // Lägg till task
-export const addTask = async (listId: string, task: Omit<TaskItem, 'id'>): Promise<string | null> => {
+export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?: string }): Promise<string | null> => {
   const client = getSupabaseClient();
   if (!client) return null;
+
+  const isUuid = task.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(task.id) : false;
+  const insertData: any = {
+    list_id: listId,
+    text: task.text,
+    checked: task.checked ?? false,
+    notes: task.notes || null,
+    type: task.type ?? 'task',
+    url: task.url || null,
+    progress: task.progress !== undefined ? task.progress : null,
+  };
+
+  if (isUuid && task.id) {
+    insertData.id = task.id;
+  }
+
   const { data, error } = await client
     .from('hl_tasks')
-    .insert({
-      list_id: listId,
-      text: task.text,
-      checked: task.checked ?? false,
-      notes: task.notes,
-      type: task.type ?? 'task',
-      url: task.url,
-      progress: task.progress,
-    })
+    .insert(insertData)
     .select('id')
     .single();
-  if (error || !data) return null;
+
+  if (error || !data) {
+    console.error("Error adding task:", error);
+    return null;
+  }
   return data.id;
 };
 
@@ -196,13 +228,28 @@ export const upsertMeal = async (listId: string, meal: { id?: string; day: strin
     .eq('day', meal.day)
     .eq('type', meal.type);
 
+  const isUuid = meal.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meal.id) : false;
+  const insertData: any = {
+    list_id: listId,
+    day: meal.day,
+    type: meal.type,
+    name: meal.name
+  };
+
+  if (isUuid && meal.id) {
+    insertData.id = meal.id;
+  }
+
   const { data, error } = await client
     .from('hl_meals')
-    .insert({ list_id: listId, day: meal.day, type: meal.type, name: meal.name })
+    .insert(insertData)
     .select('id')
     .single();
 
-  if (error || !data) return null;
+  if (error || !data) {
+    console.error("Error upserting meal:", error);
+    return null;
+  }
   return data.id;
 };
 
