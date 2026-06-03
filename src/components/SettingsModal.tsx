@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ── INTERNA INLINE SVGs ──────────────────────────────────────────────
@@ -15,7 +15,6 @@ const InlineIcon = memo(({ name, className = "w-5 h-5" }) => {
   return svgs[name] || null;
 });
 
-// ── HUVUDKOMPONENT ──────────────────────────────────────────────────
 export default function App() {
   const [isOpen, setIsOpen] = useState(true);
   const [userName, setUserName] = useState("Hem-Listan");
@@ -37,111 +36,100 @@ export default function App() {
 }
 
 function SettingsModal({ userName, onUpdateUserName, onClose, onResetLists }) {
-  const [authMode, setAuthMode] = useState("default"); // 'default' eller 'email'
+  const [authMode, setAuthMode] = useState("default");
+  const [profileImage, setProfileImage] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Ladda bild från LocalStorage
+  useEffect(() => {
+    const savedImage = localStorage.getItem("user_profile_image");
+    if (savedImage) setProfileImage(savedImage);
+  }, []);
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result;
+        setProfileImage(base64String);
+        localStorage.setItem("user_profile_image", base64String);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
   
   return (
     <motion.div 
-      initial={{ opacity: 0, scale: 0.98 }} 
-      animate={{ opacity: 1, scale: 1 }} 
-      exit={{ opacity: 0, scale: 0.98 }}
-      className="bg-white w-full max-w-[420px] rounded-3xl shadow-2xl relative overflow-hidden flex flex-col max-h-[85vh]"
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between p-6 pb-2">
-        <div className="flex items-center gap-2 text-gray-900">
-          <InlineIcon name="settings" className="w-5 h-5" />
-          <h2 className="text-xl font-bold">Inställningar</h2>
-        </div>
-        <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
-          <InlineIcon name="close" className="w-6 h-6" />
-        </button>
-      </div>
-
-      <div className="overflow-y-auto p-6 pt-2 space-y-6">
-        
-        {/* Profilsektion */}
-        <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="relative">
-              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                <InlineIcon name="person" className="w-8 h-8 text-gray-400" />
-              </div>
-              <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white p-1 rounded-full border-2 border-white">
-                <InlineIcon name="photo_camera" className="w-3 h-3" />
-              </div>
-            </div>
-            <div>
-              <p className="font-bold text-gray-900">{userName}</p>
-              <p className="text-sm text-gray-500">Lokal profil</p>
-              <button className="text-emerald-600 text-xs font-bold mt-1">Lägg till bild</button>
-            </div>
+      <motion.div 
+        initial={{ scale: 0.95 }} 
+        animate={{ scale: 1 }} 
+        exit={{ scale: 0.95 }}
+        className="bg-white w-full max-w-[420px] rounded-3xl shadow-2xl relative overflow-hidden flex flex-col max-h-[85vh]"
+      >
+        <div className="flex items-center justify-between p-6 pb-2">
+          <div className="flex items-center gap-2 text-gray-900">
+            <InlineIcon name="settings" className="w-5 h-5" />
+            <h2 className="text-xl font-bold">Inställningar</h2>
           </div>
-          
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Visningsnamn</label>
-          <div className="flex gap-2">
-            <input 
-              value={userName} 
-              onChange={(e) => onUpdateUserName(e.target.value)}
-              className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
-            />
-            <button className="bg-emerald-600 text-white px-5 rounded-xl font-bold text-sm hover:bg-emerald-700">Spara</button>
-          </div>
-        </div>
-
-        {/* Konto & Delning */}
-        <div className="bg-[#FAF9F5] border border-[#EDEADF] rounded-2xl p-4">
-          <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-            Konto & Delning ⓘ
-          </h3>
-          
-          <div className="space-y-2 mb-4">
-            {["Dela inköpslistor med vänner eller familj", "Använd samma listor på flera enheter", "Koppla listor till HomeBoard"].map((text) => (
-              <div key={text} className="flex items-center gap-2 text-xs text-[#5D584B]">
-                <InlineIcon name="check" className="w-4 h-4 text-emerald-600" />
-                <span>{text}</span>
-              </div>
-            ))}
-          </div>
-
-          {authMode === "default" ? (
-             <div className="space-y-3">
-              <button className="w-full bg-white border border-[#EDEADF] py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-white/80 shadow-sm">
-                <InlineIcon name="google" className="w-5 h-5" />
-                Fortsätt med Google
-              </button>
-              <button 
-                onClick={() => setAuthMode("email")}
-                className="w-full text-center text-xs text-gray-500 font-bold hover:underline py-2"
-              >
-                Logga in med e-post
-              </button>
-             </div>
-          ) : (
-            <div className="space-y-3 animate-in fade-in duration-300">
-              <input placeholder="E-postadress" className="w-full bg-white border border-[#EDEADF] rounded-xl px-4 py-3 text-sm" />
-              <input placeholder="Lösenord (minst 6 tecken)" type="password" className="w-full bg-white border border-[#EDEADF] rounded-xl px-4 py-3 text-sm" />
-              <button className="w-full bg-[#2D3E50] text-white py-3 rounded-xl font-bold text-sm">Logga in</button>
-              <button onClick={() => setAuthMode("default")} className="w-full text-center text-emerald-600 text-xs font-bold hover:underline">Ny här? Skapa konto</button>
-            </div>
-          )}
-        </div>
-
-        {/* Fara & återställning */}
-        <div>
-          <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Fara & återställning</label>
-          <button 
-            onClick={onResetLists}
-            className="w-full bg-red-500 text-white py-3 rounded-xl font-bold text-sm hover:bg-red-600 flex items-center justify-center gap-2"
-          >
-            <InlineIcon name="archive" className="w-4 h-4" />
-            Återställ standardlistor
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
+            <InlineIcon name="close" className="w-6 h-6" />
           </button>
         </div>
-      </div>
 
-      <div className="p-4 text-center text-xs text-gray-400 border-t border-gray-100">
-        Hem-Listan v1.3 • Alltid Synkat
-      </div>
+        <div className="overflow-y-auto p-6 pt-2 space-y-6">
+          <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="relative cursor-pointer group" onClick={() => fileInputRef.current.click()}>
+                <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden border-2 border-white shadow-sm hover:opacity-90">
+                  {profileImage ? (
+                    <img src={profileImage} alt="Profil" className="w-full h-full object-cover" />
+                  ) : (
+                    <InlineIcon name="person" className="w-8 h-8 text-gray-400" />
+                  )}
+                </div>
+                <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white p-1 rounded-full border-2 border-white">
+                  <InlineIcon name="photo_camera" className="w-3 h-3" />
+                </div>
+              </div>
+              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageChange} />
+              
+              <div>
+                <p className="font-bold text-gray-900">{userName}</p>
+                <p className="text-sm text-gray-500">Lokal profil</p>
+                <button onClick={() => fileInputRef.current.click()} className="text-emerald-600 text-xs font-bold mt-1 hover:underline">Ändra bild</button>
+              </div>
+            </div>
+            
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-2">Visningsnamn</label>
+            <div className="flex gap-2">
+              <input 
+                value={userName} 
+                onChange={(e) => onUpdateUserName(e.target.value)}
+                className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <button className="bg-emerald-600 text-white px-5 rounded-xl font-bold text-sm hover:bg-emerald-700">Spara</button>
+            </div>
+          </div>
+
+          <div className="bg-[#FAF9F5] border border-[#EDEADF] rounded-2xl p-4">
+            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">Konto & Delning ⓘ</h3>
+            {authMode === "default" ? (
+               <div className="space-y-3">
+                <button className="w-full bg-white border border-[#EDEADF] py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-white/80 shadow-sm">
+                  <InlineIcon name="google" className="w-5 h-5" />
+                  Fortsätt med Google
+                </button>
+               </div>
+            ) : null}
+          </div>
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
