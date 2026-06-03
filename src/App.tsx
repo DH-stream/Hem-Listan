@@ -1,4 +1,4 @@
-import { useState, startTransition } from "react";
+import { useState, useEffect, startTransition, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { List, Stats, MealType, TaskItem } from "./types";
 import { INITIAL_LISTS } from "./data";
@@ -8,520 +8,235 @@ import ListDetailGrocery from "./components/ListDetailGrocery";
 import CreateListView from "./components/CreateListView";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
+import {
+  getSupabaseClient,
+  isSupabaseConfigured,
+  fetchLists,
+  createList,
+  addTask,
+  updateTask,
+  deleteTask,
+  upsertMeal,
+  deleteMeal,
+} from "./lib/supabase";
+
+// ── localStorage helpers ─────────────────────────────────────────────
+const loadLocalLists = (): List[] => {
+  try {
+    const saved = localStorage.getItem("hem-listan-lists");
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return INITIAL_LISTS;
+};
+
+const saveLocalLists = (lists: List[]) => {
+  try {
+    localStorage.setItem("hem-listan-lists", JSON.stringify(lists));
+  } catch (e) {
+    console.warn("localStorage write error:", e);
+  }
+};
 
 export default function App() {
-  const [lists, setLists] = useState<List[]>(() => {
-    try {
-      const saved = localStorage.getItem("hem-listan-lists");
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error("Could not load lists from localStorage", e);
-    }
-    return INITIAL_LISTS;
-  });
-
+  const [lists, setLists] = useState<List[]>(loadLocalLists);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pulseCount, setPulseCount] = useState(0);
+  const realtimeRef = useRef<any>(null);
 
-  const [userName, setUserName] = useState<string>(() => {
-    try {
-      return localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan";
-    } catch {
-      return "Hem-Listan";
-    }
-  });
+  const [userName, setUserName] = useState<string>(
+    () => localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan"
+  );
+  const [userImage, setUserImage] = useState<string>(
+    () => localStorage.getItem("user_profile_image") ?? ""
+  );
 
-  // ── NY: userImage från localStorage ──
-  const [userImage, setUserImage] = useState<string>(() => {
-    try {
-      return localStorage.getItem("user_profile_image") ?? "";
-    } catch {
-      return "";
-    }
-  });
+  // ── Auth + Supabase init ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const client = getSupabaseClient();
+    if (!client) return;
 
-  const handleUpdateUserName = (newName: string) => {
-    setUserName(newName);
-    try {
-      localStorage.setItem("hem-listan-user-name", newName);
-    } catch (e) {
-      console.warn("Could not save username", e);
+    const initAuth = async () => {
+      const { data: { user } } = await client.auth.getUser();
+      if (user) {
+        setIsLoggedIn(true);
+        await loadFromSupabase();
+        subscribeRealtime();
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        setIsLoggedIn(true);
+        const localLists = loadLocalLists();
+        const hasCustomLists = JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
+        if (hasCustomLists) await migrateLocalToSupabase(localLists);
+        await loadFromSupabase();
+        subscribeRealtime();
+      } else if (event === "SIGNED_OUT") {
+        setIsLoggedIn(false);
+        unsubscribeRealtime();
+        setLists(loadLocalLists());
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      unsubscribeRealtime();
+    };
+  }, []);
+
+  const loadFromSupabase = async () => {
+    const fetched = await fetchLists();
+    if (fetched.length > 0) {
+      setLists(fetched);
+      saveLocalLists(fetched);
     }
   };
 
-  // ── NY: handleUpdateUserImage ──
+  const migrateLocalToSupabase = async (localLists: List[]) => {
+    for (const list of localLists) {
+      const newId = await createList(list);
+      if (!newId) continue;
+      for (const task of list.tasks) {
+        await addTask(newId, task);
+      }
+      for (const meal of list.meals ?? []) {
+        await upsertMeal(newId, meal);
+      }
+    }
+  };
+
+  const subscribeRealtime = () => {
+    const client = getSupabaseClient();
+    if (!client) return;
+    unsubscribeRealtime();
+    realtimeRef.current = client
+      .channel('hl_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hl_lists' }, () => loadFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hl_tasks' }, () => loadFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hl_meals' }, () => loadFromSupabase())
+      .subscribe();
+  };
+
+  const unsubscribeRealtime = () => {
+    const client = getSupabaseClient();
+    if (realtimeRef.current) {
+      client?.removeChannel(realtimeRef.current);
+      realtimeRef.current = null;
+    }
+  };
+
+  // ── Hjälpfunktion: uppdatera state + localStorage ────────────────
+  const applyAndSync = (updatedLists: List[]) => {
+    setLists(updatedLists);
+    setPulseCount(p => p + 1);
+    saveLocalLists(updatedLists);
+  };
+
+  // ── Stats ────────────────────────────────────────────────────────
+  const getStats = (): Stats => {
+    let itemsLeft = 0, completed = 0;
+    lists.forEach(l => l.tasks.forEach(t => t.checked ? completed++ : itemsLeft++));
+    return { listsCount: lists.length, itemsLeftCount: itemsLeft, completedCount: completed };
+  };
+
+  // ── Handlers ─────────────────────────────────────────────────────
+  const handleUpdateUserName = (name: string) => {
+    setUserName(name);
+    localStorage.setItem("hem-listan-user-name", name);
+  };
+
   const handleUpdateUserImage = (base64: string) => {
     setUserImage(base64);
-    try {
-      if (base64) {
-        localStorage.setItem("user_profile_image", base64);
-      } else {
-        localStorage.removeItem("user_profile_image");
-      }
-    } catch (e) {
-      console.warn("Could not save user image", e);
-    }
+    if (base64) localStorage.setItem("user_profile_image", base64);
+    else localStorage.removeItem("user_profile_image");
   };
 
-  const saveLists = (updatedLists: List[]) => {
-    setLists(updatedLists);
-    setPulseCount((prev) => prev + 1);
-    try {
-      localStorage.setItem("hem-listan-lists", JSON.stringify(updatedLists));
-    } catch (e) {
-      console.warn("localStorage quota or write error occured:", e);
-    }
-  };
-
-  const getStats = (): Stats => {
-    const listCount = lists.length;
-    let itemsLeft = 0;
-    let completed = 0;
-    lists.forEach((list) => {
-      list.tasks.forEach((t) => {
-        if (t.checked) completed++;
-        else itemsLeft++;
-      });
+  const handleToggleTask = async (listId: string, taskId: string) => {
+    const task = lists.find(l => l.id === listId)?.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const newChecked = !task.checked;
+    const updated = lists.map(l => l.id !== listId ? l : {
+      ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, checked: newChecked } : t)
     });
-    return { listsCount: listCount, itemsLeftCount: itemsLeft, completedCount: completed };
+    applyAndSync(updated);
+    if (isLoggedIn) await updateTask(taskId, { checked: newChecked });
   };
 
-  const handleToggleTask = (listId: string, taskId: string) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return {
-          ...list,
-          tasks: list.tasks.map((task) =>
-            task.id === taskId ? { ...task, checked: !task.checked } : task
-          )
-        };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleAddTask = (
-    listId: string,
-    text: string,
-    categoryName?: string,
+  const handleAddTask = async (
+    listId: string, text: string, categoryName?: string,
     taskType?: "task" | "note" | "progress" | "link",
-    url?: string,
-    notes?: string,
-    progress?: number
+    url?: string, notes?: string, progress?: number
   ) => {
-    const newTask = {
-      id: `task-${Date.now()}-${Math.floor(Math.random() * 1050)}`,
-      text,
-      checked: false,
+    const tempId = `task-${Date.now()}-${Math.floor(Math.random() * 1050)}`;
+    const newTask: TaskItem = {
+      id: tempId, text, checked: false,
       notes: notes || categoryName,
       type: taskType || "task",
-      url,
-      progress
+      url, progress
     };
-    const updated = lists.map((list) => {
-      if (list.id === listId) return { ...list, tasks: [newTask, ...list.tasks] };
-      return list;
-    });
-    saveLists(updated);
-  };
+    const updated = lists.map(l => l.id !== listId ? l : { ...l, tasks: [newTask, ...l.tasks] });
+    applyAndSync(updated);
 
-  const handleUpdateTask = (listId: string, taskId: string, updates: Partial<TaskItem>) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return {
-          ...list,
-          tasks: list.tasks.map((task) =>
-            task.id === taskId ? { ...task, ...updates } : task
-          )
-        };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleResetList = (listId: string) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return {
-          ...list,
-          tasks: list.tasks.map((task) => ({
-            ...task,
-            checked: false,
-            progress: task.progress !== undefined ? 0 : undefined
-          }))
-        };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleDeleteTask = (listId: string, taskId: string) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return { ...list, tasks: list.tasks.filter((task) => task.id !== taskId) };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleAddMeal = (listId: string, day: string, type: MealType, name: string) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        const currentMeals = list.meals ? [...list.meals] : [];
-        const existingIdx = currentMeals.findIndex((m) => m.day === day && m.type === type);
-        const newMeal = { id: `meal-${Date.now()}`, day, type, name };
-        if (existingIdx !== -1) currentMeals[existingIdx] = newMeal;
-        else currentMeals.push(newMeal);
-        return { ...list, meals: currentMeals };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleDeleteMeal = (listId: string, mealId: string) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        return { ...list, meals: list.meals ? list.meals.filter((m) => m.id !== mealId) : [] };
-      }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleBulkAddGroceryDetails = (
-    listId: string,
-    mealName: string,
-    ingredients: { text: string; quantity: string; category: string }[]
-  ) => {
-    const updated = lists.map((list) => {
-      if (list.id === listId) {
-        const currentMeals = list.meals ? [...list.meals] : [];
-        const targetedDays = ["Tisdag", "Onsdag", "Torsdag", "Fredag", "Måndag", "Lördag", "Söndag"];
-        let slottedDay = "Onsdag";
-        for (const day of targetedDays) {
-          const hasDinnerSelection = currentMeals.some((m) => m.day === day && m.type === "middag");
-          if (!hasDinnerSelection) { slottedDay = day; break; }
-        }
-        currentMeals.push({ id: `meal-${Date.now()}-imported`, day: slottedDay, type: "middag", name: mealName });
-        const newGroceryItems = ingredients.map((ing, idx) => ({
-          id: `task-imported-${Date.now()}-${idx}`,
-          text: `${ing.text} (${ing.quantity})`,
-          checked: false,
-          notes: ing.category
+    if (isLoggedIn) {
+      const dbId = await addTask(listId, newTask);
+      if (dbId) {
+        setLists(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, tasks: l.tasks.map(t => t.id === tempId ? { ...t, id: dbId } : t)
         }));
-        return { ...list, meals: currentMeals, tasks: [...newGroceryItems, ...list.tasks] };
       }
-      return list;
-    });
-    saveLists(updated);
-  };
-
-  const handleAddNewList = (
-    name: string,
-    icon: string,
-    themeColor: string,
-    category: "renovation" | "grocery" | "general"
-  ) => {
-    const newList: List = {
-      id: `list-${Date.now()}`,
-      name, icon, themeColor, category,
-      tasks: [],
-      meals: category === "grocery" ? [] : undefined
-    };
-    saveLists([newList, ...lists]);
-    setPulseCount((prev) => prev + 1);
-    startTransition(() => setCurrentView("dashboard"));
-  };
-
-  const handleAddListFromTemplate = (template: any) => {
-    const instantiated: List = {
-      id: `list-${Date.now()}-${Math.floor(Math.random() * 100)}`,
-      name: template.name,
-      icon: template.icon,
-      themeColor: template.themeColor,
-      category: template.category,
-      tasks: template.tasks.map((t: any, idx: number) => ({ ...t, id: `task-${Date.now()}-${idx}` }))
-    };
-    saveLists([instantiated, ...lists]);
-  };
-
-  const handleResetLists = () => {
-    localStorage.removeItem("hem-listan-lists");
-    saveLists(INITIAL_LISTS);
-  };
-
-  const handleSelectList = (id: string) => {
-    setSelectedListId(id);
-    setPulseCount((prev) => prev + 1);
-    startTransition(() => setCurrentView("detail"));
-  };
-
-  const activeList = lists.find((l) => l.id === selectedListId);
-
-  const getAmbientColors = () => {
-    if (currentView === "create") return { blob1: "bg-[#FFE4E1]/40", blob2: "bg-[#E0F2F1]/50", scale: 1.15 };
-    if (currentView === "detail" && activeList) {
-      if (activeList.category === "grocery") return { blob1: "bg-[#A5D6A7]/30", blob2: "bg-[#80DEEA]/35", scale: 1.25 };
-      if (activeList.category === "renovation") return { blob1: "bg-[#FFCC80]/25", blob2: "bg-[#FFE082]/25", scale: 1.1 };
     }
-    return { blob1: "bg-[#C8E6C9]/25", blob2: "bg-[#FFE0B2]/30", scale: 1.0 };
   };
 
-  const ambient = getAmbientColors();
+  const handleUpdateTask = async (listId: string, taskId: string, updates: Partial<TaskItem>) => {
+    const updated = lists.map(l => l.id !== listId ? l : {
+      ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
+    });
+    applyAndSync(updated);
+    if (isLoggedIn) await updateTask(taskId, updates);
+  };
 
-  return (
-    <div className="min-h-screen bg-transparent font-sans antialiased text-on-surface flex flex-col items-center relative">
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute inset-0 bg-[#fcf9f8] transition-colors duration-1000" />
-        <AnimatePresence mode="popLayout">
-          <motion.div
-            key={`blob1-${currentView}-${activeList?.category}-${pulseCount}`}
-            className={`absolute top-[-10%] left-[-10%] w-[80vw] md:w-[600px] h-[80vw] md:h-[600px] rounded-full filter blur-[70px] md:blur-[110px] mix-blend-multiply ${ambient.blob1}`}
-            initial={{ scale: ambient.scale * 0.8, opacity: 0 }}
-            animate={{
-              scale: [ambient.scale * 0.9, ambient.scale * 1.08, ambient.scale],
-              opacity: [0.35, 0.65, 0.5],
-              x: ["0px", "20px", "-15px", "0px"],
-              y: ["0px", "-30px", "15px", "0px"]
-            }}
-            transition={{
-              scale: { duration: 0.7, ease: "easeOut" },
-              opacity: { duration: 0.7 },
-              x: { repeat: Infinity, duration: 25, ease: "easeInOut" },
-              y: { repeat: Infinity, duration: 20, ease: "easeInOut" }
-            }}
-          />
-          <motion.div
-            key={`blob2-${currentView}-${activeList?.category}-${pulseCount}`}
-            className={`absolute bottom-[-10%] right-[-10%] w-[85vw] md:w-[650px] h-[85vw] md:h-[650px] rounded-full filter blur-[80px] md:blur-[120px] mix-blend-multiply ${ambient.blob2}`}
-            initial={{ scale: ambient.scale * 0.8, opacity: 0 }}
-            animate={{
-              scale: [ambient.scale * 0.9, ambient.scale * 1.06, ambient.scale],
-              opacity: [0.3, 0.55, 0.45],
-              x: ["0px", "-25px", "10px", "0px"],
-              y: ["0px", "20px", "-15px", "0px"]
-            }}
-            transition={{
-              scale: { duration: 0.8, ease: "easeOut" },
-              opacity: { duration: 0.8 },
-              x: { repeat: Infinity, duration: 28, ease: "easeInOut" },
-              y: { repeat: Infinity, duration: 24, ease: "easeInOut" }
-            }}
-          />
-        </AnimatePresence>
-        <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/[0.01]" />
-      </div>
+  const handleDeleteTask = async (listId: string, taskId: string) => {
+    const updated = lists.map(l => l.id !== listId ? l : {
+      ...l, tasks: l.tasks.filter(t => t.id !== taskId)
+    });
+    applyAndSync(updated);
+    if (isLoggedIn) await deleteTask(taskId);
+  };
 
-      <main className="w-full flex-1 z-10">
-        <AnimatePresence mode="wait">
-          {currentView === "dashboard" && (
-            <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-              <DashboardView
-                lists={lists}
-                stats={getStats()}
-                userName={userName}
-                userImage={userImage}
-                onSelectList={handleSelectList}
-                onTriggerCreate={() => startTransition(() => setCurrentView("create"))}
-                onAddListFromTemplate={handleAddListFromTemplate}
-                onOpenSettings={() => setShowSettings(true)}
-              />
-            </motion.div>
-          )}
+  const handleResetList = async (listId: string) => {
+    const list = lists.find(l => l.id === listId);
+    const updated = lists.map(l => l.id !== listId ? l : {
+      ...l, tasks: l.tasks.map(t => ({ ...t, checked: false, progress: t.progress !== undefined ? 0 : undefined }))
+    });
+    applyAndSync(updated);
+    if (isLoggedIn && list) {
+      await Promise.all(list.tasks.map(t => updateTask(t.id, { checked: false })));
+    }
+  };
 
-          {currentView === "create" && (
-            <motion.div key="create" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.25 }}>
-              <CreateListView
-                onCancel={() => startTransition(() => setCurrentView("dashboard"))}
-                onCreateList={handleAddNewList}
-              />
-            </motion.div>
-          )}
+  const handleAddMeal = async (listId: string, day: string, type: MealType, name: string) => {
+    const tempId = `meal-${Date.now()}`;
+    const newMeal = { id: tempId, day, type, name };
+    const updated = lists.map(l => {
+      if (l.id !== listId) return l;
+      const meals = [...(l.meals ?? [])];
+      const idx = meals.findIndex(m => m.day === day && m.type === type);
+      if (idx !== -1) meals[idx] = newMeal; else meals.push(newMeal);
+      return { ...l, meals };
+    });
+    applyAndSync(updated);
 
-          {currentView === "detail" && activeList && (
-            <motion.div key={`detail-${activeList.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-              {activeList.category === "grocery" ? (
-                <ListDetailGrocery
-                  list={activeList}
-                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
-                  onToggleTask={handleToggleTask}
-                  onAddTask={handleAddTask}
-                  onDeleteTask={handleDeleteTask}
-                  onUpdateTask={handleUpdateTask}
-                  onResetList={handleResetList}
-                  onAddMeal={handleAddMeal}
-                  onDeleteMeal={handleDeleteMeal}
-                  onBulkAddGroceryDetails={handleBulkAddGroceryDetails}
-                />
-              ) : (
-                <ListDetailRenovation
-                  list={activeList}
-                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
-                  onToggleTask={handleToggleTask}
-                  onAddTask={handleAddTask}
-                  onDeleteTask={handleDeleteTask}
-                  onUpdateTask={handleUpdateTask}
-                  onResetList={handleResetList}
-                />
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-
-      <AnimatePresence>
-        {showSettings && (
-          <SettingsModal
-            userName={userName}
-            userImage={userImage}
-            onUpdateUserName={handleUpdateUserName}
-            onUpdateUserImage={handleUpdateUserImage}
-            onClose={() => setShowSettings(false)}
-            onResetLists={handleResetLists}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showSearch && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/60 backdrop-blur-sm pt-[10vh]">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="w-full max-w-lg bg-white rounded-2xl p-5 shadow-2xl relative border border-surface-container overflow-hidden text-left"
-            >
-              <button onClick={() => setShowSearch(false)} className="absolute top-4 right-4 p-1.5 text-outline hover:bg-surface-container-high rounded-full transition-colors cursor-pointer z-10 outline-none">
-                <LucideIcon name="close" className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3 mb-4">
-                <LucideIcon name="search" className="w-5 h-5 text-primary" />
-                <h3 className="font-display text-sm font-bold text-text-main leading-none">Sök i dina bento-listor</h3>
-              </div>
-
-              <div className="relative mb-4">
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Sök efter sysslor, matvaror, länkar..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-surface-container-lowest border border-surface-container-high rounded-xl pl-10 pr-10 py-3 text-xs focus:ring-2 focus:ring-primary focus:border-primary outline-none font-sans font-medium text-text-main placeholder:text-outline/40"
-                />
-                <div className="w-4 h-4 text-outline/50 absolute left-3.5 top-3.5 flex items-center justify-center">
-                  <LucideIcon name="search" className="w-4 h-4" />
-                </div>
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-3.5 text-outline/50 hover:text-text-main p-0.5 rounded-full hover:bg-surface-container transition-colors outline-none cursor-pointer">
-                    <LucideIcon name="close" className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <div className="max-h-[50vh] overflow-y-auto no-scrollbar space-y-2 pr-1">
-                {searchQuery.trim() === "" ? (
-                  <div className="text-center py-6 text-outline font-sans text-xs">
-                    <p className="font-medium">Skriv för att börja söka...</p>
-                    <p className="text-[10px] mt-1 text-outline/65">Sökningen uppdateras live för alla dina skapade bento-listor.</p>
-                  </div>
-                ) : (() => {
-                  const query = searchQuery.toLowerCase();
-                  const results: { list: List; task: TaskItem }[] = [];
-                  lists.forEach((list) => {
-                    list.tasks.forEach((task) => {
-                      if (task.text.toLowerCase().includes(query) || (task.notes && task.notes.toLowerCase().includes(query))) {
-                        results.push({ list, task });
-                      }
-                    });
-                  });
-
-                  if (results.length === 0) {
-                    return (
-                      <div className="text-center py-6 text-outline font-sans text-xs">
-                        <p className="font-bold text-accent-rust">Inga resultat matchar &ldquo;{searchQuery}&rdquo;</p>
-                        <p className="text-[10px] mt-1 text-outline/65">Försök kontrollera stavningen eller lägg till en ny uppgift.</p>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-2">
-                      <p className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider mb-2 select-none">
-                        Hittade matchningar ({results.length})
-                      </p>
-                      {results.map(({ list, task }) => (
-                        <div key={task.id} className="p-3 rounded-xl border border-surface-container bg-white flex items-center justify-between gap-3 hover:border-primary-container hover:bg-surface-container-lowest transition-all group">
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <button
-                              onClick={() => handleToggleTask(list.id, task.id)}
-                              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer outline-none ${task.checked ? "bg-secondary border-secondary text-white" : "hover:border-primary border-outline-variant bg-white"}`}
-                            >
-                              {task.checked && <LucideIcon name="check" className="w-3.5 h-3.5 stroke-[3]" />}
-                            </button>
-                            <div className="min-w-0 pr-1 flex-1">
-                              <p
-                                onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
-                                className={`font-sans text-xs font-semibold leading-snug cursor-pointer hover:text-primary transition-colors truncate ${task.checked ? "line-through text-outline/60" : "text-text-main"}`}
-                              >
-                                {task.text}
-                              </p>
-                              <span
-                                onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
-                                className="inline-flex items-center gap-1 font-sans text-[9px] font-bold text-outline hover:text-text-main transition-colors mt-0.5 cursor-pointer"
-                              >
-                                📂 {list.name}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => { handleSelectList(list.id); setShowSearch(false); }}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-outline hover:text-text-main hover:bg-surface-container rounded-full transition-all outline-none"
-                          >
-                            <LucideIcon name="chevron_right" className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {currentView === "dashboard" && (
-        <div className="fixed bottom-0 left-0 w-full z-10 flex justify-around items-center px-4 pb-4 pt-1 bg-surface-container-low dark:bg-surface-container-lowest border-t border-surface-container-high shadow-lg">
-          <button className="flex flex-col items-center justify-center text-primary bg-secondary-container rounded-full px-5 py-2 active:scale-95 transition-all text-xs font-bold gap-1 cursor-pointer">
-            <LucideIcon name="calendar" className="w-5 h-5" />
-            <span>Hem</span>
-          </button>
-          <button
-            onClick={() => { setSearchQuery(""); setShowSearch(true); }}
-            className="flex flex-col items-center justify-center text-on-surface-variant font-medium text-xs hover:bg-surface-variant/30 px-5 py-2 rounded-full active:scale-95 transition-all gap-1 cursor-pointer"
-          >
-            <LucideIcon name="search" className="w-5 h-5 text-outline" />
-            <span>Sök</span>
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex flex-col items-center justify-center text-on-surface-variant font-medium text-xs hover:bg-surface-variant/30 px-5 py-2 rounded-full active:scale-95 transition-all gap-1 cursor-pointer"
-          >
-            <LucideIcon name="settings" className="w-5 h-5 text-outline" />
-            <span>Inställningar</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+    if (isLoggedIn) {
+      const dbId = await upsertMeal(listId, newMeal);
+      if (dbId) {
+        setLists(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, meals: (l.meals ?? []).map(m => m.id === tempId ? { ...m, id: dbId } :
