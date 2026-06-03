@@ -259,28 +259,3 @@ export const deleteMeal = async (mealId: string) => {
   if (!client) return;
   await client.from('hl_meals').delete().eq('id', mealId);
 };
-
-// ── NY DELNINGS-METOD (Motsvarar din list-medlemskaps-logik i Supabase) ──
-export const inviteUserToList = async (listId: string, email: string): Promise<boolean> => {
-  const client = getSupabaseClient();
-  if (!client) return false;
-
-  try {
-    const { error } = await client
-      .from('hl_list_members')
-      .insert({
-        list_id: listId,
-        user_email: email.trim().toLowerCase(),
-        role: 'member'
-      });
-
-    if (error) {
-      console.error("Error sending invite:", error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("Invite execution failed:", err);
-    return false;
-  }
-};

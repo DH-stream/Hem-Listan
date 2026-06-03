@@ -35,6 +35,9 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
       return <Lucide.Plane {...props} />;
     case "settings":
       return <Lucide.Settings {...props} />;
+    case "person":
+    case "user":
+      return <Lucide.User {...props} />;
     case "arrow_back":
     case "arrowleft":
       return <Lucide.ArrowLeft {...props} />;
