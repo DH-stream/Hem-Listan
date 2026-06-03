@@ -67,7 +67,7 @@ const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: 
   const ref = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="space-y-2 pt-3 border-t border-surface-container-high/60">
+    <div className="space-y-2 pt-3 border-t border-[#E6E0D2]/70">
       <label className="font-sans text-[10px] font-bold text-outline uppercase tracking-wider block">
         Visningsnamn
       </label>
@@ -77,7 +77,7 @@ const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: 
           ref={ref}
           defaultValue={userName}
           placeholder="Hem-Listan"
-          className="min-h-[40px] flex-1 bg-white border border-surface-container-high rounded-lg px-3 py-2 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/40"
+          className="min-h-[40px] flex-1 border border-[#E6E0D2] bg-white/90 rounded-lg px-3 py-2 text-xs outline-none focus:border-[#1A5319] focus:ring-1 focus:ring-[#1A5319]/20"
         />
 
         <button
@@ -85,7 +85,7 @@ const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: 
             const v = ref.current?.value?.trim();
             if (v) onSave(v);
           }}
-          className="min-h-[40px] bg-primary text-white rounded-lg px-4 py-2 text-xs font-bold transition-transform active:scale-[0.97]"
+          className="min-h-[40px] bg-[#075C22] text-white rounded-lg px-4 py-2 text-xs font-bold transition-transform hover:bg-[#06491C] active:scale-[0.97]"
         >
           Spara
         </button>
@@ -149,14 +149,14 @@ const AuthForm = memo(({ onSuccess, onError }: { onSuccess: (message: string) =>
           ref={emailRef}
           type="email"
           placeholder="E-post"
-          className="min-h-[40px] w-full border border-[#EDEADF] rounded-lg px-3 py-2 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/40"
+          className="min-h-[40px] w-full border border-[#E6E0D2] bg-white/90 rounded-lg px-3 py-2 text-xs outline-none focus:border-[#1A5319] focus:ring-1 focus:ring-[#1A5319]/20"
         />
 
         <input
           ref={passRef}
           type="password"
           placeholder="Lösenord"
-          className="min-h-[40px] w-full border border-[#EDEADF] rounded-lg px-3 py-2 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/40"
+          className="min-h-[40px] w-full border border-[#E6E0D2] bg-white/90 rounded-lg px-3 py-2 text-xs outline-none focus:border-[#1A5319] focus:ring-1 focus:ring-[#1A5319]/20"
         />
       </div>
 
@@ -164,7 +164,7 @@ const AuthForm = memo(({ onSuccess, onError }: { onSuccess: (message: string) =>
         <button
           type="button"
           onClick={() => setMode(mode === "login" ? "signup" : "login")}
-          className="py-2 text-xs text-primary font-bold"
+          className="py-2 text-xs text-[#075C22] font-bold"
         >
           {mode === "login" ? "Skapa konto" : "Logga in"}
         </button>
@@ -173,7 +173,7 @@ const AuthForm = memo(({ onSuccess, onError }: { onSuccess: (message: string) =>
           type="button"
           onClick={submit}
           disabled={loading}
-          className="min-h-[40px] bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold transition-transform active:scale-[0.97] disabled:opacity-50"
+          className="min-h-[40px] bg-[#075C22] text-white px-4 py-2 rounded-lg text-xs font-bold transition-transform hover:bg-[#06491C] active:scale-[0.97] disabled:opacity-50"
         >
           {loading ? "Väntar..." : mode === "login" ? "Logga in" : "Skapa"}
         </button>
@@ -318,7 +318,7 @@ export default function SettingsModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-        className="relative my-8 w-full max-w-md rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
+        className="relative my-8 w-full max-w-md rounded-2xl border border-[#E8E4D8] bg-white p-6 shadow-[0_28px_80px_rgba(12,35,15,0.28)]"
       >
         <button
           type="button"
@@ -344,7 +344,7 @@ export default function SettingsModal({
               className="pointer-events-none absolute left-6 right-6 top-14 z-20 flex justify-center"
             >
               <div className={`flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold shadow-lg ${
-                error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                error ? "border-red-200 bg-red-50/95 text-red-700 shadow-[0_8px_24px_rgba(127,29,29,0.08)]" : "border-[#D7E7D7] bg-[#F2FAF2]/95 text-[#075C22] shadow-[0_8px_24px_rgba(26,83,25,0.08)]"
               }`}>
                 <LucideIcon name={error ? "close" : "check"} className="h-4 w-4 shrink-0" />
                 <span className="truncate">{error || msg}</span>
@@ -355,22 +355,22 @@ export default function SettingsModal({
 
         <div className="max-h-[65vh] space-y-4 overflow-y-auto overscroll-contain pr-1" style={{ WebkitOverflowScrolling: "touch" }}>
           {/* PROFILE */}
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+          <div className="rounded-xl border border-[#E8E4D8] bg-gradient-to-br from-white to-[#F7F5EE] p-4 shadow-[0_10px_30px_rgba(26,83,25,0.04)]">
             <div className="mb-3 flex items-center gap-4">
               <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-primary/20 bg-white transition-opacity hover:opacity-85"
+                  className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[#1A5319]/15 bg-white/95 transition-opacity hover:opacity-85"
                   aria-label="Byt profilbild"
                 >
                   {preview ? (
                     <img src={preview} className="h-full w-full object-cover" alt="Profilbild" />
                   ) : (
-                    <LucideIcon name="person" className="h-7 w-7 text-gray-400" />
+                    <LucideIcon name="person" className="h-7 w-7 text-[#9A9486]" />
                   )}
                 </button>
-                <span className="pointer-events-none absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-primary text-white">
+                <span className="pointer-events-none absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[#075C22] text-white">
                   <LucideIcon name="plus" className="h-3 w-3" />
                 </span>
               </div>
@@ -380,7 +380,7 @@ export default function SettingsModal({
                 <p className="mt-0.5 truncate text-[10px] text-gray-500">{sessionUser?.email ?? "Lokal profil"}</p>
 
                 <div className="mt-2 flex gap-3 text-[10px] font-bold">
-                  <button type="button" onClick={() => fileRef.current?.click()} className="py-1 text-primary hover:underline">
+                  <button type="button" onClick={() => fileRef.current?.click()} className="py-1 text-[#075C22] hover:underline">
                     {preview ? "Byt bild" : "Lägg till bild"}
                   </button>
                   {preview && (
@@ -404,14 +404,14 @@ export default function SettingsModal({
           </div>
 
           {/* ACCOUNT & SHARING */}
-          <div className="space-y-3.5 rounded-xl border border-[#EDEADF] bg-[#FAF9F5] p-4">
+          <div className="space-y-3.5 rounded-xl border border-[#E6E0D2] bg-gradient-to-br from-[#FAF9F5] via-[#F6F3EA] to-[#EEF6EF] p-4 shadow-[0_18px_45px_rgba(26,83,25,0.08)]">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <h3 className="text-xs font-bold text-gray-900">Konto &amp; Delning</h3>
                 <button
                   type="button"
                   onClick={() => setShowSharingInfo((v) => !v)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:text-primary active:scale-[0.94]"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[#9A9486] transition-colors hover:text-[#075C22] active:scale-[0.94]"
                   aria-expanded={showSharingInfo}
                   aria-label="Visa information om konto och delning"
                 >
@@ -427,7 +427,7 @@ export default function SettingsModal({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-                  className="rounded-lg border border-[#EDEADF] bg-white p-3 text-[11px] leading-relaxed text-[#706B5C] shadow-sm"
+                  className="rounded-lg border border-[#E6E0D2] bg-white/90 p-3 text-[11px] leading-relaxed text-[#5F6354] shadow-[0_8px_24px_rgba(26,83,25,0.05)]"
                 >
                   Logga in för att spara dina listor och dela dem med andra.
                 </motion.div>
@@ -436,7 +436,7 @@ export default function SettingsModal({
 
             {sessionUser ? (
               <div className="space-y-3">
-                <div className="rounded-lg border border-[#EDEADF] bg-white p-3 shadow-sm">
+                <div className="rounded-lg border border-[#E6E0D2] bg-white/95 p-3 shadow-[0_8px_24px_rgba(26,83,25,0.05)]">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Inloggad som</p>
                   <p className="mt-1 truncate text-xs font-bold text-gray-900">{displayName}</p>
                   {sessionUser.email && (
@@ -447,21 +447,21 @@ export default function SettingsModal({
                 <button
                   type="button"
                   onClick={logout}
-                  className="min-h-[40px] w-full rounded-lg border border-[#EDEADF] bg-white px-4 py-2 text-xs font-bold text-gray-800 shadow-sm transition-transform hover:bg-gray-50 active:scale-[0.97]"
+                  className="min-h-[40px] w-full rounded-lg border border-[#E6E0D2] bg-white/95 px-4 py-2 text-xs font-bold text-gray-800 shadow-[0_8px_24px_rgba(26,83,25,0.05)] transition-transform hover:bg-white active:scale-[0.97]"
                 >
                   Logga ut
                 </button>
               </div>
             ) : (
               <div className="space-y-4">
-                <ul className="ml-1 space-y-1.5 text-[11px] font-medium text-[#706B5C]">
+                <ul className="ml-1 space-y-1.5 text-[11px] font-medium text-[#5F6354]">
                   {[
                     "Spara listor mellan enheter",
                     "Dela listor från själva listan",
                     "Koppla till Homeboard",
                   ].map((benefit) => (
                     <li key={benefit} className="flex items-center gap-2">
-                      <LucideIcon name="check" className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                      <LucideIcon name="check" className="h-3.5 w-3.5 shrink-0 text-[#0B7A35]" />
                       <span>{benefit}</span>
                     </li>
                   ))}
@@ -471,16 +471,16 @@ export default function SettingsModal({
                   type="button"
                   onClick={handleGoogleLogin}
                   disabled={googleLoading}
-                  className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-[#EDEADF] bg-white px-4 py-2.5 text-xs font-bold text-gray-900 shadow-sm transition-transform hover:bg-gray-50 active:scale-[0.97] disabled:opacity-50"
+                  className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border border-[#E6E0D2] bg-white/95 px-4 py-2.5 text-xs font-bold text-gray-900 shadow-[0_8px_22px_rgba(26,83,25,0.08)] transition-transform hover:bg-white active:scale-[0.97] disabled:opacity-50"
                 >
                   <GoogleIcon />
                   {googleLoading ? "Skickar vidare..." : "Fortsätt med Google"}
                 </button>
 
                 <div className="flex items-center py-1">
-                  <div className="flex-grow border-t border-[#EDEADF]" />
+                  <div className="flex-grow border-t border-[#E6E0D2]" />
                   <span className="mx-3 flex-shrink-0 text-[10px] font-medium uppercase tracking-wider text-gray-400">eller via e-post</span>
-                  <div className="flex-grow border-t border-[#EDEADF]" />
+                  <div className="flex-grow border-t border-[#E6E0D2]" />
                 </div>
 
                 <AuthForm onSuccess={showSuccess} onError={showError} />
@@ -489,8 +489,8 @@ export default function SettingsModal({
           </div>
 
           {/* RESET */}
-          <div className="space-y-2 border-t border-gray-200 pt-2">
-            <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fara &amp; återställning</h3>
+          <div className="space-y-2 border-t border-[#E6E0D2] pt-2">
+            <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-[#9A9486]">Fara &amp; återställning</h3>
             <button
               type="button"
               onClick={() => {
@@ -507,7 +507,7 @@ export default function SettingsModal({
           </div>
         </div>
 
-        <div className="mt-6 text-center text-[10px] font-medium text-gray-400">
+        <div className="mt-6 text-center text-[10px] font-medium text-[#9A9486]">
           Hem-Listan v1.3 &bull; Smarta listor för hemmet
         </div>
       </motion.div>
