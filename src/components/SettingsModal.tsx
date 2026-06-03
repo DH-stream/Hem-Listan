@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "../lib/supabase"; // eller din path
 
 // ── DESIGN TOKENS (Efterliknar src/data/tokens.js för inline/CSS-hantering) ────────────────
 const TOKENS = {
@@ -97,6 +98,9 @@ const InlineIcon = memo(({ name, className = "w-5 h-5" }) => {
   return svgs[name] || null;
 });
 
+
+
+
 // --- MOCK SUPABASE FÖR INTERAKTIV FÖRHANDSGRANSKNING ---
 let globalSessionUser = null;
 let authListeners = [];
@@ -116,7 +120,7 @@ const getSupabaseClient = () => ({
       }, 500)); // Snabbare svarstid för skarp känsla
     },
     signUp: async ({ email }) => {
-       return new Promise(resolve => setTimeout(() => {
+      return new Promise(resolve => setTimeout(() => {
         globalSessionUser = { email, user_metadata: { display_name: "Ny Användare" } };
         authListeners.forEach(cb => cb("SIGNED_IN", { user: globalSessionUser }));
         resolve({ data: { session: true }, error: null });
@@ -132,7 +136,7 @@ const getSupabaseClient = () => ({
 // ── OPTIMERAD: Namnfält (med minimerade re-renders) ────────────────────────
 const NameForm = memo(({ userName, onSave }) => {
   const inputRef = useRef(null);
-  
+
   const handleSave = useCallback(() => {
     const val = inputRef.current?.value.trim() ?? '';
     if (val && val !== userName) {
@@ -247,6 +251,7 @@ function SettingsModal({
   const [error, setError] = useState(null);
   const [showSharingInfo, setShowSharingInfo] = useState(false);
 
+
   // Synka sessionsdata
   useEffect(() => {
     const client = getSupabaseClient();
@@ -281,6 +286,22 @@ function SettingsModal({
     setSuccess("Du har loggat ut.");
   }, []);
 
+  const handleGoogleLogin = useCallback(async () => {
+    setError(null);
+    setSuccess(null);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+
+    if (error) {
+      setError(error.message || "Kunde inte logga in med Google.");
+    }
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto font-sans">
       <motion.div
@@ -292,8 +313,8 @@ function SettingsModal({
         className="w-full max-w-md bg-white p-6 shadow-2xl relative border border-gray-100 my-8 will-change-transform"
       >
         {/* Stängknapp med utökat tryckområde för mobil (44x44px) */}
-        <button 
-          onClick={onClose} 
+        <button
+          onClick={onClose}
           className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-600 active:scale-90 transition-transform rounded-full cursor-pointer z-10"
         >
           <InlineIcon name="close" className="w-5 h-5" />
@@ -312,9 +333,8 @@ function SettingsModal({
               animate={{ height: "auto", opacity: 1, y: 0 }}
               exit={{ height: 0, opacity: 0, y: -10 }}
               transition={{ duration: 0.15 }}
-              className={`mb-4 p-3 rounded-xl text-xs font-bold border flex items-center gap-2 will-change-transform ${
-                error ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"
-              }`}
+              className={`mb-4 p-3 rounded-xl text-xs font-bold border flex items-center gap-2 will-change-transform ${error ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                }`}
             >
               <InlineIcon name={error ? "warning" : "info"} className="w-4 h-4 shrink-0" />
               <span className="flex-1">{error || success}</span>
@@ -323,7 +343,7 @@ function SettingsModal({
         </AnimatePresence>
 
         {/* Scrollbar-container med momentum-scroll för mobil */}
-        <div 
+        <div
           className="space-y-4 max-h-[65vh] overflow-y-auto pr-1"
           style={{ WebkitOverflowScrolling: "touch" }}
         >
@@ -360,8 +380,8 @@ function SettingsModal({
               <div className="flex items-center gap-1.5">
                 <h3 className="text-xs font-bold text-gray-900">Konto & Delning</h3>
                 {/* 44x44px touch target */}
-                <button 
-                  onClick={() => setShowSharingInfo(v => !v)} 
+                <button
+                  onClick={() => setShowSharingInfo(v => !v)}
                   className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-emerald-600 transition-colors cursor-pointer"
                   title="Information om delning"
                 >
@@ -411,8 +431,8 @@ function SettingsModal({
                     <InlineIcon name="share" className="w-4 h-4" />
                     Dela lista
                   </button>
-                  <button 
-                    onClick={handleLogout} 
+                  <button
+                    onClick={handleLogout}
                     className="bg-white border border-[#EDEADF] hover:bg-gray-50 active:scale-95 text-gray-800 py-2 px-4 rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-sm min-h-[40px]"
                   >
                     Logga ut
@@ -424,15 +444,15 @@ function SettingsModal({
               <div className="space-y-4">
                 <ul className="text-[11px] font-medium text-[#706B5C] space-y-1.5 ml-1">
                   <li className="flex items-center gap-2">
-                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" /> 
+                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" />
                     Dela inköpslistor med vänner eller familj
                   </li>
                   <li className="flex items-center gap-2">
-                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" /> 
+                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" />
                     Använd samma listor på flera enheter
                   </li>
                   <li className="flex items-center gap-2">
-                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" /> 
+                    <InlineIcon name="check" className="w-3.5 h-3.5 text-[#3ECF8E] shrink-0" />
                     Koppla listor till HomeBoard
                   </li>
                 </ul>
@@ -441,10 +461,6 @@ function SettingsModal({
                   <button className="w-full bg-white border border-[#EDEADF] py-2.5 rounded-lg text-xs font-bold text-gray-900 flex items-center justify-center gap-2 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-sm cursor-pointer min-h-[44px]">
                     <InlineIcon name="google" className="w-4 h-4" />
                     Fortsätt med Google
-                  </button>
-                  <button className="w-full bg-black text-white py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-sm cursor-pointer min-h-[44px]">
-                    <InlineIcon name="apple" className="w-4 h-4" />
-                    Fortsätt med Apple
                   </button>
                 </div>
 
@@ -488,17 +504,17 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-200 flex items-center justify-center p-4" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cubes.png")' }}>
       {!isOpen && (
-        <button 
+        <button
           onClick={() => setIsOpen(true)}
           className="bg-emerald-600 active:scale-95 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all min-h-[48px]"
         >
           Öppna Inställningar
         </button>
       )}
-      
+
       <AnimatePresence>
         {isOpen && (
-          <SettingsModal 
+          <SettingsModal
             userName={userName}
             onUpdateUserName={setUserName}
             onClose={() => setIsOpen(false)}
