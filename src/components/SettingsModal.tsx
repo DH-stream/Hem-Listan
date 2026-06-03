@@ -217,6 +217,19 @@ export default function SettingsModal({
   }, []);
 
   useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!msg && !error) return;
 
     const timer = window.setTimeout(() => {
@@ -299,7 +312,7 @@ export default function SettingsModal({
   const displayName = sessionUser?.user_metadata?.display_name || userName || "Användare";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-sm font-sans">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -321,24 +334,26 @@ export default function SettingsModal({
           <h2 className="text-lg font-bold leading-none text-gray-800">Inställningar</h2>
         </div>
 
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence>
           {(msg || error) && (
             <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-              className={`mb-4 flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${
-                error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
-              }`}
+              initial={{ opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              className="pointer-events-none absolute left-6 right-6 top-14 z-20 flex justify-center"
             >
-              <LucideIcon name={error ? "close" : "check"} className="h-4 w-4 shrink-0" />
-              <span className="flex-1">{error || msg}</span>
+              <div className={`flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold shadow-lg ${
+                error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+              }`}>
+                <LucideIcon name={error ? "close" : "check"} className="h-4 w-4 shrink-0" />
+                <span className="truncate">{error || msg}</span>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1" style={{ WebkitOverflowScrolling: "touch" }}>
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto overscroll-contain pr-1" style={{ WebkitOverflowScrolling: "touch" }}>
           {/* PROFILE */}
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
             <div className="mb-3 flex items-center gap-4">
