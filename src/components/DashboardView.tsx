@@ -57,6 +57,8 @@ export default function DashboardView({
   onAddListFromTemplate,
   onOpenSettings,
 }: DashboardViewProps) {
+  const [logoLoaded, setLogoLoaded] = useState(false);
+
   const getTodayDateString = () => {
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
   };
@@ -179,7 +181,7 @@ export default function DashboardView({
               </h1>
              ) : (
               <div style={{ margin: '-2.15rem 0', overflow: 'hidden' }}>
-                <img
+                <motion.img
                    src="/logo.png"
                    alt="Hem-Listan"
                    loading="eager"
@@ -187,6 +189,10 @@ export default function DashboardView({
                    decoding="sync"
                    style={{ height: '6.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
                    className="block select-none"
+                   onLoad={() => setLogoLoaded(true)}
+                   initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                   animate={logoLoaded ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 4, scale: 0.96 }}
+                   transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
                 />
               </div>
              )}
