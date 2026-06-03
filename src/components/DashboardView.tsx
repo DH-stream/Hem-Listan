@@ -182,6 +182,9 @@ export default function DashboardView({
                 <img
                    src="/logo.png"
                    alt="Hem-Listan"
+                   loading="eager"
+                   fetchPriority="high"
+                   decoding="sync"
                    style={{ height: '6.75rem', width: 'auto', objectFit: 'contain', objectPosition: 'left center' }}
                    className="block select-none"
                 />
