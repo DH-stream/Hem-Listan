@@ -34,6 +34,19 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 // Återställ singleton när credentials ändras
 export const resetSupabaseClient = () => { _client = null; };
 
+export const hasSupabaseSession = async (): Promise<boolean> => {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: { user }, error } = await client.auth.getUser();
+  if (error) {
+    console.error("Error checking Supabase session:", error);
+    return false;
+  }
+
+  return !!user;
+};
+
 export const saveLocalStorageCredentials = (url: string, key: string) => {
   if (url && key) {
     localStorage.setItem("hem_listan_supabase_url", url.trim());
