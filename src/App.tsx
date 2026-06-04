@@ -13,7 +13,9 @@ import LucideIcon from "./components/LucideIcon";
 import {
   getSupabaseClient,
   isSupabaseConfigured,
-  hasSupabaseSession,
+  setSupabaseAuthSnapshot,
+  getSupabaseAuthSnapshot,
+  clearSupabaseAuthSnapshot,
   fetchLists,
   createList,
   addTask,
@@ -117,6 +119,9 @@ export default function App() {
       }
 
       const { data: { session } } = await client.auth.getSession();
+      if (session?.user) setSupabaseAuthSnapshot(session);
+      else clearSupabaseAuthSnapshot();
+
       const { data: { user } } = await client.auth.getUser();
 
       const authenticatedUser = session?.user ?? user;
@@ -136,6 +141,9 @@ export default function App() {
 
     const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
       console.log("auth_state_event", { event, hasSession: !!session, userId: session?.user?.id });
+
+      if (session?.user) setSupabaseAuthSnapshot(session);
+      else clearSupabaseAuthSnapshot();
 
       if ((event === "INITIAL_SESSION" || event === "SIGNED_IN") && session?.user) {
         console.log("auth_state_signed_in", { event, userId: session.user.id });
@@ -263,7 +271,8 @@ export default function App() {
   };
 
   const canCloudSave = async (operation: string): Promise<boolean> => {
-    const hasSession = isLoggedIn || await hasSupabaseSession();
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const hasSession = isLoggedIn || Boolean(sessionUser) || Boolean(authSnapshot.accessToken);
     if (hasSession && !isLoggedIn) setIsLoggedIn(true);
     if (!hasSession) console.log("cloud_save_skipped_no_session", { operation });
     return hasSession;

@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient, Session, SupabaseClient } from "@supabase/supabase-js";
 import { List, TaskItem, MealSlot } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
@@ -30,6 +30,36 @@ const withTimeout = async <T,>(
   } finally {
     if (timeoutId) window.clearTimeout(timeoutId);
   }
+};
+
+
+export type SupabaseAuthSnapshot = {
+  accessToken: string | null;
+  userId: string | null;
+};
+
+let currentAccessToken: string | null = null;
+let currentUserId: string | null = null;
+
+export const setSupabaseAuthSnapshot = (session: Session | null) => {
+  currentAccessToken = session?.access_token ?? null;
+  currentUserId = session?.user?.id ?? null;
+
+  console.log("auth_snapshot_updated", {
+    hasAccessToken: Boolean(currentAccessToken),
+    userId: currentUserId,
+  });
+};
+
+export const getSupabaseAuthSnapshot = (): SupabaseAuthSnapshot => ({
+  accessToken: currentAccessToken,
+  userId: currentUserId,
+});
+
+export const clearSupabaseAuthSnapshot = () => {
+  currentAccessToken = null;
+  currentUserId = null;
+  console.log("auth_snapshot_cleared");
 };
 
 let _client: SupabaseClient | null = null;
@@ -69,7 +99,7 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 };
 
 // Återställ singleton när credentials ändras
-export const resetSupabaseClient = () => { _client = null; };
+export const resetSupabaseClient = () => { _client = null; clearSupabaseAuthSnapshot(); };
 
 export const hasSupabaseSession = async (): Promise<boolean> => {
   const client = getSupabaseClient();
@@ -337,68 +367,24 @@ const addTaskWithRawRpc = async (
   });
 
   try {
-    const sessionStartedAt = Date.now();
-    console.log("add_task_raw_rpc_session_start", {
-      hasSession: false,
-      hasAccessToken: false,
-      elapsedMs: 0,
-    });
-
-    let sessionData;
-    let sessionError;
-
-    try {
-      const sessionResult = await withTimeout(
-        client.auth.getSession(),
-        3000,
-        "add_task_raw_rpc_session"
-      );
-      sessionData = sessionResult.data;
-      sessionError = sessionResult.error;
-    } catch (error) {
-      const elapsedMs = Date.now() - sessionStartedAt;
-
-      if (error instanceof Error && error.message === "add_task_raw_rpc_session_timeout_after_3000ms") {
-        console.error("add_task_raw_rpc_session_timeout", {
-          hasSession: false,
-          hasAccessToken: false,
-          elapsedMs,
-        });
-        return null;
-      }
-
-      console.error("add_task_raw_rpc_session_exception", {
-        error,
-        hasSession: false,
-        hasAccessToken: false,
-        elapsedMs,
-      });
-      return null;
-    }
-
-    const session = sessionData.session;
-    const accessToken = session?.access_token;
-    const sessionDiagnostics = {
-      hasSession: Boolean(session),
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
       hasAccessToken: Boolean(accessToken),
-      userId: session?.user?.id,
-      elapsedMs: Date.now() - sessionStartedAt,
+      userId: authSnapshot.userId,
     };
 
-    console.log("add_task_raw_rpc_session_success", sessionDiagnostics);
-
-    if (sessionError || !accessToken) {
-      console.error("add_task_raw_rpc_session_error", {
-        error: sessionError || "missing_access_token",
-        ...sessionDiagnostics,
-      });
+    if (!accessToken) {
+      console.error("add_task_raw_rpc_auth_snapshot_missing", authDiagnostics);
       console.error("add_task_raw_rpc_error", {
-        error: sessionError || "missing_access_token",
-        hasAccessToken: Boolean(accessToken),
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
         ...context,
       });
       return null;
     }
+
+    console.log("add_task_raw_rpc_auth_snapshot_found", authDiagnostics);
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
