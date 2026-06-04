@@ -66,11 +66,11 @@ export const getLocalCredentials = () => ({
 // ── Databasoperationer ───────────────────────────────────────────────
 
 // Hämta alla listor för inloggad användare (egna + delade)
-export const fetchLists = async (): Promise<List[]> => {
+export const fetchLists = async (): Promise<List[] | null> => {
   const client = getSupabaseClient();
-  if (!client) return [];
+  if (!client) return null;
   const { data: { user } } = await client.auth.getUser();
-  if (!user) return [];
+  if (!user) return null;
 
   // Hämta listor som användaren äger eller är medlem i
   const { data: listsData, error } = await client
@@ -78,12 +78,13 @@ export const fetchLists = async (): Promise<List[]> => {
     .select('*')
     .order('created_at', { ascending: false });
 
-  if (error || !listsData || listsData.length === 0) return [];
+  if (error || !listsData) return null;
+  if (listsData.length === 0) return [];
 
   const listIds = listsData.map(l => l.id);
 
   // Hämta tasks + meals för alla dessa listor parallellt
-  const [{ data: tasksData }, { data: mealsData }] = await Promise.all([
+  const [tasksResult, mealsResult] = await Promise.all([
     client
       .from('hl_tasks')
       .select('*')
@@ -94,6 +95,11 @@ export const fetchLists = async (): Promise<List[]> => {
       .select('*')
       .in('list_id', listIds)
   ]);
+
+  if (tasksResult.error || mealsResult.error) return null;
+
+  const tasksData = tasksResult.data || [];
+  const mealsData = mealsResult.data || [];
 
   return listsData.map(l => ({
     id: l.id,
