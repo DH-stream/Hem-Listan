@@ -45,13 +45,20 @@ export const hasSupabaseSession = async (): Promise<boolean> => {
   const client = getSupabaseClient();
   if (!client) return false;
 
-  const { data: { user }, error } = await client.auth.getUser();
-  if (error) {
-    console.error("Error checking Supabase session:", error);
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) {
+    console.error("Error checking Supabase session:", sessionError);
+  }
+
+  if (sessionData.session?.user) return true;
+
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    console.error("Error checking Supabase user:", userError);
     return false;
   }
 
-  return !!user;
+  return !!userData.user;
 };
 
 export const saveLocalStorageCredentials = (url: string, key: string) => {
@@ -139,9 +146,36 @@ export const fetchLists = async (): Promise<List[] | null> => {
 // Skapa ny lista
 export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<string | null> => {
   const client = getSupabaseClient();
-  if (!client) return null;
-  const { data: { user } } = await client.auth.getUser();
-  if (!user) return null;
+  if (!client) {
+    console.error("create_list_no_user", { reason: "supabase_client_unavailable", listId: list.id, name: list.name });
+    return null;
+  }
+
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  const sessionUser = sessionData.session?.user ?? null;
+  console.log("create_list_session_check", {
+    hasSession: !!sessionData.session,
+    hasSessionUser: !!sessionUser,
+    sessionError,
+    listId: list.id,
+    name: list.name,
+  });
+
+  let user = sessionUser;
+  if (!user) {
+    const { data: userData, error: userError } = await client.auth.getUser();
+    user = userData.user ?? null;
+
+    if (userError) {
+      console.error("create_list_no_user", { reason: "getUser_error", error: userError, listId: list.id, name: list.name });
+      return null;
+    }
+  }
+
+  if (!user) {
+    console.error("create_list_no_user", { reason: "no_session_user", listId: list.id, name: list.name });
+    return null;
+  }
 
   // Förbered datan. Om list.id skickas med från App.tsx men är ett tillfälligt sträng-id
   // (och inte en giltig UUID), låter vi Postgres gen_random_uuid() generera ett riktigt UUID.
@@ -158,6 +192,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<s
     insertData.id = list.id;
   }
 
+  console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId: user.id });
   const { data, error } = await client
     .from('hl_lists')
     .insert(insertData)
@@ -165,9 +200,11 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<s
     .single();
 
   if (error || !data) {
-    console.error("Error creating list:", error);
+    console.error("create_list_insert_error", { error, listId: list.id, name: list.name });
     return null;
   }
+
+  console.log("create_list_insert_success", { listId: data.id, name: list.name });
   return data.id;
 };
 

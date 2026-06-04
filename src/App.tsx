@@ -488,7 +488,7 @@ export default function App() {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
         console.log("cloud_create_list_success", { listId: dbId, name });
       } else {
-        console.error("cloud_create_list_error", { listId: tempId, name });
+        console.error("cloud_create_list_error", { listId: tempId, name, reason: "createList_returned_null" });
       }
     }
   };
@@ -516,7 +516,7 @@ export default function App() {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
         console.log("cloud_create_list_success", { listId: dbId, name: instantiated.name });
       } else {
-        console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name });
+        console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "createList_returned_null" });
       }
     }
   };
