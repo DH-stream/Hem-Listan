@@ -2,6 +2,27 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { List, TaskItem, MealSlot } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
+// TEMP DEBUG: remove after Supabase cloud-save issue is solved.
+const withTimeout = async <T,>(
+  promise: PromiseLike<T>,
+  ms: number,
+  label: string
+): Promise<T> => {
+  let timeoutId: number | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new Error(`${label}_timeout_after_${ms}ms`));
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve(promise), timeout]);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+};
+
 let _client: SupabaseClient | null = null;
 
 const getSupabaseConfig = () => {
@@ -172,19 +193,49 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
   }
 
   console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId });
-  const { data, error } = await client
-    .from('hl_lists')
-    .insert(insertData)
-    .select('id')
-    .single();
+  console.log("create_list_insert_payload", {
+    insertData,
+    isUuid,
+    listId: list.id,
+    ownerId,
+  });
 
-  if (error || !data) {
-    console.error("create_list_insert_error", { error, listId: list.id, name: list.name });
+  try {
+    const { data, error } = await withTimeout(
+      client
+        .from('hl_lists')
+        .insert(insertData)
+        .select('id')
+        .single(),
+      10000,
+      "create_list_insert"
+    );
+
+    if (error || !data) {
+      console.error("create_list_insert_error", {
+        error,
+        data,
+        listId: list.id,
+        name: list.name,
+      });
+      return null;
+    }
+
+    console.log("create_list_insert_success", {
+      listId: data.id,
+      name: list.name,
+    });
+
+    return data.id;
+  } catch (error) {
+    console.error("create_list_insert_exception", {
+      error,
+      listId: list.id,
+      name: list.name,
+    });
+
     return null;
   }
-
-  console.log("create_list_insert_success", { listId: data.id, name: list.name });
-  return data.id;
 };
 
 // Uppdatera lista
