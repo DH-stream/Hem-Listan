@@ -7,6 +7,7 @@ import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
 import ListDetailGrocery from "./components/ListDetailGrocery";
 import CreateListView from "./components/CreateListView";
+import DebugPanel from "./components/DebugPanel";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
 import {
@@ -589,6 +590,14 @@ export default function App() {
         </AnimatePresence>
         <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/[0.01]" />
       </div>
+
+      {/* TEMP DEBUG: remove after Supabase cloud-save issue is solved. */}
+      <DebugPanel
+        isLoggedIn={isLoggedIn}
+        sessionUserId={sessionUser?.id ?? null}
+        currentView={currentView}
+        listsCount={lists.length}
+      />
 
       <main className="w-full flex-1 z-10">
         <AnimatePresence mode="wait">
