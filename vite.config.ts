@@ -5,6 +5,8 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig(() => {
+  const appVersion = process.env.VITE_APP_VERSION ?? process.env.VERCEL_GIT_COMMIT_SHA ?? "__DEV__";
+
   return {
     plugins: [
       react(),
@@ -34,6 +36,9 @@ export default defineConfig(() => {
         },
       }),
     ],
+    define: {
+      "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "."),
