@@ -222,9 +222,11 @@ Receptimport via länk ska inte bara skapa ingredienser/tasks. Användaren ska k
 Produktmål:
 
 - Importera recept från länk.
-- Visa maträtt + ingredienser.
-- Låt användaren välja: “Lägg till i veckan” och/eller “Spara recept”.
+- Visa maträtt + ingredienser + instruktioner.
+- Låt användaren bekräfta receptet innan det sparas.
+- Låt användaren välja: “Lägg till i veckan”, “Lägg till ingredienser” och/eller “Spara recept”.
 - Sparade recept ska kunna återanvändas senare.
+- En måltid i veckovyn ska kunna öppna receptinformationen igen.
 
 Föreslagen tabell:
 
@@ -237,7 +239,7 @@ create table public.hl_recipes (
   title text not null,
   image_url text,
   image_path text,
-  servings int,
+  base_servings int,
   ingredients jsonb,
   instructions jsonb,
   notes text,
@@ -251,14 +253,22 @@ Koppling till meals:
 
 ```sql
 alter table public.hl_meals
-add column recipe_id uuid references public.hl_recipes(id) on delete set null;
+add column recipe_id uuid references public.hl_recipes(id) on delete set null,
+add column recipe_snapshot jsonb,
+add column servings int,
+add column completed_instruction_indices int[] not null default '{}';
 ```
+
+`recipe_snapshot` gör att en planerad måltid kan behålla receptinformationen även om originalreceptet senare uppdateras. Det är extra värdefullt om receptet kommer från extern länk.
 
 UX efter lyckad import:
 
 ```text
 Recept hämtat
-[ Lägg till i veckan ] [ Spara recept ]
+Bananplättar
+2 portioner
+
+[ Lägg till i veckan ] [ Lägg till ingredienser ] [ Spara recept ]
 ```
 
 Senare vy:
@@ -268,6 +278,173 @@ Senare vy:
 - Sök recept.
 - Lägg recept i veckoschema.
 - Lägg ingredienser i inköpslista.
+
+## Receptimport, bekräftelse och cook mode
+
+Tänkt huvudflöde:
+
+```text
+Klistra in receptlänk
+→ Backend extraherar receptdata
+→ Appen visar bekräftelsevy
+→ Användaren justerar portioner och väljer vad som ska sparas
+→ Måltiden läggs i veckovyn
+→ Användaren kan trycka på måltiden och öppna receptet igen
+→ Cook mode med bockbara instruktioner och valfri skärm-vaken-toggle
+```
+
+### Extrahering
+
+Receptlänkar ska hämtas via backend, inte direkt från frontend, för att undvika CORS och för att hålla parsinglogiken samlad.
+
+Föreslagen funktion:
+
+```text
+extract-recipe-from-url
+```
+
+Input:
+
+```json
+{
+  "url": "https://www.ica.se/recept/bananplattar-722309/"
+}
+```
+
+Output ska vara stabilt oavsett källa:
+
+```ts
+type ExtractedRecipe = {
+  sourceUrl: string;
+  sourceSite?: string;
+  title: string;
+  imageUrl?: string;
+  baseServings?: number;
+  timeLabel?: string;
+  difficulty?: string;
+  ingredients: RecipeIngredient[];
+  instructions: RecipeInstruction[];
+  confidence: 'high' | 'medium' | 'low';
+  extractionMethod: 'json_ld' | 'open_graph' | 'site_adapter' | 'ai_fallback';
+};
+
+type RecipeIngredient = {
+  raw: string;
+  quantity?: number;
+  unit?: string;
+  name?: string;
+  section?: string;
+  note?: string;
+  scalable?: boolean;
+};
+
+type RecipeInstruction = {
+  order: number;
+  text: string;
+};
+```
+
+Extraktionsordning:
+
+1. JSON-LD / schema.org `Recipe`.
+2. Open Graph fallback för titel/bild/beskrivning.
+3. Site-adapters för viktiga receptsidor, först t.ex. `ica.se`.
+4. AI fallback endast om strukturerad parsing misslyckas.
+
+AI ska alltså inte vara first implementation.
+
+### Bekräftelsevy
+
+Efter att länken hämtats ska användaren få en bekräftelsevy innan något sparas.
+
+Vyn bör visa:
+
+- Titel.
+- Bild om den finns.
+- Källa och länk till originalrecept.
+- Portioner.
+- Ingredienser.
+- Instruktioner.
+- Confidence/varning om parsing verkar osäker.
+
+Användaren ska kunna:
+
+- Justera portioner.
+- Lägga receptet i veckovyn.
+- Lägga de skalade ingredienserna i inköpslistan.
+- Spara receptet i receptbiblioteket.
+- Avbryta utan att spara.
+
+### Portionsskalning
+
+Ingredienser ska kunna skalas upp/ner med enkel matte:
+
+```ts
+scaledQuantity = quantity * (currentServings / baseServings)
+```
+
+Exempel från ett recept på 2 portioner:
+
+```text
+1 banan → 2 bananer vid 4 portioner
+2 ägg → 4 ägg vid 4 portioner
+1/2 tsk vaniljsocker → 1 tsk vid 4 portioner
+```
+
+Regler:
+
+- Spara alltid `raw` originaltext.
+- Skala bara ingredienser där `quantity` kan tolkas säkert.
+- Ingredienser som “salt”, “peppar”, “efter smak”, “lite olja” eller liknande ska inte skalas automatiskt.
+- Instruktionstext ska inte skalas i första versionen. Den visas som originalinstruktioner.
+- När användaren trycker “Lägg till ingredienser” ska appen använda de skalade ingredienserna.
+
+### Cook mode
+
+När användaren trycker på en måltid i veckovyn som har `recipe_id` eller `recipe_snapshot` ska receptinformationen öppnas igen.
+
+Cook mode bör visa:
+
+- Receptbild och titel.
+- Portioner med möjlighet att justera.
+- Ingredienser, helst skalade enligt aktuell portionsinställning.
+- Bockbara instruktioner.
+- Källa/originalrecept.
+- Toggle för att hålla skärmen tänd.
+
+Instruktioner:
+
+```text
+Gör så här
+☐ Mosa bananen.
+☐ Vispa ihop med ägg och vaniljsocker.
+☐ Stek små plättar i smör.
+☐ Servera med kanel, kokos, banan eller lönnsirap.
+```
+
+Bockade steg kan sparas på måltiden via `completed_instruction_indices`. Det gör att användaren kan lämna receptet och komma tillbaka utan att tappa var den var.
+
+### Håll skärmen tänd
+
+Cook mode kan ha en liten opt-in-toggle:
+
+```text
+☐ Håll skärmen tänd medan jag lagar
+```
+
+Tekniskt kan webben använda Screen Wake Lock API där det stöds:
+
+```ts
+const wakeLock = await navigator.wakeLock.request('screen');
+```
+
+Regler:
+
+- Funktionen ska vara opt-in, inte alltid på.
+- Wake lock ska släppas när receptvyn stängs.
+- Wake lock ska släppas när användaren stänger av togglen.
+- Wake lock ska släppas när sista instruktionen bockas av, om det känns naturligt i UX-test.
+- Om API:t inte stöds ska appen bara dölja eller disabla togglen utan att visa tekniskt fel.
 
 ## Receptbild och tipskort
 
@@ -329,8 +506,11 @@ AI kan senare användas som fallback för receptdelen, men inte som första impl
 5. Bygg `Dela lista` med invites + `hl_list_members`.
 6. Lägg till listbaserad presence-stack och lokal presence-toast.
 7. Bygg `Skicka lista` som snapshot/kopia utan konto.
-8. Bygg `hl_recipes` och “Spara recept” efter länkimport.
-9. Uppgradera shopping-tips-kortet till riktig recept-/tipsyta med relevant bild.
+8. Bygg `extract-recipe-from-url` med JSON-LD först och ICA-adapter som tidigt testfall.
+9. Bygg `hl_recipes` och “Spara recept” efter länkimport.
+10. Koppla recept till `hl_meals` så måltider i veckovyn kan öppna receptinfo igen.
+11. Bygg cook mode med bockbara instruktioner och opt-in wake lock.
+12. Uppgradera shopping-tips-kortet till riktig recept-/tipsyta med relevant bild.
 
 ## Saker som inte ska blandas ihop
 
