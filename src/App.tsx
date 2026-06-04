@@ -599,6 +599,7 @@ export default function App() {
                   onDeleteTask={handleDeleteTask}
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
+                  userImage={userImage}
                 />
               )}
             </motion.div>

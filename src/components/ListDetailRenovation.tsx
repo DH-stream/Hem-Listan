@@ -20,6 +20,7 @@ interface ListDetailRenovationProps {
   onDeleteTask: (listId: string, taskId: string) => void;
   onUpdateTask: (listId: string, taskId: string, updates: Partial<TaskItem>) => void;
   onResetList: (listId: string) => void;
+  userImage?: string;
 }
 
 export default function ListDetailRenovation({
@@ -29,7 +30,8 @@ export default function ListDetailRenovation({
   onAddTask,
   onDeleteTask,
   onUpdateTask,
-  onResetList
+  onResetList,
+  userImage
 }: ListDetailRenovationProps) {
   const [newTaskText, setNewTaskText] = useState("");
   const [selectedType, setSelectedType] = useState<"task" | "note" | "progress" | "link">("task");
@@ -152,12 +154,15 @@ export default function ListDetailRenovation({
               <span>Återställ</span>
             </button>
           )}
-          <div className="w-8 h-8 rounded-full overflow-hidden border border-outline-variant shrink-0">
-            <img
-              alt="User"
-              src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjyyqnVQ3yY1Kv5ZLMnwp1-1GlfiuN700HBuEjcny7QrnrW63NOEDrBQpbWJwwzuZLHBeKrM-3aD2MNvpvjMp9i059yR1x5cbQkR7Esm8fFbLEubdF5VMOOR0brKRrvZVzxkyl86zaBlJ_yDOrHOeZtyYft2fHZ3tvN3UuYsG0shS1zgzWY44lgr1L1o11Cv6yhoubSPhtDe9UAH8mUlplcX6jj1RgqM0jqW3h2XK6GwTD5LSqZklvtxLQoeD_luV6HL8jP8K8bEg"
-            />
-          </div>
+          {userImage && (
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-outline-variant shrink-0">
+              <img
+                alt="User"
+                src={userImage}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
         </div>
       </header>
 
