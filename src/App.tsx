@@ -11,6 +11,7 @@ import LucideIcon from "./components/LucideIcon";
 import {
   getSupabaseClient,
   isSupabaseConfigured,
+  hasSupabaseSession,
   fetchLists,
   createList,
   addTask,
@@ -36,6 +37,8 @@ const saveLocalLists = (lists: List[]) => {
     console.warn("localStorage write error:", e);
   }
 };
+
+const migrationKeyForUser = (userId: string) => `hem-listan-supabase-migrated-${userId}`;
 
 export default function App() {
   const [lists, setLists] = useState<List[]>(loadLocalLists);
@@ -65,6 +68,7 @@ export default function App() {
       const { data: { user } } = await client.auth.getUser();
       if (user) {
         setIsLoggedIn(true);
+        await migrateLocalToSupabaseIfNeeded(user.id);
         await loadFromSupabase();
         subscribeRealtime();
       }
@@ -75,9 +79,7 @@ export default function App() {
     const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session?.user) {
         setIsLoggedIn(true);
-        const localLists = loadLocalLists();
-        const hasCustomLists = JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
-        if (hasCustomLists) await migrateLocalToSupabase(localLists);
+        await migrateLocalToSupabaseIfNeeded(session.user.id);
         await loadFromSupabase();
         subscribeRealtime();
       } else if (event === "SIGNED_OUT") {
@@ -114,6 +116,23 @@ export default function App() {
     }
   };
 
+  const migrateLocalToSupabaseIfNeeded = async (userId: string) => {
+    const localLists = loadLocalLists();
+    const hasCustomLists = JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
+    const migrationKey = migrationKeyForUser(userId);
+    if (!hasCustomLists || localStorage.getItem(migrationKey) === "true") return;
+
+    await migrateLocalToSupabase(localLists);
+    localStorage.setItem(migrationKey, "true");
+  };
+
+  const canCloudSave = async (operation: string): Promise<boolean> => {
+    const hasSession = isLoggedIn || await hasSupabaseSession();
+    if (hasSession && !isLoggedIn) setIsLoggedIn(true);
+    if (!hasSession) console.log("cloud_save_skipped_no_session", { operation });
+    return hasSession;
+  };
+
   const subscribeRealtime = () => {
     const client = getSupabaseClient();
     if (!client) return;
@@ -139,6 +158,14 @@ export default function App() {
     setLists(updatedLists);
     setPulseCount(p => p + 1);
     saveLocalLists(updatedLists);
+  };
+
+  const setListsAndSync = (updater: (currentLists: List[]) => List[]) => {
+    setLists(prev => {
+      const updated = updater(prev);
+      saveLocalLists(updated);
+      return updated;
+    });
   };
 
   // ── Stats ────────────────────────────────────────────────────────
@@ -168,7 +195,7 @@ export default function App() {
       ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, checked: newChecked } : t)
     });
     applyAndSync(updated);
-    if (isLoggedIn) await updateTask(taskId, { checked: newChecked });
+    if (await canCloudSave("toggle_task")) await updateTask(taskId, { checked: newChecked });
   };
 
   const handleAddTask = async (
@@ -186,12 +213,14 @@ export default function App() {
     const updated = lists.map(l => l.id !== listId ? l : { ...l, tasks: [newTask, ...l.tasks] });
     applyAndSync(updated);
 
-    if (isLoggedIn) {
+    if (await canCloudSave("add_task")) {
       const dbId = await addTask(listId, newTask);
       if (dbId) {
-        setLists(prev => prev.map(l => l.id !== listId ? l : {
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
           ...l, tasks: l.tasks.map(t => t.id === tempId ? { ...t, id: dbId } : t)
         }));
+      } else {
+        console.error("cloud_add_task_error", { listId, taskId: tempId });
       }
     }
   };
@@ -201,7 +230,7 @@ export default function App() {
       ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
     });
     applyAndSync(updated);
-    if (isLoggedIn) await updateTask(taskId, updates);
+    if (await canCloudSave("update_task")) await updateTask(taskId, updates);
   };
 
   const handleDeleteTask = async (listId: string, taskId: string) => {
@@ -209,7 +238,7 @@ export default function App() {
       ...l, tasks: l.tasks.filter(t => t.id !== taskId)
     });
     applyAndSync(updated);
-    if (isLoggedIn) await deleteTask(taskId);
+    if (await canCloudSave("delete_task")) await deleteTask(taskId);
   };
 
   const handleResetList = async (listId: string) => {
@@ -218,7 +247,7 @@ export default function App() {
       ...l, tasks: l.tasks.map(t => ({ ...t, checked: false, progress: t.progress !== undefined ? 0 : undefined }))
     });
     applyAndSync(updated);
-    if (isLoggedIn && list) {
+    if (list && await canCloudSave("reset_list")) {
       await Promise.all(list.tasks.map(t => updateTask(t.id, { checked: false })));
     }
   };
@@ -235,12 +264,14 @@ export default function App() {
     });
     applyAndSync(updated);
 
-    if (isLoggedIn) {
+    if (await canCloudSave("add_meal")) {
       const dbId = await upsertMeal(listId, newMeal);
       if (dbId) {
-        setLists(prev => prev.map(l => l.id !== listId ? l : {
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
           ...l, meals: (l.meals ?? []).map(m => m.id === tempId ? { ...m, id: dbId } : m)
         }));
+      } else {
+        console.error("cloud_add_meal_error", { listId, mealId: tempId });
       }
     }
   };
@@ -250,7 +281,7 @@ export default function App() {
       ...l, meals: (l.meals ?? []).filter(m => m.id !== mealId)
     });
     applyAndSync(updated);
-    if (isLoggedIn) await deleteMeal(mealId);
+    if (await canCloudSave("delete_meal")) await deleteMeal(mealId);
   };
 
   const handleBulkAddGroceryDetails = async (
@@ -278,14 +309,18 @@ export default function App() {
     });
     applyAndSync(updated);
 
-    if (isLoggedIn) {
+    if (await canCloudSave("bulk_add_grocery_details")) {
       const list = updated.find(l => l.id === listId);
       if (list) {
         for (const task of list.tasks.filter(t => t.id.includes('imported'))) {
-          await addTask(listId, task);
+          const dbId = await addTask(listId, task);
+          if (!dbId) console.error("cloud_add_task_error", { listId, taskId: task.id });
         }
         const newMeal = list.meals?.find(m => m.id.includes('imported'));
-        if (newMeal) await upsertMeal(listId, newMeal);
+        if (newMeal) {
+          const dbId = await upsertMeal(listId, newMeal);
+          if (!dbId) console.error("cloud_add_meal_error", { listId, mealId: newMeal.id });
+        }
       }
     }
   };
@@ -303,10 +338,14 @@ export default function App() {
     applyAndSync([newList, ...lists]);
     startTransition(() => setCurrentView("dashboard"));
 
-    if (isLoggedIn) {
+    if (await canCloudSave("create_list")) {
+      console.log("cloud_create_list_start", { listId: tempId, name });
       const dbId = await createList(newList);
       if (dbId) {
-        setLists(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        console.log("cloud_create_list_success", { listId: dbId, name });
+      } else {
+        console.error("cloud_create_list_error", { listId: tempId, name });
       }
     }
   };
@@ -323,11 +362,18 @@ export default function App() {
     };
     applyAndSync([instantiated, ...lists]);
 
-    if (isLoggedIn) {
+    if (await canCloudSave("create_list_from_template")) {
+      console.log("cloud_create_list_start", { listId: tempId, name: instantiated.name });
       const dbId = await createList(instantiated);
       if (dbId) {
-        for (const task of instantiated.tasks) await addTask(dbId, task);
-        setLists(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        for (const task of instantiated.tasks) {
+          const taskDbId = await addTask(dbId, task);
+          if (!taskDbId) console.error("cloud_add_task_error", { listId: dbId, taskId: task.id });
+        }
+        setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        console.log("cloud_create_list_success", { listId: dbId, name: instantiated.name });
+      } else {
+        console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name });
       }
     }
   };
