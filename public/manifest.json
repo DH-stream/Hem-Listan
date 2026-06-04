@@ -3,18 +3,18 @@
   "short_name": "Hem-Listan",
   "description": "Smarta, eleganta bento-listor för hemlivet, inköp och renovering.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FCF9F8",
   "theme_color": "#FAF9F5",
   "categories": ["productivity", "utilities"],
-  {
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/icon.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }
