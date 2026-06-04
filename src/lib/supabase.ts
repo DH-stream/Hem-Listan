@@ -337,10 +337,61 @@ const addTaskWithRawRpc = async (
   });
 
   try {
-    const { data: sessionData, error: sessionError } = await client.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
+    const sessionStartedAt = Date.now();
+    console.log("add_task_raw_rpc_session_start", {
+      hasSession: false,
+      hasAccessToken: false,
+      elapsedMs: 0,
+    });
+
+    let sessionData;
+    let sessionError;
+
+    try {
+      const sessionResult = await withTimeout(
+        client.auth.getSession(),
+        3000,
+        "add_task_raw_rpc_session"
+      );
+      sessionData = sessionResult.data;
+      sessionError = sessionResult.error;
+    } catch (error) {
+      const elapsedMs = Date.now() - sessionStartedAt;
+
+      if (error instanceof Error && error.message === "add_task_raw_rpc_session_timeout_after_3000ms") {
+        console.error("add_task_raw_rpc_session_timeout", {
+          hasSession: false,
+          hasAccessToken: false,
+          elapsedMs,
+        });
+        return null;
+      }
+
+      console.error("add_task_raw_rpc_session_exception", {
+        error,
+        hasSession: false,
+        hasAccessToken: false,
+        elapsedMs,
+      });
+      return null;
+    }
+
+    const session = sessionData.session;
+    const accessToken = session?.access_token;
+    const sessionDiagnostics = {
+      hasSession: Boolean(session),
+      hasAccessToken: Boolean(accessToken),
+      userId: session?.user?.id,
+      elapsedMs: Date.now() - sessionStartedAt,
+    };
+
+    console.log("add_task_raw_rpc_session_success", sessionDiagnostics);
 
     if (sessionError || !accessToken) {
+      console.error("add_task_raw_rpc_session_error", {
+        error: sessionError || "missing_access_token",
+        ...sessionDiagnostics,
+      });
       console.error("add_task_raw_rpc_error", {
         error: sessionError || "missing_access_token",
         hasAccessToken: Boolean(accessToken),
