@@ -12,6 +12,9 @@ export default defineConfig(() => {
       VitePWA({
         registerType: "autoUpdate",
         injectRegister: "inline",
+        workbox: {
+          globIgnores: ["**/app-version.json"],
+        },
         manifest: {
           name: "Hem-Listan",
           short_name: "Hem-Listan",
