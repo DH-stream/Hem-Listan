@@ -178,9 +178,11 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
   }
 
   // Förbered datan. Om list.id skickas med från App.tsx men är ett tillfälligt sträng-id
-  // (och inte en giltig UUID), låter vi Postgres gen_random_uuid() generera ett riktigt UUID.
+  // (och inte en giltig UUID), genererar klienten ett riktigt UUID innan insert.
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(list.id);
+  const dbId = isUuid ? list.id : crypto.randomUUID();
   const insertData: any = {
+    id: dbId,
     owner_id: ownerId,
     name: list.name,
     icon: list.icon || 'list',
@@ -188,33 +190,36 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     category: list.category || 'general',
   };
 
-  if (isUuid) {
-    insertData.id = list.id;
-  }
+  const safeInsertDetails = {
+    id: insertData.id,
+    name: insertData.name,
+    icon: insertData.icon,
+    theme_color: insertData.theme_color,
+    category: insertData.category,
+    hasOwnerId: Boolean(insertData.owner_id),
+  };
 
-  console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId });
   console.log("create_list_insert_payload", {
-    insertData,
+    insertData: safeInsertDetails,
     isUuid,
     listId: list.id,
     ownerId,
   });
+  console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId });
 
   try {
-    const { data, error } = await withTimeout(
+    const { error } = await withTimeout(
       client
         .from('hl_lists')
-        .insert(insertData)
-        .select('id')
-        .single(),
+        .insert(insertData),
       10000,
       "create_list_insert"
     );
 
-    if (error || !data) {
+    if (error) {
       console.error("create_list_insert_error", {
         error,
-        data,
+        insertData: safeInsertDetails,
         listId: list.id,
         name: list.name,
       });
@@ -222,11 +227,11 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     }
 
     console.log("create_list_insert_success", {
-      listId: data.id,
+      listId: dbId,
       name: list.name,
     });
 
-    return data.id;
+    return dbId;
   } catch (error) {
     console.error("create_list_insert_exception", {
       error,
