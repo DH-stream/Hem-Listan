@@ -264,7 +264,10 @@ export const deleteList = async (listId: string) => {
 // Lägg till task
 export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?: string }): Promise<string | null> => {
   const client = getSupabaseClient();
-  if (!client) return null;
+  if (!client) {
+    console.error("add_task_client_unavailable", { listId, taskId: task.id, text: task.text });
+    return null;
+  }
 
   const isUuid = task.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(task.id) : false;
   const insertData: any = {
@@ -281,17 +284,58 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     insertData.id = task.id;
   }
 
-  const { data, error } = await client
-    .from('hl_tasks')
-    .insert(insertData)
-    .select('id')
-    .single();
+  const safeInsertDetails = {
+    id: insertData.id,
+    list_id: insertData.list_id,
+    text: insertData.text,
+    checked: insertData.checked,
+    hasNotes: Boolean(insertData.notes),
+    type: insertData.type,
+    hasUrl: Boolean(insertData.url),
+    progress: insertData.progress,
+  };
 
-  if (error || !data) {
-    console.error("Error adding task:", error);
+  console.log("add_task_insert_payload", {
+    insertData: safeInsertDetails,
+    isUuid,
+    taskId: task.id,
+    listId,
+  });
+  console.log("add_task_insert_start", { listId, taskId: task.id, text: task.text });
+
+  try {
+    const { data, error } = await withTimeout(
+      client
+        .from('hl_tasks')
+        .insert(insertData)
+        .select('id')
+        .single(),
+      10000,
+      "add_task_insert"
+    );
+
+    if (error || !data) {
+      console.error("add_task_insert_error", {
+        error,
+        insertData: safeInsertDetails,
+        listId,
+        taskId: task.id,
+        text: task.text,
+      });
+      return null;
+    }
+
+    console.log("add_task_insert_success", { listId, taskId: task.id, dbId: data.id, text: task.text });
+    return data.id;
+  } catch (error) {
+    console.error("add_task_insert_exception", {
+      error,
+      listId,
+      taskId: task.id,
+      text: task.text,
+    });
     return null;
   }
-  return data.id;
 };
 
 // Uppdatera task
