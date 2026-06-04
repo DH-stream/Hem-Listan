@@ -205,9 +205,20 @@ export default function SettingsModal({
     const client = getSupabaseClient();
     if (!client) return;
 
-    client.auth.getUser().then(({ data }) => {
-      setSessionUser(data.user);
-    }).catch(() => setSessionUser(null));
+    client.auth.getSession().then(async ({ data }) => {
+      console.log("settings_session_check", { hasSession: !!data.session, userId: data.session?.user?.id });
+      if (data.session?.user) {
+        setSessionUser(data.session.user);
+        return;
+      }
+
+      const { data: userData } = await client.auth.getUser();
+      console.log("settings_user_check", { hasUser: !!userData.user, userId: userData.user?.id });
+      setSessionUser(userData.user);
+    }).catch(() => {
+      console.log("settings_session_check", { hasSession: false });
+      setSessionUser(null);
+    });
 
     const { data } = client.auth.onAuthStateChange((_e, session) => {
       setSessionUser(session?.user ?? null);

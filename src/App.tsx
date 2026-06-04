@@ -95,25 +95,39 @@ export default function App() {
     const client = getSupabaseClient();
     if (!client) return;
 
+    const handleAuthenticatedSession = async (userId: string) => {
+      setIsLoggedIn(true);
+      await migrateLocalToSupabaseIfNeeded(userId);
+      await loadFromSupabase();
+      subscribeRealtime();
+    };
+
     const initAuth = async () => {
+      console.log("auth_init_start");
+      const { data: { session } } = await client.auth.getSession();
       const { data: { user } } = await client.auth.getUser();
-      if (user) {
-        setIsLoggedIn(true);
-        await migrateLocalToSupabaseIfNeeded(user.id);
-        await loadFromSupabase();
-        subscribeRealtime();
+
+      if (session?.user) {
+        console.log("auth_init_session_found", { userId: session.user.id });
+        await handleAuthenticatedSession(session.user.id);
+        return;
       }
+
+      console.log("auth_init_no_session", { userId: user?.id });
     };
 
     initAuth();
 
     const { data: { subscription } } = client.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
+      console.log("auth_state_event", { event, hasSession: !!session, userId: session?.user?.id });
+
+      if ((event === "INITIAL_SESSION" || event === "SIGNED_IN") && session?.user) {
+        console.log("auth_state_signed_in", { event, userId: session.user.id });
+        await handleAuthenticatedSession(session.user.id);
+      } else if (event === "TOKEN_REFRESHED" && session?.user) {
         setIsLoggedIn(true);
-        await migrateLocalToSupabaseIfNeeded(session.user.id);
-        await loadFromSupabase();
-        subscribeRealtime();
       } else if (event === "SIGNED_OUT") {
+        console.log("auth_state_signed_out");
         setIsLoggedIn(false);
         unsubscribeRealtime();
         setLists(loadLocalLists());

@@ -22,7 +22,14 @@ export const getSupabaseClient = (): SupabaseClient | null => {
   if (!url || !anonKey) return null;
   try {
     _client = createClient(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: "pkce",
+        storage: window.localStorage,
+        storageKey: "hem-listan-auth"
+      }
     });
     return _client;
   } catch (e) {
