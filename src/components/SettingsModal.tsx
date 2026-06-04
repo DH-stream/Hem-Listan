@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
+import type { User } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
 import { getSupabaseClient } from "../lib/supabase";
@@ -7,6 +8,8 @@ import { getSupabaseClient } from "../lib/supabase";
 interface SettingsModalProps {
   userName: string;
   userImage?: string;
+  isLoggedIn: boolean;
+  sessionUser: User | null;
   onUpdateUserName: (name: string) => void;
   onUpdateUserImage: (base64: string) => void;
   onClose: () => void;
@@ -190,12 +193,14 @@ export default function SettingsModal({
   userImage,
   onUpdateUserName,
   onUpdateUserImage,
+  isLoggedIn,
+  sessionUser,
   onClose,
   onResetLists,
 }: SettingsModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(userImage);
-  const [sessionUser, setSessionUser] = useState<any>(null);
+  const [fallbackSessionUser, setFallbackSessionUser] = useState<User | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSharingInfo, setShowSharingInfo] = useState(false);
@@ -208,20 +213,20 @@ export default function SettingsModal({
     client.auth.getSession().then(async ({ data }) => {
       console.log("settings_session_check", { hasSession: !!data.session, userId: data.session?.user?.id });
       if (data.session?.user) {
-        setSessionUser(data.session.user);
+        setFallbackSessionUser(data.session.user);
         return;
       }
 
       const { data: userData } = await client.auth.getUser();
       console.log("settings_user_check", { hasUser: !!userData.user, userId: userData.user?.id });
-      setSessionUser(userData.user);
+      setFallbackSessionUser(userData.user);
     }).catch(() => {
       console.log("settings_session_check", { hasSession: false });
-      setSessionUser(null);
+      setFallbackSessionUser(null);
     });
 
     const { data } = client.auth.onAuthStateChange((_e, session) => {
-      setSessionUser(session?.user ?? null);
+      setFallbackSessionUser(session?.user ?? null);
     });
 
     return () => data.subscription.unsubscribe();
@@ -316,11 +321,13 @@ export default function SettingsModal({
     }
 
     await client.auth.signOut();
-    setSessionUser(null);
+    setFallbackSessionUser(null);
     showSuccess("Utloggad");
   };
 
-  const displayName = sessionUser?.user_metadata?.display_name || userName || "Användare";
+  const activeSessionUser = sessionUser ?? fallbackSessionUser;
+  const isAuthenticated = isLoggedIn || !!activeSessionUser;
+  const displayName = activeSessionUser?.user_metadata?.display_name || userName || "Användare";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-sm font-sans">
@@ -445,13 +452,13 @@ export default function SettingsModal({
               )}
             </AnimatePresence>
 
-            {sessionUser ? (
+            {isAuthenticated ? (
               <div className="space-y-3">
                 <div className="bg-white p-3 rounded-lg border border-[#EDEADF] shadow-sm">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Inloggad som</p>
                   <p className="mt-1 truncate text-xs font-bold text-gray-900">{displayName}</p>
-                  {sessionUser.email && (
-                    <p className="mt-0.5 truncate text-[10px] text-gray-500">{sessionUser.email}</p>
+                  {activeSessionUser?.email && (
+                    <p className="mt-0.5 truncate text-[10px] text-gray-500">{activeSessionUser.email}</p>
                   )}
                 </div>
 
