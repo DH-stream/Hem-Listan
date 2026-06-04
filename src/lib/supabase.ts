@@ -144,36 +144,15 @@ export const fetchLists = async (): Promise<List[] | null> => {
 };
 
 // Skapa ny lista
-export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<string | null> => {
+export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: string): Promise<string | null> => {
   const client = getSupabaseClient();
   if (!client) {
-    console.error("create_list_no_user", { reason: "supabase_client_unavailable", listId: list.id, name: list.name });
+    console.error("create_list_client_unavailable", { listId: list.id, name: list.name });
     return null;
   }
 
-  const { data: sessionData, error: sessionError } = await client.auth.getSession();
-  const sessionUser = sessionData.session?.user ?? null;
-  console.log("create_list_session_check", {
-    hasSession: !!sessionData.session,
-    hasSessionUser: !!sessionUser,
-    sessionError,
-    listId: list.id,
-    name: list.name,
-  });
-
-  let user = sessionUser;
-  if (!user) {
-    const { data: userData, error: userError } = await client.auth.getUser();
-    user = userData.user ?? null;
-
-    if (userError) {
-      console.error("create_list_no_user", { reason: "getUser_error", error: userError, listId: list.id, name: list.name });
-      return null;
-    }
-  }
-
-  if (!user) {
-    console.error("create_list_no_user", { reason: "no_session_user", listId: list.id, name: list.name });
+  if (!ownerId) {
+    console.error("create_list_no_owner_id", { listId: list.id, name: list.name });
     return null;
   }
 
@@ -181,7 +160,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<s
   // (och inte en giltig UUID), låter vi Postgres gen_random_uuid() generera ett riktigt UUID.
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(list.id);
   const insertData: any = {
-    owner_id: user.id,
+    owner_id: ownerId,
     name: list.name,
     icon: list.icon || 'list',
     theme_color: list.themeColor || '#1a5319',
@@ -192,7 +171,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>): Promise<s
     insertData.id = list.id;
   }
 
-  console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId: user.id });
+  console.log("create_list_insert_start", { listId: list.id, name: list.name, ownerId });
   const { data, error } = await client
     .from('hl_lists')
     .insert(insertData)
