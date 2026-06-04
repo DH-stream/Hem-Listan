@@ -3,8 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
-import DeleteListConfirmModal from "./DeleteListConfirmModal";
-import ListActionsModal from "./ListActionsModal";
+import ListActionsFlowModal from "./ListActionsFlowModal";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -40,7 +39,6 @@ export default function DashboardView({
   const [pendingActionsList, setPendingActionsList] = useState<List | null>(
     null,
   );
-  const [pendingDeleteList, setPendingDeleteList] = useState<List | null>(null);
   const [pressingListId, setPressingListId] = useState<string | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -142,23 +140,13 @@ export default function DashboardView({
     setPendingActionsList(null);
   };
 
-  const handleRequestDeleteList = () => {
-    if (pendingActionsList) {
-      setPendingDeleteList(pendingActionsList);
-    }
-
-    setPendingActionsList(null);
-  };
-
   const handleConfirmDeleteList = () => {
-    if (pendingDeleteList) {
+    if (pendingActionsList) {
       console.log("delete_list_confirmed_unwired", {
-        listId: pendingDeleteList.id,
-        name: pendingDeleteList.name,
+        listId: pendingActionsList.id,
+        name: pendingActionsList.name,
       });
     }
-
-    setPendingDeleteList(null);
   };
 
   const getTodayDateString = () => {
@@ -438,20 +426,13 @@ export default function DashboardView({
         </div>
       </section>
 
-      <ListActionsModal
+      <ListActionsFlowModal
         isOpen={!!pendingActionsList}
         listName={pendingActionsList?.name}
-        onCancel={() => setPendingActionsList(null)}
-        onSend={handleSendList}
-        onShare={handleShareList}
-        onDelete={handleRequestDeleteList}
-      />
-
-      <DeleteListConfirmModal
-        isOpen={!!pendingDeleteList}
-        listName={pendingDeleteList?.name}
-        onCancel={() => setPendingDeleteList(null)}
-        onConfirm={handleConfirmDeleteList}
+        onClose={() => setPendingActionsList(null)}
+        onSendCopy={handleSendList}
+        onShareList={handleShareList}
+        onConfirmDelete={handleConfirmDeleteList}
       />
 
       {/* Quick Templates horizontal carousell scroll */}
