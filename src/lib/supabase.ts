@@ -270,6 +270,160 @@ export const deleteList = async (listId: string) => {
   await client.from('hl_lists').delete().eq('id', listId);
 };
 
+type AddTaskRpcPayload = {
+  p_id: string;
+  p_list_id: string;
+  p_text: string;
+  p_checked: boolean;
+  p_notes: string | null;
+  p_type: NonNullable<TaskItem['type']>;
+  p_url: string | null;
+  p_progress: number | null;
+};
+
+type AddTaskRpcSafeDetails = {
+  id: string;
+  list_id: string;
+  text: string;
+  checked: boolean;
+  hasNotes: boolean;
+  type: TaskItem['type'];
+  hasUrl: boolean;
+  progress: number | null;
+};
+
+type AddTaskDiagnosticContext = {
+  listId: string;
+  taskId?: string;
+  dbId: string;
+  text: string;
+  rpcPayload: AddTaskRpcSafeDetails;
+};
+
+const addTaskWithRawRpc = async (
+  client: SupabaseClient,
+  rpcPayload: AddTaskRpcPayload,
+  context: AddTaskDiagnosticContext
+): Promise<string | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_create_task`;
+  const timeoutMs = 10000;
+
+  console.log("add_task_raw_rpc_payload", {
+    rpcPayload: context.rpcPayload,
+    listId: context.listId,
+    taskId: context.taskId,
+    dbId: context.dbId,
+  });
+
+  if (!url || !anonKey) {
+    console.error("add_task_raw_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...context,
+    });
+    return null;
+  }
+
+  const startedAt = Date.now();
+  console.log("add_task_raw_rpc_start", {
+    endpoint,
+    timeoutMs,
+    listId: context.listId,
+    taskId: context.taskId,
+    dbId: context.dbId,
+    text: context.text,
+  });
+
+  try {
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (sessionError || !accessToken) {
+      console.error("add_task_raw_rpc_error", {
+        error: sessionError || "missing_access_token",
+        hasAccessToken: Boolean(accessToken),
+        ...context,
+      });
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("add_task_raw_rpc_timeout", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        ...context,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("add_task_raw_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        ...context,
+      });
+
+      if (!response.ok) {
+        console.error("add_task_raw_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          ...context,
+        });
+        return null;
+      }
+
+      const createdId = typeof responseBody === 'string' && responseBody ? responseBody : context.dbId;
+      console.log("add_task_raw_rpc_success", {
+        listId: context.listId,
+        taskId: context.taskId,
+        dbId: createdId,
+        text: context.text,
+      });
+      return createdId;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("add_task_raw_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      ...context,
+    });
+    return null;
+  }
+};
+
 // Lägg till task
 export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?: string }): Promise<string | null> => {
   const client = getSupabaseClient();
@@ -280,7 +434,7 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
 
   const isUuid = task.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(task.id) : false;
   const dbId = isUuid && task.id ? task.id : crypto.randomUUID();
-  const rpcPayload = {
+  const rpcPayload: AddTaskRpcPayload = {
     p_id: dbId,
     p_list_id: listId,
     p_text: task.text,
@@ -291,7 +445,7 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     p_progress: task.progress !== undefined ? task.progress : null,
   };
 
-  const safeRpcDetails = {
+  const safeRpcDetails: AddTaskRpcSafeDetails = {
     id: rpcPayload.p_id,
     list_id: rpcPayload.p_list_id,
     text: rpcPayload.p_text,
@@ -300,6 +454,14 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     type: rpcPayload.p_type,
     hasUrl: Boolean(rpcPayload.p_url),
     progress: rpcPayload.p_progress,
+  };
+
+  const rawRpcContext: AddTaskDiagnosticContext = {
+    listId,
+    taskId: task.id,
+    dbId,
+    text: task.text,
+    rpcPayload: safeRpcDetails,
   };
 
   console.log("add_task_rpc_payload", {
@@ -326,7 +488,7 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
         dbId,
         text: task.text,
       });
-      return null;
+      return addTaskWithRawRpc(client, rpcPayload, rawRpcContext);
     }
 
     const createdId = typeof data === 'string' ? data : dbId;
@@ -340,7 +502,7 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
       dbId,
       text: task.text,
     });
-    return null;
+    return addTaskWithRawRpc(client, rpcPayload, rawRpcContext);
   }
 };
 
