@@ -3,21 +3,30 @@ import { List, TaskItem, MealSlot } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
+type AbortablePromiseLike<T> = PromiseLike<T> & {
+  abortSignal?: (signal: AbortSignal) => PromiseLike<T>;
+};
+
 const withTimeout = async <T,>(
-  promise: PromiseLike<T>,
+  promise: AbortablePromiseLike<T>,
   ms: number,
   label: string
 ): Promise<T> => {
+  const controller = new AbortController();
+  const request = typeof promise.abortSignal === "function"
+    ? promise.abortSignal(controller.signal)
+    : promise;
   let timeoutId: number | undefined;
 
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = window.setTimeout(() => {
+      controller.abort();
       reject(new Error(`${label}_timeout_after_${ms}ms`));
     }, ms);
   });
 
   try {
-    return await Promise.race([Promise.resolve(promise), timeout]);
+    return await Promise.race([Promise.resolve(request), timeout]);
   } finally {
     if (timeoutId) window.clearTimeout(timeoutId);
   }
