@@ -269,52 +269,49 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     return null;
   }
 
-  // Matcha createList-strategin: generera ett riktigt UUID lokalt och undvik insert-returning.
   const isUuid = task.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(task.id) : false;
   const dbId = isUuid && task.id ? task.id : crypto.randomUUID();
-  const insertData: any = {
-    id: dbId,
-    list_id: listId,
-    text: task.text,
-    checked: task.checked ?? false,
-    notes: task.notes || null,
-    type: task.type ?? 'task',
-    url: task.url || null,
-    progress: task.progress !== undefined ? task.progress : null,
+  const rpcPayload = {
+    p_id: dbId,
+    p_list_id: listId,
+    p_text: task.text,
+    p_checked: task.checked ?? false,
+    p_notes: task.notes || null,
+    p_type: task.type ?? 'task',
+    p_url: task.url || null,
+    p_progress: task.progress !== undefined ? task.progress : null,
   };
 
-  const safeInsertDetails = {
-    id: insertData.id,
-    list_id: insertData.list_id,
-    text: insertData.text,
-    checked: insertData.checked,
-    hasNotes: Boolean(insertData.notes),
-    type: insertData.type,
-    hasUrl: Boolean(insertData.url),
-    progress: insertData.progress,
+  const safeRpcDetails = {
+    id: rpcPayload.p_id,
+    list_id: rpcPayload.p_list_id,
+    text: rpcPayload.p_text,
+    checked: rpcPayload.p_checked,
+    hasNotes: Boolean(rpcPayload.p_notes),
+    type: rpcPayload.p_type,
+    hasUrl: Boolean(rpcPayload.p_url),
+    progress: rpcPayload.p_progress,
   };
 
-  console.log("add_task_insert_payload", {
-    insertData: safeInsertDetails,
+  console.log("add_task_rpc_payload", {
+    rpcPayload: safeRpcDetails,
     isUuid,
     taskId: task.id,
     listId,
   });
-  console.log("add_task_insert_start", { listId, taskId: task.id, dbId, text: task.text });
+  console.log("add_task_rpc_start", { listId, taskId: task.id, dbId, text: task.text });
 
   try {
-    const { error } = await withTimeout(
-      client
-        .from('hl_tasks')
-        .insert(insertData),
+    const { data, error } = await withTimeout(
+      client.rpc('hl_create_task', rpcPayload),
       10000,
-      "add_task_insert"
+      "add_task_rpc"
     );
 
     if (error) {
-      console.error("add_task_insert_error", {
+      console.error("add_task_rpc_error", {
         error,
-        insertData: safeInsertDetails,
+        rpcPayload: safeRpcDetails,
         listId,
         taskId: task.id,
         dbId,
@@ -323,10 +320,11 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
       return null;
     }
 
-    console.log("add_task_insert_success", { listId, taskId: task.id, dbId, text: task.text });
-    return dbId;
+    const createdId = typeof data === 'string' ? data : dbId;
+    console.log("add_task_rpc_success", { listId, taskId: task.id, dbId: createdId, text: task.text });
+    return createdId;
   } catch (error) {
-    console.error("add_task_insert_exception", {
+    console.error("add_task_rpc_exception", {
       error,
       listId,
       taskId: task.id,
