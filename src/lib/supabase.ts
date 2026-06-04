@@ -387,10 +387,36 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
 };
 
 // Ta bort task
-export const deleteTask = async (taskId: string) => {
+export const deleteTask = async (taskId: string): Promise<boolean> => {
   const client = getSupabaseClient();
-  if (!client) return;
-  await client.from('hl_tasks').delete().eq('id', taskId);
+  if (!client) {
+    console.error("delete_task_client_unavailable", { taskId });
+    return false;
+  }
+
+  console.log("delete_task_start", { taskId });
+
+  try {
+    const { error } = await withTimeout(
+      client
+        .from('hl_tasks')
+        .delete()
+        .eq('id', taskId),
+      10000,
+      "delete_task"
+    );
+
+    if (error) {
+      console.error("delete_task_error", { error, taskId });
+      return false;
+    }
+
+    console.log("delete_task_success", { taskId });
+    return true;
+  } catch (error) {
+    console.error("delete_task_exception", { error, taskId });
+    return false;
+  }
 };
 
 // Lägg till/uppdatera måltid
