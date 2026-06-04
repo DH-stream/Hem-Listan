@@ -374,7 +374,20 @@ export default function App() {
       ...l, tasks: l.tasks.filter(t => t.id !== taskId)
     });
     applyAndSync(updated);
-    if (await canCloudSave("delete_task")) await deleteTask(taskId);
+
+    const canSave = await canCloudSave("delete_task");
+    if (!canSave) {
+      console.log("cloud_delete_task_skipped", { listId, taskId, reason: "no_session" });
+      return;
+    }
+
+    console.log("cloud_delete_task_start", { listId, taskId });
+    const deleted = await deleteTask(taskId);
+    if (deleted) {
+      console.log("cloud_delete_task_success", { listId, taskId });
+    } else {
+      console.error("cloud_delete_task_error", { listId, taskId });
+    }
   };
 
   const handleResetList = async (listId: string) => {
