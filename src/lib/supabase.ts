@@ -269,8 +269,11 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     return null;
   }
 
+  // Matcha createList-strategin: generera ett riktigt UUID lokalt och undvik insert-returning.
   const isUuid = task.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(task.id) : false;
+  const dbId = isUuid && task.id ? task.id : crypto.randomUUID();
   const insertData: any = {
+    id: dbId,
     list_id: listId,
     text: task.text,
     checked: task.checked ?? false,
@@ -279,10 +282,6 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     url: task.url || null,
     progress: task.progress !== undefined ? task.progress : null,
   };
-
-  if (isUuid && task.id) {
-    insertData.id = task.id;
-  }
 
   const safeInsertDetails = {
     id: insertData.id,
@@ -301,37 +300,37 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     taskId: task.id,
     listId,
   });
-  console.log("add_task_insert_start", { listId, taskId: task.id, text: task.text });
+  console.log("add_task_insert_start", { listId, taskId: task.id, dbId, text: task.text });
 
   try {
-    const { data, error } = await withTimeout(
+    const { error } = await withTimeout(
       client
         .from('hl_tasks')
-        .insert(insertData)
-        .select('id')
-        .single(),
+        .insert(insertData),
       10000,
       "add_task_insert"
     );
 
-    if (error || !data) {
+    if (error) {
       console.error("add_task_insert_error", {
         error,
         insertData: safeInsertDetails,
         listId,
         taskId: task.id,
+        dbId,
         text: task.text,
       });
       return null;
     }
 
-    console.log("add_task_insert_success", { listId, taskId: task.id, dbId: data.id, text: task.text });
-    return data.id;
+    console.log("add_task_insert_success", { listId, taskId: task.id, dbId, text: task.text });
+    return dbId;
   } catch (error) {
     console.error("add_task_insert_exception", {
       error,
       listId,
       taskId: task.id,
+      dbId,
       text: task.text,
     });
     return null;
