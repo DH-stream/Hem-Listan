@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
+import { MealType } from '../types';
 
-const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }) => {
+interface MealModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (name: string) => void;
+  day?: string;
+  mealType?: MealType;
+}
+
+const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }: MealModalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<'idle' | 'open' | 'confirming' | 'check' | 'closing'>('idle');
 
