@@ -1,4 +1,5 @@
 import { useState, useEffect, startTransition, useRef } from "react";
+import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
 import { List, Stats, MealType, TaskItem } from "./types";
 import { INITIAL_LISTS } from "./data";
@@ -73,6 +74,7 @@ const listFingerprint = (list: List) => JSON.stringify({
 export default function App() {
   const [lists, setLists] = useState<List[]>(loadLocalLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -95,9 +97,10 @@ export default function App() {
     const client = getSupabaseClient();
     if (!client) return;
 
-    const handleAuthenticatedSession = async (userId: string) => {
+    const handleAuthenticatedSession = async (user: User) => {
       setIsLoggedIn(true);
-      await migrateLocalToSupabaseIfNeeded(userId);
+      setSessionUser(user);
+      await migrateLocalToSupabaseIfNeeded(user.id);
       await loadFromSupabase();
       subscribeRealtime();
     };
@@ -123,13 +126,17 @@ export default function App() {
       const { data: { session } } = await client.auth.getSession();
       const { data: { user } } = await client.auth.getUser();
 
-      if (session?.user) {
-        console.log("auth_init_session_found", { userId: session.user.id });
-        await handleAuthenticatedSession(session.user.id);
+      const authenticatedUser = session?.user ?? user;
+
+      if (authenticatedUser) {
+        console.log("auth_init_session_found", { userId: authenticatedUser.id });
+        await handleAuthenticatedSession(authenticatedUser);
         return;
       }
 
       console.log("auth_init_no_session", { userId: user?.id });
+      setIsLoggedIn(false);
+      setSessionUser(null);
     };
 
     initAuth();
@@ -139,12 +146,14 @@ export default function App() {
 
       if ((event === "INITIAL_SESSION" || event === "SIGNED_IN") && session?.user) {
         console.log("auth_state_signed_in", { event, userId: session.user.id });
-        await handleAuthenticatedSession(session.user.id);
+        await handleAuthenticatedSession(session.user);
       } else if (event === "TOKEN_REFRESHED" && session?.user) {
         setIsLoggedIn(true);
+        setSessionUser(session.user);
       } else if (event === "SIGNED_OUT") {
         console.log("auth_state_signed_out");
         setIsLoggedIn(false);
+        setSessionUser(null);
         unsubscribeRealtime();
         setLists(loadLocalLists());
       }
@@ -642,6 +651,8 @@ export default function App() {
           <SettingsModal
             userName={userName}
             userImage={userImage}
+            isLoggedIn={isLoggedIn}
+            sessionUser={sessionUser}
             onUpdateUserName={handleUpdateUserName}
             onUpdateUserImage={handleUpdateUserImage}
             onClose={() => setShowSettings(false)}
