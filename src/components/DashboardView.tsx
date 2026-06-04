@@ -4,6 +4,7 @@ import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
 import DeleteListConfirmModal from "./DeleteListConfirmModal";
+import ListActionsModal from "./ListActionsModal";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -36,6 +37,9 @@ export default function DashboardView({
   onOpenSettings,
 }: DashboardViewProps) {
   const [logoLoaded, setLogoLoaded] = useState(false);
+  const [pendingActionsList, setPendingActionsList] = useState<List | null>(
+    null,
+  );
   const [pendingDeleteList, setPendingDeleteList] = useState<List | null>(null);
   const [pressingListId, setPressingListId] = useState<string | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,7 +73,7 @@ export default function DashboardView({
     longPressTimerRef.current = setTimeout(() => {
       longPressTriggeredRef.current = true;
       setPressingListId(null);
-      setPendingDeleteList(list);
+      setPendingActionsList(list);
       navigator.vibrate?.(50);
     }, 500);
   };
@@ -111,6 +115,40 @@ export default function DashboardView({
       clearLongPressTimer();
     };
   }, []);
+
+  const logListActionPlaceholder = (
+    eventName: "send_list_unwired" | "share_list_unwired",
+    list: List,
+  ) => {
+    console.log(eventName, {
+      listId: list.id,
+      name: list.name,
+    });
+  };
+
+  const handleSendList = () => {
+    if (pendingActionsList) {
+      logListActionPlaceholder("send_list_unwired", pendingActionsList);
+    }
+
+    setPendingActionsList(null);
+  };
+
+  const handleShareList = () => {
+    if (pendingActionsList) {
+      logListActionPlaceholder("share_list_unwired", pendingActionsList);
+    }
+
+    setPendingActionsList(null);
+  };
+
+  const handleRequestDeleteList = () => {
+    if (pendingActionsList) {
+      setPendingDeleteList(pendingActionsList);
+    }
+
+    setPendingActionsList(null);
+  };
 
   const handleConfirmDeleteList = () => {
     if (pendingDeleteList) {
@@ -399,6 +437,15 @@ export default function DashboardView({
           </button>
         </div>
       </section>
+
+      <ListActionsModal
+        isOpen={!!pendingActionsList}
+        listName={pendingActionsList?.name}
+        onCancel={() => setPendingActionsList(null)}
+        onSend={handleSendList}
+        onShare={handleShareList}
+        onDelete={handleRequestDeleteList}
+      />
 
       <DeleteListConfirmModal
         isOpen={!!pendingDeleteList}
