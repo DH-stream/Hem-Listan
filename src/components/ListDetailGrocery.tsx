@@ -741,12 +741,10 @@ export default function ListDetailGrocery({
 
             {/* Inspirational Eco Tip Card */}
             <section className="pt-2">
-              <div className="relative h-44 rounded-2xl overflow-hidden group cursor-pointer shadow-md">
-                <img
-                  alt="Fresh produce"
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfTCmR18_QbSOvkMr-ND-tocBKoMexBU2RdHjqIG_5OA_cJBuphlAk-9tOC3kuuzZdn25CJaN9S_n4sbajZWek2FNhfN7GWi16nsDxA7zU0ZJ_YLLtWB6MT83_eNUrZCoDgQq8ycJZUtswXjJ3-YZDqz806nkNNe4MEjENLIVTWnx3mC19r2kDqoYJLzYnaUVZSrCVRzguDRmP-flrUf-GwqeasSl1QppSoFtEPZPxW5GIl5aXrrnlZfUxvzuJCb311gD3aje5Mt8"
-                />
+              <div className="relative h-44 rounded-2xl overflow-hidden group cursor-pointer shadow-md bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container">
+                <div className="absolute right-5 top-5 w-16 h-16 rounded-full bg-white/20 flex items-center justify-center transition-transform duration-500 group-hover:scale-105">
+                  <LucideIcon name="eco" className="w-8 h-8 text-white" />
+                </div>
                 <div className="absolute inset-0 bg-gradient-to-t from-primary/80 to-transparent flex flex-col justify-end p-5">
                   <p className="text-white font-sans text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1 leading-none">
                     Shopping Tips

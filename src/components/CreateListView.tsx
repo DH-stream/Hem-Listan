@@ -68,12 +68,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
       {/* Form Content body container */}
       <main className="flex-1 px-5 py-6 flex flex-col gap-6 overflow-y-auto">
         {/* Hero Visual Card showing selected icons preview */}
-        <div className="relative w-full h-40 rounded-xl overflow-hidden shadow-[0px_4px_20px_rgba(0,59,5,0.04)] bg-surface-container">
-          <img
-            className="w-full h-full object-cover opacity-50 mix-blend-multiply"
-            alt="Workspace serene notebook illustration"
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqUkh2LIQr96sauwB1wALltSEaNtd8lLK7xhm7gufW_UGfeIByaP7kYRT84Zkjl8v8FfzVL0flW-MTn4b-J-_IZKGZTVrsFiF6dNpOnF0RyZMZidPzj2sZ9JcR8daEsShf2Z8jG76WGQYWO52VDuovNFqw8c1GHiszYIVYezp5RlHYXl7LLDiqVVoxS4vu5uMDNkaWTNoicstvFIYvScAgheHV_he1n-1fcDSOp9gBL23TlVvBbuiNdlWCgGVvX7Kz_aVa-JO6DWw"
-          />
+        <div className="relative w-full h-40 rounded-xl overflow-hidden shadow-[0px_4px_20px_rgba(0,59,5,0.04)] bg-gradient-to-br from-surface-container via-surface-muted to-primary/10">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="bg-white/90 backdrop-blur-sm px-6 py-4 rounded-full shadow-md border border-white flex items-center justify-center gap-2">
               <LucideIcon
