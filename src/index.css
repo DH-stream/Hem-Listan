@@ -68,3 +68,72 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+
+.hem-boot-mark {
+  animation: hemBootMarkIn 560ms cubic-bezier(0.23, 1, 0.32, 1) 120ms both;
+}
+
+.hem-boot-ring {
+  animation: hemBootPulse 1500ms cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+.hem-boot-dot {
+  animation: hemBootDot 1300ms ease-in-out infinite;
+}
+
+.hem-app-enter {
+  animation: hemAppFadeIn 420ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes hemBootMarkIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hemBootPulse {
+  0%, 100% {
+    opacity: 0.42;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes hemBootDot {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes hemAppFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hem-boot-mark,
+  .hem-boot-ring,
+  .hem-boot-dot,
+  .hem-app-enter {
+    animation-duration: 1ms;
+    animation-iteration-count: 1;
+  }
+}

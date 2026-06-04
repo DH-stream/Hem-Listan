@@ -1,21 +1,14 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import { inject } from '@vercel/analytics';
-import App from './App.tsx';
-import { ensureLatestAppVersion } from './version.ts';
+import AppBoot from './components/AppBoot.tsx';
 import './index.css';
 
 // Initialize Vercel Web Analytics
 inject();
 
-const startApp = async () => {
-  await ensureLatestAppVersion();
-
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-};
-
-void startApp();
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <AppBoot />
+  </StrictMode>,
+);
