@@ -112,14 +112,6 @@ export default function App() {
 
       if (code) {
         console.log("auth_callback_code_found");
-        const { error } = await client.auth.exchangeCodeForSession(code);
-
-        if (error) {
-          console.error("auth_callback_exchange_error", error);
-        } else {
-          console.log("auth_callback_exchange_success");
-        }
-
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
