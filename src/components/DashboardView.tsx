@@ -1,8 +1,9 @@
-import React, { useState, SyntheticEvent } from "react";
+import React, { useEffect, useRef, useState, SyntheticEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
+import ListActionsFlowModal from "./ListActionsFlowModal";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -35,6 +36,114 @@ export default function DashboardView({
   onOpenSettings,
 }: DashboardViewProps) {
   const [logoLoaded, setLogoLoaded] = useState(false);
+  const [pendingActionsList, setPendingActionsList] = useState<List | null>(
+    null,
+  );
+  const [pressingListId, setPressingListId] = useState<string | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const pressStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const cancelLongPress = () => {
+    clearLongPressTimer();
+    setPressingListId(null);
+    pressStartRef.current = null;
+  };
+
+  const handleListPointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+    list: List,
+  ) => {
+    if (event.button !== 0) return;
+
+    clearLongPressTimer();
+    longPressTriggeredRef.current = false;
+    pressStartRef.current = { x: event.clientX, y: event.clientY };
+    setPressingListId(list.id);
+
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setPressingListId(null);
+      setPendingActionsList(list);
+      navigator.vibrate?.(50);
+    }, 500);
+  };
+
+  const handleListPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = pressStartRef.current;
+    if (!start) return;
+
+    const movedX = Math.abs(event.clientX - start.x);
+    const movedY = Math.abs(event.clientY - start.y);
+
+    if (movedX > 10 || movedY > 10) {
+      cancelLongPress();
+    }
+  };
+
+  const handleListPointerEnd = () => {
+    clearLongPressTimer();
+    setPressingListId(null);
+    pressStartRef.current = null;
+  };
+
+  const handleListClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+    listId: string,
+  ) => {
+    if (longPressTriggeredRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      longPressTriggeredRef.current = false;
+      return;
+    }
+
+    onSelectList(listId);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearLongPressTimer();
+    };
+  }, []);
+
+  const logListActionPlaceholder = (
+    eventName: "send_list_unwired" | "share_list_unwired",
+    list: List,
+  ) => {
+    console.log(eventName, {
+      listId: list.id,
+      name: list.name,
+    });
+  };
+
+  const handleSendList = () => {
+    if (pendingActionsList) {
+      logListActionPlaceholder("send_list_unwired", pendingActionsList);
+    }
+  };
+
+  const handleShareList = () => {
+    if (pendingActionsList) {
+      logListActionPlaceholder("share_list_unwired", pendingActionsList);
+    }
+  };
+
+  const handleConfirmDeleteList = () => {
+    if (pendingActionsList) {
+      console.log("delete_list_confirmed_unwired", {
+        listId: pendingActionsList.id,
+        name: pendingActionsList.name,
+      });
+    }
+  };
 
   const getTodayDateString = () => {
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
@@ -238,8 +347,24 @@ export default function DashboardView({
             return (
               <motion.div
                 key={list.id}
-                onClick={() => onSelectList(list.id)}
-                className="bg-surface-container-lowest p-4 rounded-xl border border-surface-container/40 bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-all duration-300 active:scale-[0.99]"
+                onPointerDown={(event) => handleListPointerDown(event, list)}
+                onPointerMove={handleListPointerMove}
+                onPointerUp={handleListPointerEnd}
+                onPointerCancel={handleListPointerEnd}
+                onPointerLeave={handleListPointerEnd}
+                onContextMenu={(event) => event.preventDefault()}
+                onClick={(event) => handleListClick(event, list.id)}
+                animate={
+                  pressingListId === list.id
+                    ? { scale: 0.985, y: 1 }
+                    : { scale: 1, y: 0 }
+                }
+                transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+                className={`bg-surface-container-lowest p-4 rounded-xl border bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-colors duration-300 active:scale-[0.99] ${
+                  pressingListId === list.id
+                    ? "border-primary-fixed shadow-[0px_10px_34px_rgba(0,59,5,0.10)]"
+                    : "border-surface-container/40"
+                }`}
                 layoutId={`list-card-${list.id}`}
               >
                 <div className="flex items-center gap-4 flex-1">
@@ -296,6 +421,15 @@ export default function DashboardView({
           </button>
         </div>
       </section>
+
+      <ListActionsFlowModal
+        isOpen={!!pendingActionsList}
+        listName={pendingActionsList?.name}
+        onClose={() => setPendingActionsList(null)}
+        onSendCopy={handleSendList}
+        onShareList={handleShareList}
+        onConfirmDelete={handleConfirmDeleteList}
+      />
 
       {/* Quick Templates horizontal carousell scroll */}
       <section className="mt-8">
