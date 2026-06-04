@@ -8,10 +8,14 @@ import './index.css';
 // Initialize Vercel Web Analytics
 inject();
 
-void ensureLatestAppVersion();
+const startApp = async () => {
+  await ensureLatestAppVersion();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+};
+
+void startApp();
