@@ -35,7 +35,10 @@ const actions = [
   },
 ] as const;
 
-const transition = { duration: 0.2, ease: [0.23, 1, 0.32, 1] } as const;
+const easing = [0.23, 1, 0.32, 1] as const;
+const backdropTransition = { duration: 0.16, ease: easing } as const;
+const cardTransition = { duration: 0.16, ease: easing } as const;
+const contentTransition = { duration: 0.14, ease: easing } as const;
 
 type FlowMode = "actions" | "deleteConfirm";
 
@@ -96,12 +99,13 @@ export default function ListActionsFlowModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-sm font-sans"
+          transition={backdropTransition}
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-[2px] font-sans"
           onClick={handleClose}
         >
           <motion.div
-            layout
+            layout="size"
+            layoutDependency={mode}
             role="dialog"
             aria-modal="true"
             aria-labelledby="list-actions-flow-title"
@@ -110,11 +114,11 @@ export default function ListActionsFlowModal({
                 ? "list-actions-flow-description"
                 : undefined
             }
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            initial={{ opacity: 0, scale: 0.98, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={transition}
-            className="relative my-8 w-full max-w-md overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
+            exit={{ opacity: 0, scale: 0.98, y: 4 }}
+            transition={cardTransition}
+            className="relative my-8 w-full max-w-md transform-gpu overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl will-change-transform"
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -126,14 +130,14 @@ export default function ListActionsFlowModal({
               <LucideIcon name="close" className="h-5 w-5" />
             </button>
 
-            <AnimatePresence mode="wait" initial={false}>
+            <AnimatePresence mode="popLayout" initial={false}>
               {mode === "actions" ? (
                 <motion.div
                   key="actions"
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={transition}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={contentTransition}
                 >
                   <div className="mb-5 pr-8">
                     <h2
@@ -155,7 +159,7 @@ export default function ListActionsFlowModal({
                         key={action.key}
                         type="button"
                         onClick={() => handleAction(action.key)}
-                        className="group flex min-h-[68px] w-full items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3 text-left shadow-sm transition-[background-color,box-shadow,transform] hover:bg-white hover:shadow-md active:scale-[0.98]"
+                        className="group flex min-h-[68px] w-full items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3 text-left shadow-sm transition-[background-color,box-shadow,transform] hover:bg-white active:scale-[0.98]"
                       >
                         <span
                           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-1 ${
@@ -191,10 +195,10 @@ export default function ListActionsFlowModal({
               ) : (
                 <motion.div
                   key="deleteConfirm"
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={transition}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={contentTransition}
                 >
                   <div className="mb-5 flex items-start gap-3 pr-8">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100">
