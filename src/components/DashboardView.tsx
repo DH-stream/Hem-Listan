@@ -128,16 +128,12 @@ export default function DashboardView({
     if (pendingActionsList) {
       logListActionPlaceholder("send_list_unwired", pendingActionsList);
     }
-
-    setPendingActionsList(null);
   };
 
   const handleShareList = () => {
     if (pendingActionsList) {
       logListActionPlaceholder("share_list_unwired", pendingActionsList);
     }
-
-    setPendingActionsList(null);
   };
 
   const handleConfirmDeleteList = () => {
