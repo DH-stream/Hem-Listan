@@ -39,6 +39,36 @@ const saveLocalLists = (lists: List[]) => {
 };
 
 const migrationKeyForUser = (userId: string) => `hem-listan-supabase-migrated-${userId}`;
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+const taskFingerprint = (task: TaskItem) => JSON.stringify({
+  text: task.text,
+  checked: task.checked ?? false,
+  notes: task.notes || undefined,
+  type: task.type || 'task',
+  url: task.url || undefined,
+  progress: task.progress ?? undefined,
+});
+
+const mealFingerprint = (meal: { day: string; type: string; name: string }) => JSON.stringify({
+  day: meal.day,
+  type: meal.type,
+  name: meal.name,
+});
+
+const listMetadataFingerprint = (list: List) => JSON.stringify({
+  name: list.name,
+  icon: list.icon || 'list',
+  themeColor: list.themeColor || '#1a5319',
+  category: list.category || 'general',
+});
+
+const listFingerprint = (list: List) => JSON.stringify({
+  metadata: listMetadataFingerprint(list),
+  tasks: list.tasks.map(taskFingerprint),
+  meals: (list.meals ?? []).map(mealFingerprint),
+});
 
 export default function App() {
   const [lists, setLists] = useState<List[]>(loadLocalLists);
@@ -50,6 +80,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [pulseCount, setPulseCount] = useState(0);
   const realtimeRef = useRef<any>(null);
+  const migrationInFlightRef = useRef<Promise<void> | null>(null);
 
   const [userName, setUserName] = useState<string>(
     () => localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan"
@@ -97,33 +128,106 @@ export default function App() {
 
   const loadFromSupabase = async () => {
     const fetched = await fetchLists();
-    if (fetched.length > 0) {
-      setLists(fetched);
-      saveLocalLists(fetched);
-    }
+    if (!fetched) return false;
+
+    setLists(fetched);
+    saveLocalLists(fetched);
+    return true;
   };
 
   const migrateLocalToSupabase = async (localLists: List[]) => {
+    const existingLists = await fetchLists();
+    if (!existingLists) return false;
+
+    let migratedSuccessfully = true;
+    const existingFingerprints = new Set(existingLists.map(listFingerprint));
+
     for (const list of localLists) {
-      const newId = await createList(list);
-      if (!newId) continue;
-      for (const task of list.tasks) {
-        await addTask(newId, task);
+      if (existingFingerprints.has(listFingerprint(list))) continue;
+
+      const existingList = existingLists.find(existing =>
+        (isUuid(list.id) && existing.id === list.id) ||
+        listMetadataFingerprint(existing) === listMetadataFingerprint(list)
+      );
+      let targetList = existingList;
+
+      if (!targetList) {
+        const newId = await createList(list);
+        if (!newId || !isUuid(newId)) {
+          migratedSuccessfully = false;
+          console.error("local_migration_create_list_error", { listId: list.id, name: list.name });
+          continue;
+        }
+
+        targetList = { ...list, id: newId, tasks: [], meals: [] };
+        existingLists.push(targetList);
+        console.log("local_migration_create_list_success", { listId: newId, name: list.name });
       }
+
+      const existingTasks = new Set(targetList.tasks.map(taskFingerprint));
+      for (const task of list.tasks) {
+        if (existingTasks.has(taskFingerprint(task))) continue;
+
+        const taskId = await addTask(targetList.id, task);
+        if (taskId) {
+          existingTasks.add(taskFingerprint(task));
+          targetList.tasks.push({ ...task, id: taskId });
+        } else {
+          migratedSuccessfully = false;
+          console.error("local_migration_add_task_error", { listId: targetList.id, taskId: task.id, text: task.text });
+        }
+      }
+
+      const existingMeals = new Set((targetList.meals ?? []).map(mealFingerprint));
       for (const meal of list.meals ?? []) {
-        await upsertMeal(newId, meal);
+        if (existingMeals.has(mealFingerprint(meal))) continue;
+
+        const mealId = await upsertMeal(targetList.id, meal);
+        if (mealId) {
+          existingMeals.add(mealFingerprint(meal));
+          targetList.meals = [...(targetList.meals ?? []), { ...meal, id: mealId }];
+        } else {
+          migratedSuccessfully = false;
+          console.error("local_migration_add_meal_error", { listId: targetList.id, mealId: meal.id, day: meal.day, type: meal.type });
+        }
       }
     }
+
+    return migratedSuccessfully;
   };
 
   const migrateLocalToSupabaseIfNeeded = async (userId: string) => {
-    const localLists = loadLocalLists();
-    const hasCustomLists = JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
-    const migrationKey = migrationKeyForUser(userId);
-    if (!hasCustomLists || localStorage.getItem(migrationKey) === "true") return;
+    if (migrationInFlightRef.current) {
+      await migrationInFlightRef.current;
+      return;
+    }
 
-    await migrateLocalToSupabase(localLists);
-    localStorage.setItem(migrationKey, "true");
+    const runMigration = async () => {
+      const localLists = loadLocalLists();
+      const hasCustomLists = localLists.length > 0 && JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
+      const migrationKey = migrationKeyForUser(userId);
+      if (localStorage.getItem(migrationKey) === "true") return;
+
+      console.log("local_migration_start", { userId });
+
+      if (!hasCustomLists) {
+        console.log("local_migration_no_custom_lists", { userId });
+        return;
+      }
+
+      const migratedSuccessfully = await migrateLocalToSupabase(localLists);
+      if (!migratedSuccessfully) return;
+
+      localStorage.setItem(migrationKey, "true");
+      console.log("local_migration_done", { userId });
+    };
+
+    migrationInFlightRef.current = runMigration();
+    try {
+      await migrationInFlightRef.current;
+    } finally {
+      migrationInFlightRef.current = null;
+    }
   };
 
   const canCloudSave = async (operation: string): Promise<boolean> => {
