@@ -166,7 +166,7 @@ export default function App() {
     return true;
   };
 
-  const migrateLocalToSupabase = async (localLists: List[]) => {
+  const migrateLocalToSupabase = async (localLists: List[], ownerId: string) => {
     const existingLists = await fetchLists();
     if (!existingLists) return false;
 
@@ -183,7 +183,7 @@ export default function App() {
       let targetList = existingList;
 
       if (!targetList) {
-        const newId = await createList(list);
+        const newId = await createList(list, ownerId);
         if (!newId || !isUuid(newId)) {
           migratedSuccessfully = false;
           console.error("local_migration_create_list_error", { listId: list.id, name: list.name });
@@ -246,7 +246,7 @@ export default function App() {
         return;
       }
 
-      const migratedSuccessfully = await migrateLocalToSupabase(localLists);
+      const migratedSuccessfully = await migrateLocalToSupabase(localLists, userId);
       if (!migratedSuccessfully) return;
 
       localStorage.setItem(migrationKey, "true");
@@ -475,7 +475,12 @@ export default function App() {
 
     if (await canCloudSave("create_list")) {
       console.log("cloud_create_list_start", { listId: tempId, name });
-      const dbId = await createList(newList);
+      if (!sessionUser) {
+        console.error("cloud_create_list_error", { listId: tempId, name, reason: "missing_session_user" });
+        return;
+      }
+
+      const dbId = await createList(newList, sessionUser.id);
       if (dbId) {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
         console.log("cloud_create_list_success", { listId: dbId, name });
@@ -499,7 +504,12 @@ export default function App() {
 
     if (await canCloudSave("create_list_from_template")) {
       console.log("cloud_create_list_start", { listId: tempId, name: instantiated.name });
-      const dbId = await createList(instantiated);
+      if (!sessionUser) {
+        console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "missing_session_user" });
+        return;
+      }
+
+      const dbId = await createList(instantiated, sessionUser.id);
       if (dbId) {
         for (const task of instantiated.tasks) {
           const taskDbId = await addTask(dbId, task);
