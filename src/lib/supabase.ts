@@ -336,16 +336,54 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
 };
 
 // Uppdatera task
-export const updateTask = async (taskId: string, updates: Partial<TaskItem>) => {
+export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Promise<boolean> => {
   const client = getSupabaseClient();
-  if (!client) return;
-  await client.from('hl_tasks').update({
+  if (!client) {
+    console.error("update_task_client_unavailable", { taskId, updates: Object.keys(updates) });
+    return false;
+  }
+
+  const updateData: any = {
     ...(updates.text !== undefined && { text: updates.text }),
     ...(updates.checked !== undefined && { checked: updates.checked }),
     ...(updates.notes !== undefined && { notes: updates.notes }),
     ...(updates.progress !== undefined && { progress: updates.progress }),
     ...(updates.url !== undefined && { url: updates.url }),
-  }).eq('id', taskId);
+  };
+
+  const safeUpdateDetails = {
+    hasText: updates.text !== undefined,
+    checked: updateData.checked,
+    hasNotes: updates.notes !== undefined,
+    progress: updateData.progress,
+    hasUrl: updates.url !== undefined,
+    keys: Object.keys(updateData),
+  };
+
+  console.log("update_task_payload", { taskId, updates: safeUpdateDetails });
+  console.log("update_task_start", { taskId, updates: safeUpdateDetails });
+
+  try {
+    const { error } = await withTimeout(
+      client
+        .from('hl_tasks')
+        .update(updateData)
+        .eq('id', taskId),
+      10000,
+      "update_task"
+    );
+
+    if (error) {
+      console.error("update_task_error", { error, taskId, updates: safeUpdateDetails });
+      return false;
+    }
+
+    console.log("update_task_success", { taskId, updates: safeUpdateDetails });
+    return true;
+  } catch (error) {
+    console.error("update_task_exception", { error, taskId, updates: safeUpdateDetails });
+    return false;
+  }
 };
 
 // Ta bort task
