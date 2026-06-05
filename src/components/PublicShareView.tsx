@@ -17,15 +17,55 @@ const getShareIcon = (share: PublicListShare) =>
 const getShareThemeColor = (share: PublicListShare) =>
   share.themeColor || share.snapshot.themeColor || "#1a5319";
 
+const SHARE_PROGRESS_STORAGE_PREFIX = "hem-listan-share-progress:";
+const SHARE_MESSAGE_FALLBACK_SENDER = "någon";
+
 const getTaskProgress = (task: TaskItem) => {
   if (task.type === "progress") return task.progress ?? 0;
   return task.checked ? 100 : 0;
+};
+
+const getShareMessage = (share: PublicListShare) => {
+  const senderName = share.snapshot.senderName?.trim() || SHARE_MESSAGE_FALLBACK_SENDER;
+
+  switch (share.snapshot.shareMessageVariant) {
+    case 1:
+      return `${senderName} skickade över en liten lista till dig. Bocka av i din egen takt 🌿`;
+    case 2:
+      return `Tjo! ${senderName} har fixat en lista åt dig. Bara att kika och pricka av ✅`;
+    case 0:
+    default:
+      return `Hej! Du har fått den här listan av ${senderName}. Ta en kik vet jag ✨`;
+  }
+};
+
+const getProgressStorageKey = (token: string) => `${SHARE_PROGRESS_STORAGE_PREFIX}${token}`;
+
+const readStoredProgress = (token: string): Record<string, boolean> => {
+  try {
+    const storedValue = window.localStorage.getItem(getProgressStorageKey(token));
+    if (!storedValue) return {};
+
+    const parsedValue = JSON.parse(storedValue);
+    if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsedValue).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
+    );
+  } catch {
+    return {};
+  }
+};
+
+const writeStoredProgress = (token: string, progress: Record<string, boolean>) => {
+  window.localStorage.setItem(getProgressStorageKey(token), JSON.stringify(progress));
 };
 
 export default function PublicShareView({ token }: PublicShareViewProps) {
   const [share, setShare] = useState<PublicListShare | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [localCheckedState, setLocalCheckedState] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -42,6 +82,7 @@ export default function PublicShareView({ token }: PublicShareViewProps) {
         setHasError(true);
       } else {
         setShare(result);
+        setLocalCheckedState(readStoredProgress(token));
       }
       setIsLoading(false);
     };
@@ -88,10 +129,23 @@ export default function PublicShareView({ token }: PublicShareViewProps) {
   const title = getShareTitle(share);
   const icon = getShareIcon(share);
   const themeColor = getShareThemeColor(share);
-  const tasks = share.snapshot.tasks ?? [];
+  const shareMessage = getShareMessage(share);
+  const tasks = (share.snapshot.tasks ?? []).map((task, index) => ({
+    ...task,
+    checked: localCheckedState[index] ?? task.checked,
+  }));
   const meals = share.snapshot.meals ?? [];
   const checkedTasks = tasks.filter(task => task.checked).length;
   const progressPercent = tasks.length > 0 ? Math.round((checkedTasks / tasks.length) * 100) : 0;
+  const handleToggleTask = (index: number) => {
+    const nextCheckedState = {
+      ...localCheckedState,
+      [index]: !tasks[index].checked,
+    };
+
+    setLocalCheckedState(nextCheckedState);
+    writeStoredProgress(token, nextCheckedState);
+  };
 
   return (
     <div className="min-h-screen bg-[#fcf9f8] px-4 py-8 font-sans text-on-surface">
@@ -112,13 +166,16 @@ export default function PublicShareView({ token }: PublicShareViewProps) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-outline">
-                  Delad läskopia
+                  Delad lista
                 </p>
                 <h1 className="font-display text-2xl font-bold leading-tight text-text-main">
                   {title}
                 </h1>
-                <p className="mt-2 text-xs font-semibold text-outline">
-                  Detta är en fryst kopia. Du kan läsa listan, men inte redigera den.
+                <p className="mt-2 text-sm font-bold leading-relaxed text-text-main">
+                  {shareMessage}
+                </p>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-outline">
+                  Det du bockar av sparas bara på din enhet och ändrar inte originalet.
                 </p>
               </div>
             </div>
@@ -169,14 +226,17 @@ export default function PublicShareView({ token }: PublicShareViewProps) {
                 {tasks.map((task, index) => (
                   <article key={`${task.text}-${index}`} className="rounded-xl border border-surface-container bg-white p-3 shadow-sm">
                     <div className="flex items-start gap-3">
-                      <div
-                        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTask(index)}
+                        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
                           task.checked ? "border-secondary bg-secondary text-white" : "border-outline-variant bg-white text-transparent"
                         }`}
-                        aria-hidden="true"
+                        aria-label={task.checked ? "Markera som inte klar" : "Markera som klar"}
+                        aria-pressed={task.checked}
                       >
                         <LucideIcon name="check" className="h-3.5 w-3.5 stroke-[3]" />
-                      </div>
+                      </button>
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm font-bold leading-snug ${task.checked ? "text-outline line-through" : "text-text-main"}`}>
                           {task.text}

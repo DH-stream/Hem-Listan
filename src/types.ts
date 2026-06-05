@@ -62,6 +62,8 @@ export interface PublicListShare {
     icon?: string;
     themeColor?: string;
     category?: List["category"];
+    senderName?: string;
+    shareMessageVariant?: 0 | 1 | 2;
     tasks?: TaskItem[];
     meals?: MealSlot[];
   };
