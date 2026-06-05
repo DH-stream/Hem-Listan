@@ -1,6 +1,7 @@
 /** @jsxRuntime classic */
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import type { User } from "@supabase/supabase-js";
+import type { DeletedList } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
 import { getSupabaseClient } from "../lib/supabase";
@@ -13,7 +14,10 @@ interface SettingsModalProps {
   onUpdateUserName: (name: string) => void;
   onUpdateUserImage: (base64: string) => void;
   onClose: () => void;
-  onResetLists: () => void;
+  deletedLists: DeletedList[];
+  deletedListsLoading: boolean;
+  onLoadDeletedLists: () => Promise<boolean>;
+  onRestoreDeletedList: (listId: string) => Promise<boolean>;
 }
 
 // ── Bildkomprimering ───────────────────────────────────────────────
@@ -52,6 +56,26 @@ async function compressImage(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+
+const formatDeletedListTime = (deletedAt: string) => {
+  const deletedTime = new Date(deletedAt).getTime();
+  if (Number.isNaN(deletedTime)) return "tas bort snart";
+
+  const expiresAt = deletedTime + 2 * 24 * 60 * 60 * 1000;
+  const remainingMs = expiresAt - Date.now();
+  if (remainingMs <= 6 * 60 * 60 * 1000) return "tas bort snart";
+
+  const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+  if (remainingHours < 24) return `${remainingHours} timmar kvar`;
+
+  return new Intl.DateTimeFormat("sv-SE", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(deletedAt));
+};
 
 // ── Google-symbol ─────────────────────────────────────────────────
 function GoogleIcon() {
@@ -196,7 +220,10 @@ export default function SettingsModal({
   isLoggedIn,
   sessionUser,
   onClose,
-  onResetLists,
+  deletedLists,
+  deletedListsLoading,
+  onLoadDeletedLists,
+  onRestoreDeletedList,
 }: SettingsModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(userImage);
@@ -205,6 +232,9 @@ export default function SettingsModal({
   const [error, setError] = useState<string | null>(null);
   const [showSharingInfo, setShowSharingInfo] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [deletedListsOpen, setDeletedListsOpen] = useState(false);
+  const [restoreConfirmList, setRestoreConfirmList] = useState<DeletedList | null>(null);
+  const [restoringListId, setRestoringListId] = useState<string | null>(null);
 
   useEffect(() => {
     const client = getSupabaseClient();
@@ -324,6 +354,31 @@ export default function SettingsModal({
     setFallbackSessionUser(null);
     showSuccess("Utloggad");
   };
+
+
+  const toggleDeletedLists = useCallback(() => {
+    setDeletedListsOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen) void onLoadDeletedLists();
+      return nextOpen;
+    });
+  }, [onLoadDeletedLists]);
+
+  const handleConfirmRestore = useCallback(async () => {
+    if (!restoreConfirmList) return;
+
+    setRestoringListId(restoreConfirmList.id);
+    const restored = await onRestoreDeletedList(restoreConfirmList.id);
+    setRestoringListId(null);
+
+    if (restored) {
+      showSuccess("Lista återställd");
+      setRestoreConfirmList(null);
+      return;
+    }
+
+    showError("Kunde inte återställa listan.");
+  }, [onRestoreDeletedList, restoreConfirmList, showError, showSuccess]);
 
   const activeSessionUser = sessionUser ?? fallbackSessionUser;
   const isAuthenticated = isLoggedIn || !!activeSessionUser;
@@ -509,19 +564,70 @@ export default function SettingsModal({
           {/* RESET */}
           <div className="space-y-2 border-t border-[#EDEADF] pt-2">
             <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fara &amp; återställning</h3>
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("Är du säker på att du vill återställa alla listor?")) {
-                  onResetLists();
-                  onClose();
-                }
-              }}
-              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-xs font-bold text-white transition-transform hover:bg-red-600 active:scale-[0.97]"
-            >
-              <LucideIcon name="archive" className="h-4 w-4" />
-              <span>Återställ standardlistor</span>
-            </button>
+
+            <div className="rounded-xl border border-[#EDEADF] bg-[#FAF9F5] p-2 shadow-sm">
+              <button
+                type="button"
+                onClick={toggleDeletedLists}
+                className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.99]"
+                aria-expanded={deletedListsOpen}
+              >
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold text-gray-900">Borttagna listor</span>
+                  <span className="mt-0.5 block text-[11px] font-medium text-[#706B5C]">
+                    {deletedLists.length > 0
+                      ? `${deletedLists.length} ${deletedLists.length === 1 ? "lista" : "listor"} kan återställas i upp till 2 dagar`
+                      : "Inga borttagna listor"}
+                  </span>
+                </span>
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FAF9F5] text-gray-400 ring-1 ring-[#EDEADF]">
+                  <LucideIcon
+                    name="chevron_down"
+                    className={`h-4 w-4 transition-transform ${deletedListsOpen ? "rotate-180" : ""}`}
+                  />
+                </span>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {deletedListsOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-2 max-h-52 space-y-1.5 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+                      {deletedListsLoading ? (
+                        <p className="rounded-lg bg-white px-3 py-3 text-[11px] font-medium text-gray-400 shadow-sm">Hämtar borttagna listor...</p>
+                      ) : deletedLists.length === 0 ? (
+                        <p className="rounded-lg bg-white px-3 py-3 text-[11px] font-medium text-gray-400 shadow-sm">Inga borttagna listor</p>
+                      ) : (
+                        deletedLists.map((list) => (
+                          <div key={list.id} className="flex min-h-[48px] items-center gap-2 rounded-lg bg-white px-2.5 py-2 shadow-sm">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FAF9F5] text-gray-600 ring-1 ring-[#EDEADF]">
+                              <LucideIcon name={list.icon || "list"} className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-bold text-gray-900">{list.name}</span>
+                              <span className="mt-0.5 block truncate text-[10px] font-medium text-[#706B5C]">{formatDeletedListTime(list.deletedAt)}</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setRestoreConfirmList(list)}
+                              disabled={restoringListId === list.id}
+                              className="min-h-[34px] shrink-0 rounded-lg bg-emerald-600 px-3 text-[11px] font-bold text-white transition-[background-color,transform] hover:bg-emerald-700 active:scale-[0.97] disabled:opacity-60"
+                            >
+                              {restoringListId === list.id ? "..." : "Återställ"}
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
 
@@ -529,6 +635,65 @@ export default function SettingsModal({
           Hem-Listan v1.3 &bull; Smarta listor för hemmet
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {restoreConfirmList && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
+            onClick={() => setRestoreConfirmList(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              className="w-full max-w-sm rounded-2xl border border-gray-100 bg-white p-5 text-left shadow-2xl"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="restore-list-title"
+              aria-describedby="restore-list-description"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-5 flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                  <LucideIcon name="refresh" className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 pt-0.5">
+                  <h2 id="restore-list-title" className="text-lg font-bold leading-tight text-gray-900">Återställ lista?</h2>
+                  <p className="mt-1 truncate text-xs font-bold text-gray-500">{restoreConfirmList.name}</p>
+                </div>
+              </div>
+
+              <p id="restore-list-description" className="text-sm font-medium leading-relaxed text-gray-600">
+                Listan flyttas tillbaka till dina aktiva listor.
+              </p>
+
+              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setRestoreConfirmList(null)}
+                  disabled={restoringListId === restoreConfirmList.id}
+                  className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:opacity-60 sm:min-w-28"
+                >
+                  Avbryt
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRestore}
+                  disabled={restoringListId === restoreConfirmList.id}
+                  className="min-h-[44px] rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 transition-[background-color,transform] hover:bg-emerald-700 active:scale-[0.97] disabled:opacity-60 sm:min-w-28"
+                >
+                  {restoringListId === restoreConfirmList.id ? "Återställer..." : "Återställ"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

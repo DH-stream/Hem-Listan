@@ -1,5 +1,5 @@
 import { createClient, Session, SupabaseClient } from "@supabase/supabase-js";
-import { List, TaskItem, MealSlot } from "../types";
+import { DeletedList, List, TaskItem, MealSlot } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -201,6 +201,37 @@ export const fetchLists = async (): Promise<List[] | null> => {
         type: m.type as any,
         name: m.name,
       })),
+  }));
+};
+
+
+export const fetchDeletedLists = async (): Promise<DeletedList[] | null> => {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return null;
+
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: listsData, error } = await client
+    .from('hl_lists')
+    .select('id,name,icon,theme_color,category,deleted_at')
+    .not('deleted_at', 'is', null)
+    .gte('deleted_at', twoDaysAgo)
+    .order('deleted_at', { ascending: false });
+
+  if (error || !listsData) return null;
+
+  return listsData.map(l => ({
+    id: l.id,
+    name: l.name,
+    icon: l.icon || 'list',
+    themeColor: l.theme_color || '#1a5319',
+    category: l.category as "renovation" | "grocery" | "general",
+    tasks: [],
+    meals: l.category === 'grocery' ? [] : undefined,
+    deletedAt: l.deleted_at,
+    restoreSource: "cloud" as const,
   }));
 };
 
@@ -601,6 +632,7 @@ const softDeleteListWithRawRpc = async (
   }
 };
 
+
 export const softDeleteList = async (listId: string): Promise<boolean> => {
   const client = getSupabaseClient();
   const rpcPayload: SoftDeleteListRpcPayload = { p_list_id: listId };
@@ -617,6 +649,139 @@ export const softDeleteList = async (listId: string): Promise<boolean> => {
   }
 
   return softDeleteListWithRawRpc(rpcPayload, safeRpcDetails);
+};
+
+type RestoreListRpcPayload = {
+  p_list_id: string;
+};
+
+type RestoreListRpcSafeDetails = {
+  listId: string;
+};
+
+export const restoreList = async (listId: string): Promise<boolean> => {
+  const client = getSupabaseClient();
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_restore_list`;
+  const timeoutMs = 10000;
+  const rpcPayload: RestoreListRpcPayload = { p_list_id: listId };
+  const safeRpcDetails: RestoreListRpcSafeDetails = { listId };
+
+  console.log("restore_list_start", { listId });
+  console.log("restore_list_rpc_payload", { rpcPayload: safeRpcDetails });
+
+  if (!client) {
+    console.error("restore_list_rpc_error", {
+      error: "supabase_client_unavailable",
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
+
+  if (!url || !anonKey) {
+    console.error("restore_list_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  console.log("restore_list_rpc_start", {
+    endpoint,
+    timeoutMs,
+    listId,
+  });
+
+  try {
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
+      hasAccessToken: Boolean(accessToken),
+      userId: authSnapshot.userId,
+    };
+
+    if (!accessToken) {
+      console.error("restore_list_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+        rpcPayload: safeRpcDetails,
+      });
+      return false;
+    }
+
+    console.log("restore_list_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("restore_list_rpc_error", {
+        error: "timeout",
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        rpcPayload: safeRpcDetails,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("restore_list_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        rpcPayload: safeRpcDetails,
+      });
+
+      if (!response.ok) {
+        console.error("restore_list_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          rpcPayload: safeRpcDetails,
+        });
+        return false;
+      }
+
+      console.log("restore_list_rpc_success", { listId });
+      return true;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("restore_list_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
 };
 
 type AddTaskRpcPayload = {

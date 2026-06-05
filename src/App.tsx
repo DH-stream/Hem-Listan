@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { List, Stats, MealType, TaskItem } from "./types";
+import { DeletedList, List, Stats, MealType, TaskItem } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -17,16 +17,39 @@ import {
   getSupabaseAuthSnapshot,
   clearSupabaseAuthSnapshot,
   fetchLists,
+  fetchDeletedLists,
   createList,
   addTask,
   updateTask,
   deleteTask,
   softDeleteList,
+  restoreList,
   upsertMeal,
   deleteMeal,
 } from "./lib/supabase";
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 // ── localStorage helpers ─────────────────────────────────────────────
+const getListDeletedAt = (list: List): string | undefined => list.deletedAt ?? list.deleted_at;
+
+const isWithinDeletedListRestoreWindow = (deletedAt?: string): deletedAt is string => {
+  if (!deletedAt) return false;
+
+  const deletedTime = new Date(deletedAt).getTime();
+  if (Number.isNaN(deletedTime)) return false;
+
+  return deletedTime >= Date.now() - 2 * 24 * 60 * 60 * 1000;
+};
+
+const stripDeletedFields = (list: List): List => {
+  const { deletedAt, deleted_at, ...activeList } = list;
+  void deletedAt;
+  void deleted_at;
+  return activeList;
+};
+
 const loadLocalLists = (): List[] => {
   try {
     const saved = localStorage.getItem("hem-listan-lists");
@@ -34,6 +57,25 @@ const loadLocalLists = (): List[] => {
   } catch {}
   return [];
 };
+
+const loadLocalActiveLists = (): List[] =>
+  loadLocalLists()
+    .filter(list => !getListDeletedAt(list) || isUuid(list.id))
+    .map(stripDeletedFields);
+
+const loadLocalDeletedLists = (): DeletedList[] =>
+  loadLocalLists()
+    .filter(list => !isUuid(list.id))
+    .map(list => ({ list, deletedAt: getListDeletedAt(list) }))
+    .filter((entry): entry is { list: List; deletedAt: string } => isWithinDeletedListRestoreWindow(entry.deletedAt))
+    .map(({ list, deletedAt }) => ({
+      ...list,
+      deletedAt,
+      tasks: list.tasks ?? [],
+      meals: list.meals,
+      restoreSource: "local" as const,
+    }))
+    .sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
 
 const saveLocalLists = (lists: List[]) => {
   try {
@@ -43,9 +85,23 @@ const saveLocalLists = (lists: List[]) => {
   }
 };
 
+const saveLocalActiveLists = (activeLists: List[]) => {
+  const deletedLists = loadLocalLists().filter(list => !isUuid(list.id) && getListDeletedAt(list));
+  saveLocalLists([
+    ...activeLists.map(stripDeletedFields),
+    ...deletedLists,
+  ]);
+};
+
+const saveLocalDeletedList = (list: List, deletedAt: string) => {
+  const storedLists = loadLocalLists().filter(storedList => storedList.id !== list.id);
+  saveLocalLists([
+    ...storedLists,
+    { ...list, deletedAt },
+  ]);
+};
+
 const migrationKeyForUser = (userId: string) => `hem-listan-supabase-migrated-${userId}`;
-const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const taskFingerprint = (task: TaskItem) => JSON.stringify({
   text: task.text,
@@ -76,7 +132,7 @@ const listFingerprint = (list: List) => JSON.stringify({
 });
 
 export default function App() {
-  const [lists, setLists] = useState<List[]>(loadLocalLists);
+  const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
@@ -85,6 +141,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pulseCount, setPulseCount] = useState(0);
+  const [deletedLists, setDeletedLists] = useState<DeletedList[]>([]);
+  const [deletedListsLoading, setDeletedListsLoading] = useState(false);
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
   const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
@@ -158,7 +216,7 @@ export default function App() {
         setIsLoggedIn(false);
         setSessionUser(null);
         unsubscribeRealtime();
-        setLists(loadLocalLists());
+        setLists(loadLocalActiveLists());
       }
     });
 
@@ -173,9 +231,41 @@ export default function App() {
     if (!fetched) return false;
 
     setLists(fetched);
-    saveLocalLists(fetched);
+    saveLocalActiveLists(fetched);
     return true;
   };
+
+
+  const loadDeletedLists = async () => {
+    setDeletedListsLoading(true);
+    try {
+      const localDeletedLists = loadLocalDeletedLists();
+      let cloudDeletedLists: DeletedList[] = [];
+      const authSnapshot = getSupabaseAuthSnapshot();
+      const hasCloudSession = isLoggedIn || Boolean(sessionUser) || Boolean(authSnapshot.accessToken);
+
+      if (hasCloudSession) {
+        const fetched = await fetchDeletedLists();
+        if (fetched) cloudDeletedLists = fetched;
+      }
+
+      const localDeletedIds = new Set(localDeletedLists.map(list => list.id));
+      const mergedDeletedLists = [
+        ...localDeletedLists,
+        ...cloudDeletedLists.filter(list => !localDeletedIds.has(list.id)),
+      ].sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+
+      setDeletedLists(mergedDeletedLists);
+      return true;
+    } finally {
+      setDeletedListsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showSettings) return;
+    void loadDeletedLists();
+  }, [showSettings]);
 
   const migrateLocalToSupabase = async (localLists: List[], ownerId: string) => {
     const existingLists = await fetchLists();
@@ -245,7 +335,7 @@ export default function App() {
     }
 
     const runMigration = async () => {
-      const localLists = loadLocalLists();
+      const localLists = loadLocalActiveLists();
       const hasCustomLists = localLists.length > 0 && JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
       const migrationKey = migrationKeyForUser(userId);
       if (localStorage.getItem(migrationKey) === "true") return;
@@ -304,13 +394,13 @@ export default function App() {
   const applyAndSync = (updatedLists: List[]) => {
     setLists(updatedLists);
     setPulseCount(p => p + 1);
-    saveLocalLists(updatedLists);
+    saveLocalActiveLists(updatedLists);
   };
 
   const setListsAndSync = (updater: (currentLists: List[]) => List[]) => {
     setLists(prev => {
       const updated = updater(prev);
-      saveLocalLists(updated);
+      saveLocalActiveLists(updated);
       return updated;
     });
   };
@@ -671,7 +761,7 @@ export default function App() {
     if (!list) return;
 
     const wasSelected = selectedListId === listId;
-    const restoreList = () => {
+    const restoreListLocally = () => {
       setListsAndSync(prev => {
         if (prev.some(l => l.id === listId)) return prev;
         const restored = [...prev];
@@ -695,13 +785,14 @@ export default function App() {
 
     if (!isUuid(listId)) {
       clearPendingTasksForTempList(listId);
+      saveLocalDeletedList(list, new Date().toISOString());
       console.log("cloud_soft_delete_list_skipped", { listId, reason: "local_only_list" });
       return;
     }
 
     const canSave = await canCloudSave("soft_delete_list");
     if (!canSave) {
-      restoreList();
+      restoreListLocally();
       console.error("cloud_soft_delete_list_error", { listId, reason: "cloud_save_unavailable" });
       return;
     }
@@ -712,13 +803,114 @@ export default function App() {
       return;
     }
 
-    restoreList();
+    restoreListLocally();
     console.error("cloud_soft_delete_list_error", { listId });
   };
 
   const handleResetLists = () => {
     localStorage.removeItem("hem-listan-lists");
     applyAndSync([]);
+  };
+
+
+  const replaceRestoredLocalList = (oldListId: string, restoredList: List) => {
+    const storedLists = loadLocalLists().map(list => list.id === oldListId ? restoredList : list);
+    saveLocalLists(storedLists);
+    setLists(prev => {
+      const activeWithoutRestored = prev.filter(list => list.id !== oldListId && list.id !== restoredList.id);
+      return [restoredList, ...activeWithoutRestored];
+    });
+    setSelectedListId(prev => prev === oldListId ? restoredList.id : prev);
+  };
+
+  const syncRestoredLocalListToSupabase = async (restoredList: List, originalListId: string) => {
+    if (!sessionUser) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "missing_session_user" });
+      return false;
+    }
+
+    console.log("cloud_restore_list_sync_start", { listId: originalListId, name: restoredList.name });
+    const dbId = await createList(restoredList, sessionUser.id);
+    if (!dbId || !isUuid(dbId)) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "createList_returned_null" });
+      return false;
+    }
+
+    let syncedList: List = { ...restoredList, id: dbId };
+    let syncSucceeded = true;
+
+    for (const task of restoredList.tasks) {
+      const taskDbId = await addTask(dbId, task);
+      if (taskDbId) {
+        syncedList = {
+          ...syncedList,
+          tasks: syncedList.tasks.map(t => t.id === task.id ? { ...t, id: taskDbId } : t),
+        };
+      } else {
+        syncSucceeded = false;
+        console.error("cloud_restore_list_error", { listId: originalListId, taskId: task.id, reason: "addTask_returned_null" });
+      }
+    }
+
+    for (const meal of restoredList.meals ?? []) {
+      const mealDbId = await upsertMeal(dbId, meal);
+      if (mealDbId) {
+        syncedList = {
+          ...syncedList,
+          meals: (syncedList.meals ?? []).map(m => m.id === meal.id ? { ...m, id: mealDbId } : m),
+        };
+      } else {
+        syncSucceeded = false;
+        console.error("cloud_restore_list_error", { listId: originalListId, mealId: meal.id, reason: "upsertMeal_returned_null" });
+      }
+    }
+
+    if (!syncSucceeded) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "child_sync_failed_kept_local" });
+      return false;
+    }
+
+    replaceRestoredLocalList(originalListId, syncedList);
+    console.log("cloud_restore_list_sync_success", { listId: dbId, localListId: originalListId, name: restoredList.name });
+    return true;
+  };
+
+  const handleRestoreDeletedList = async (listId: string) => {
+    const localStoredList = loadLocalLists().find(list => list.id === listId && getListDeletedAt(list));
+
+    if (localStoredList) {
+      const restoredList = stripDeletedFields(localStoredList);
+      replaceRestoredLocalList(listId, restoredList);
+      setDeletedLists(prev => prev.filter(list => list.id !== listId));
+
+      const canSave = await canCloudSave("restore_local_list_sync");
+      if (canSave) {
+        const synced = await syncRestoredLocalListToSupabase(restoredList, listId);
+        if (!synced) {
+          console.error("cloud_restore_list_error", { listId, source: "local", reason: "kept_local_only" });
+        }
+      }
+
+      console.log("cloud_restore_list_success", { listId, source: "local" });
+      return true;
+    }
+
+    const canSave = await canCloudSave("restore_list");
+    if (!canSave) {
+      console.error("cloud_restore_list_error", { listId, reason: "cloud_save_unavailable" });
+      return false;
+    }
+
+    const restored = await restoreList(listId);
+    if (!restored) {
+      console.error("cloud_restore_list_error", { listId });
+      return false;
+    }
+
+    setDeletedLists(prev => prev.filter(list => list.id !== listId));
+    await loadFromSupabase();
+    console.log("cloud_restore_list_success", { listId });
+    return true;
   };
 
   const handleSelectList = (id: string) => {
@@ -860,7 +1052,10 @@ export default function App() {
             onUpdateUserName={handleUpdateUserName}
             onUpdateUserImage={handleUpdateUserImage}
             onClose={() => setShowSettings(false)}
-            onResetLists={handleResetLists}
+            deletedLists={deletedLists}
+            deletedListsLoading={deletedListsLoading}
+            onLoadDeletedLists={loadDeletedLists}
+            onRestoreDeletedList={handleRestoreDeletedList}
           />
         )}
       </AnimatePresence>
