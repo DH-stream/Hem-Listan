@@ -112,7 +112,6 @@ export const getAppearancePreset = (
   return APPEARANCE_PRESETS.find((preset) => preset.id === ref.id);
 };
 
-
 const hashSeed = (seed: string) =>
   Array.from(seed).reduce((hash, char) => {
     return (hash * 31 + char.charCodeAt(0)) >>> 0;
@@ -121,6 +120,20 @@ const hashSeed = (seed: string) =>
 const seededValue = (hash: number, shift: number, min: number, max: number) => {
   const value = ((hash >>> shift) & 255) / 255;
   return Math.round(min + value * (max - min));
+};
+
+const getPresetMotifSize = (presetId: string, hash: number) => {
+  switch (presetId) {
+    case "tough-energy":
+      return seededValue(hash, 16, 94, 122);
+    case "playful-family":
+      return seededValue(hash, 16, 88, 116);
+    case "nature-green":
+      return seededValue(hash, 16, 96, 128);
+    case "care-heart":
+    default:
+      return seededValue(hash, 16, 92, 124);
+  }
 };
 
 export const getAppearanceBackgroundStyle = (
@@ -135,15 +148,16 @@ export const getAppearanceBackgroundStyle = (
     if (!preset) return undefined;
 
     const hash = hashSeed(`${seed}:${ref.id}`);
-    const motifX = seededValue(hash, 0, -18, 22);
-    const motifY = seededValue(hash, 8, -12, 24);
-    const motifSize = seededValue(hash, 16, 130, 176);
+    const motifX = seededValue(hash, 0, -22, 28);
+    const motifY = seededValue(hash, 8, -18, 30);
+    const motifSize = getPresetMotifSize(ref.id, hash);
+
     return {
       backgroundColor: preset.backgroundColor,
       backgroundImage: preset.backgroundImage,
-      backgroundPosition: `${motifX / 2}px ${motifY / 2}px, center`,
-      backgroundRepeat: "no-repeat, no-repeat",
-      backgroundSize: `${motifSize + 110}px auto, cover`,
+      backgroundPosition: `${motifX}px ${motifY}px, center`,
+      backgroundRepeat: "repeat, no-repeat",
+      backgroundSize: `${motifSize}px auto, cover`,
     };
   }
 
@@ -171,15 +185,16 @@ export const getAppearanceBadgeStyle = (
     if (!preset) return undefined;
 
     const hash = hashSeed(`${seed}:${ref.id}:badge`);
-    const accentX = seededValue(hash, 6, 18, 82);
-    const accentY = seededValue(hash, 14, 18, 82);
+    const motifX = seededValue(hash, 0, -18, 22);
+    const motifY = seededValue(hash, 8, -14, 22);
+    const motifSize = Math.round(getPresetMotifSize(ref.id, hash) * 0.78);
 
     return {
       backgroundColor: preset.backgroundColor,
-      backgroundImage: `radial-gradient(circle at ${accentX}% ${accentY}%, rgba(255,255,255,0.34), transparent 34%), linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.05))`,
-      backgroundPosition: "center",
-      backgroundRepeat: "no-repeat",
-      backgroundSize: "cover",
+      backgroundImage: preset.backgroundImage,
+      backgroundPosition: `${motifX}px ${motifY}px, center`,
+      backgroundRepeat: "repeat, no-repeat",
+      backgroundSize: `${motifSize}px auto, cover`,
     };
   }
 
