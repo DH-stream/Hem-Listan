@@ -30,16 +30,16 @@ const IMAGE_DB_VERSION = 1;
 const IMAGE_STORE_NAME = "images";
 
 const heartMotif = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M42 64c-20-18-48 9-15 43 13 13 29 22 29 22s16-9 29-22c33-34 5-61-15-43-8 8-14 16-14 16S50 72 42 64Z" fill="rgba(236,91,132,.20)" stroke="rgba(150,54,86,.24)" stroke-width="5"/><path d="M108 34c-10-9-24 5-8 22 7 7 16 12 16 12s9-5 16-12c16-17 2-31-8-22-5 4-8 9-8 9s-3-5-8-9Z" fill="rgba(255,184,190,.34)" stroke="rgba(150,54,86,.20)" stroke-width="3"/><path d="M28 34c13-12 29-12 43 0" stroke="rgba(255,176,111,.24)" stroke-width="8"/><circle cx="124" cy="116" r="14" fill="rgba(255,202,164,.28)" stroke="rgba(150,54,86,.14)" stroke-width="3"/><circle cx="30" cy="125" r="6" fill="rgba(236,91,132,.26)"/></g></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"><rect width="240" height="320" fill="none"/><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M43 83c-26-24-61 13-23 54 16 17 38 30 38 30s22-13 38-30c38-41 3-78-23-54-10 9-15 19-15 19s-5-10-15-19Z" fill="rgba(244,150,172,.28)" stroke="rgba(207,113,139,.46)" stroke-width="8"/><path d="M154 49c-17-16-40 9-15 36 10 10 25 19 25 19s15-9 25-19c25-27 2-52-15-36-6 6-10 13-10 13s-4-7-10-13Z" fill="rgba(255,181,194,.34)" stroke="rgba(207,113,139,.38)" stroke-width="6"/><path d="M168 164c-22-20-51 10-18 45 13 14 32 25 32 25s19-11 32-25c33-35 4-65-18-45-8 8-14 17-14 17s-6-9-14-17Z" fill="rgba(255,246,224,.52)" stroke="rgba(255,246,224,.75)" stroke-width="7"/><path d="M54 237c-15-14-35 8-13 31 9 9 22 17 22 17s13-8 22-17c22-23 2-45-13-31-6 6-9 12-9 12s-3-6-9-12Z" fill="rgba(255,246,224,.36)" stroke="rgba(255,246,224,.68)" stroke-width="6"/><path d="M32 22c20-30 49-43 83-39" stroke="rgba(255,246,224,.34)" stroke-width="10"/><path d="M187 258c14-19 31-28 53-27" stroke="rgba(207,113,139,.20)" stroke-width="9"/></g></svg>`,
 );
 const leafMotif = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M42 132C90 127 121 96 134 39c0 0-54 5-80 35-20 24-12 58-12 58Z" fill="rgba(76,151,78,.30)" stroke="rgba(31,94,48,.32)" stroke-width="6"/><path d="M45 130C68 96 95 72 127 54" stroke="rgba(31,94,48,.36)" stroke-width="6"/><path d="M103 136c32-3 54-24 62-60 0 0-38 4-54 24-12 15-8 36-8 36Z" fill="rgba(169,210,111,.34)" stroke="rgba(31,94,48,.23)" stroke-width="5"/><path d="M28 67c25-1 45 13 58 39" stroke="rgba(234,178,76,.28)" stroke-width="9"/><path d="M69 31c20 3 34 14 43 32" stroke="rgba(99,180,95,.23)" stroke-width="7"/><circle cx="39" cy="148" r="10" fill="rgba(76,151,78,.28)"/><circle cx="148" cy="42" r="9" fill="rgba(255,211,103,.30)"/><circle cx="150" cy="132" r="5" fill="rgba(55,132,69,.24)"/></g></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"><rect width="240" height="320" fill="none"/><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M36 110c41-4 67-30 78-79 0 0-46 4-68 30-17 20-10 49-10 49Z" fill="rgba(61,111,76,.22)" stroke="rgba(42,78,56,.48)" stroke-width="4"/><path d="M39 110c18-27 40-46 68-61" stroke="rgba(42,78,56,.55)" stroke-width="4"/><path d="M154 86c30-4 48-25 53-60 0 0-34 5-49 25-11 14-4 35-4 35Z" fill="rgba(99,145,105,.22)" stroke="rgba(42,78,56,.44)" stroke-width="4"/><path d="M160 89c10-22 23-38 40-51" stroke="rgba(42,78,56,.42)" stroke-width="3"/><path d="M138 206c38-5 63-31 73-77 0 0-44 6-64 31-16 19-9 46-9 46Z" fill="rgba(76,124,83,.20)" stroke="rgba(42,78,56,.45)" stroke-width="4"/><path d="M141 206c18-28 39-47 63-61" stroke="rgba(42,78,56,.45)" stroke-width="4"/><path d="M48 242c28-4 46-23 54-56 0 0-32 4-47 22-11 14-7 34-7 34Z" fill="rgba(142,176,137,.22)" stroke="rgba(42,78,56,.34)" stroke-width="3"/><path d="M182 270c13-22 27-40 44-53" stroke="rgba(42,78,56,.32)" stroke-width="5"/><path d="M24 184c20-17 42-24 67-20" stroke="rgba(237,197,164,.55)" stroke-width="10"/><path d="M172 126c15 3 27 10 36 22" stroke="rgba(217,235,205,.45)" stroke-width="11"/><circle cx="31" cy="42" r="16" fill="rgba(55,92,66,.18)" stroke="rgba(42,78,56,.28)" stroke-width="2"/><circle cx="61" cy="33" r="11" fill="rgba(55,92,66,.16)"/><ellipse cx="207" cy="182" rx="16" ry="8" fill="rgba(240,199,170,.55)" transform="rotate(-7 207 182)"/></g></svg>`,
 );
-const freshMotif = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 185 185"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="48" cy="52" r="26" fill="rgba(126,218,226,.30)" stroke="rgba(28,132,148,.28)" stroke-width="5"/><circle cx="123" cy="103" r="34" fill="rgba(185,237,222,.26)" stroke="rgba(66,155,128,.24)" stroke-width="6"/><circle cx="140" cy="45" r="13" fill="rgba(104,201,219,.30)"/><circle cx="75" cy="139" r="10" fill="rgba(174,232,221,.30)"/><path d="M30 122c35-25 78-28 122-9" stroke="rgba(28,132,148,.22)" stroke-width="11"/><path d="M42 145c25-14 55-16 90-6" stroke="rgba(66,155,128,.19)" stroke-width="8"/><path d="M72 33c13-14 31-20 53-16" stroke="rgba(255,255,255,.68)" stroke-width="10"/><path d="M26 76c20 8 43 8 68-1" stroke="rgba(255,255,255,.44)" stroke-width="7"/></g></svg>`,
+const energyMotif = encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"><rect width="240" height="320" fill="#202124"/><defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#26282b"/><stop offset="1" stop-color="#17181b"/></linearGradient></defs><rect width="240" height="320" fill="url(#g)"/><path d="M106 77 80 131h32l-16 58 62-83h-34l17-49Z" fill="#ffc928" stroke="#ff3b16" stroke-width="6" stroke-linejoin="round"/><path d="M113 73 96 118h28l-12 47 37-56h-29l14-36Z" fill="#ff6a19" opacity=".86"/><g transform="translate(0 198)"><path d="M0 122c8-33 15-47 29-67-4 26 5 35 16 52 0-43 26-69 45-97-9 42 21 52 20 94 19-30 29-56 34-91 29 37 44 69 37 111 14-25 24-40 39-62-2 34 11 46 20 60v0H0Z" fill="#3a1715"/><path d="M0 122c6-22 16-42 35-61-3 25 4 36 14 52 7-45 28-61 45-92-5 40 20 48 18 88 18-27 29-50 32-82 27 34 34 62 28 95 15-23 30-42 44-54-4 27 9 40 24 54H0Z" fill="#b51d0d"/><path d="M11 122c9-28 19-41 36-58-1 21 8 36 22 49 3-32 20-53 38-72-2 34 19 46 19 78 14-22 22-39 27-66 20 25 28 49 23 69 11-17 21-26 33-37-2 21 7 28 20 37H11Z" fill="#ff5a14"/><path d="M28 122c8-19 19-30 30-40 2 18 10 30 24 37 2-25 11-39 25-54 4 27 20 38 18 57 14-19 21-29 27-49 13 18 18 35 15 49 9-12 18-20 29-27 1 13 8 20 18 27H28Z" fill="#ffc21a"/></g></svg>`,
 );
 const playfulMotif = encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 190"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M32 48c0-13 10-23 23-23s23 10 23 23-10 23-23 23-23-10-23-23Z" fill="rgba(255,190,77,.42)" stroke="rgba(142,96,43,.20)" stroke-width="4"/><path d="M124 35c16 0 28 11 28 25s-12 25-28 25-28-11-28-25 12-25 28-25Z" fill="rgba(101,183,222,.36)" stroke="rgba(49,117,148,.18)" stroke-width="4"/><path d="M72 112c0-18 16-32 35-32s35 14 35 32-16 32-35 32-35-14-35-32Z" fill="rgba(232,112,142,.28)" stroke="rgba(145,74,98,.20)" stroke-width="5"/><path d="M32 142c34 21 82 21 126-5" stroke="rgba(120,82,45,.26)" stroke-width="9"/><path d="M55 83c20-15 48-17 76-4" stroke="rgba(101,183,222,.24)" stroke-width="8"/><circle cx="156" cy="127" r="10" fill="rgba(255,190,77,.36)"/><circle cx="31" cy="110" r="8" fill="rgba(116,190,132,.34)"/><circle cx="91" cy="38" r="6" fill="rgba(232,112,142,.28)"/></g></svg>`,
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"><rect width="240" height="320" fill="none"/><g fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="68" cy="62" r="32" fill="rgba(239,188,73,.76)" stroke="rgba(209,151,53,.20)" stroke-width="4"/><circle cx="168" cy="73" r="34" fill="rgba(146,196,202,.72)"/><rect x="119" y="122" width="74" height="48" rx="24" fill="rgba(241,112,91,.78)" transform="rotate(-3 156 146)"/><path d="M46 170c15-20 36-20 51 0-15 19-36 19-51 0Z" fill="rgba(242,143,114,.72)"/><path d="M64 222 88 263H40Z" fill="rgba(232,137,104,.70)"/><circle cx="164" cy="242" r="31" fill="rgba(61,130,137,.78)"/><path d="M184 36c18-12 30-17 45-18" stroke="rgba(98,151,159,.76)" stroke-width="12"/><path d="M35 109c19-5 32-3 48 8" stroke="rgba(98,151,159,.64)" stroke-width="10"/><path d="M160 204c20-11 34-11 51 0" stroke="rgba(239,188,73,.72)" stroke-width="10"/><path d="M191 110 204 96l13 14-13 14Z" fill="rgba(241,112,91,.72)"/><path d="M91 112 105 99l14 13-14 14Z" fill="rgba(61,130,137,.72)"/><circle cx="35" cy="284" r="7" fill="rgba(239,188,73,.72)"/><circle cx="210" cy="282" r="8" fill="rgba(241,112,91,.68)"/><circle cx="41" cy="38" r="5" fill="rgba(98,151,159,.62)"/><path d="M17 243c18 2 28 8 36 21" stroke="rgba(241,112,91,.62)" stroke-width="8"/></g></svg>`,
 );
 
 export const APPEARANCE_PRESETS: AppearancePreset[] = [
@@ -58,11 +58,11 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
     backgroundImage: `url("data:image/svg+xml,${leafMotif}"), linear-gradient(135deg, rgba(229, 245, 223, 0.98), rgba(251, 247, 212, 0.78))`,
   },
   {
-    id: "clean-fresh",
-    label: "Rent / Fräscht",
-    description: "Luftig blågrön, fräsch och spa-lik.",
-    backgroundColor: "#eefbfb",
-    backgroundImage: `url("data:image/svg+xml,${freshMotif}"), linear-gradient(135deg, rgba(246, 253, 255, 0.99), rgba(218, 246, 236, 0.82))`,
+    id: "tough-energy",
+    label: "Tufft / Energi",
+    description: "Mörk energi med flammor och blixt.",
+    backgroundColor: "#202124",
+    backgroundImage: `url("data:image/svg+xml,${energyMotif}"), linear-gradient(135deg, rgba(38, 40, 43, 0.98), rgba(20, 21, 24, 0.96))`,
   },
   {
     id: "playful-family",
@@ -141,9 +141,9 @@ export const getAppearanceBackgroundStyle = (
     return {
       backgroundColor: preset.backgroundColor,
       backgroundImage: preset.backgroundImage,
-      backgroundPosition: `${motifX}px ${motifY}px, center`,
-      backgroundRepeat: "repeat, no-repeat",
-      backgroundSize: `${motifSize}px ${motifSize}px, cover`,
+      backgroundPosition: `${motifX / 2}px ${motifY / 2}px, center`,
+      backgroundRepeat: "no-repeat, no-repeat",
+      backgroundSize: `${motifSize + 110}px auto, cover`,
     };
   }
 

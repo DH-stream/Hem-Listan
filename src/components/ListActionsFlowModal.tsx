@@ -697,7 +697,7 @@ export default function ListActionsFlowModal({
                     </div>
 
                     <div
-                      className="relative overflow-hidden rounded-xl border border-gray-100 bg-surface-container-lowest p-4 shadow-sm"
+                      className="relative flex items-center justify-between overflow-hidden rounded-xl border border-surface-container/40 bg-surface-container-lowest p-4 shadow-sm"
                     >
                       {backgroundStyle && (
                         <>
@@ -712,7 +712,7 @@ export default function ListActionsFlowModal({
                           />
                         </>
                       )}
-                      <div className="relative z-10 flex items-center gap-4">
+                      <div className="relative z-10 flex flex-1 items-center gap-4">
                         <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#E0F2F1] text-primary-container">
                           {badgeBackgroundStyle && (
                             <>
@@ -758,6 +758,10 @@ export default function ListActionsFlowModal({
                           </div>
                         </div>
                       </div>
+                      <LucideIcon
+                        name="chevron-right"
+                        className="relative z-10 ml-2 h-5 w-5 text-outline opacity-40"
+                      />
                     </div>
 
                     <div>
@@ -777,7 +781,7 @@ export default function ListActionsFlowModal({
                               onClick={() =>
                                 updateBackground({ type: "preset", id: preset.id })
                               }
-                              className={`relative min-h-[86px] overflow-hidden rounded-xl border p-3 text-left transition-[border-color,transform] active:scale-[0.97] ${
+                              className={`relative h-40 overflow-hidden rounded-xl border p-3 text-left transition-[border-color,transform] active:scale-[0.97] ${
                                 isSelected
                                   ? "border-primary text-primary"
                                   : "border-gray-100 text-gray-700 hover:border-gray-200"
@@ -793,12 +797,14 @@ export default function ListActionsFlowModal({
                                   `${listId}:${preset.id}`,
                                 )}
                               />
-                              <span className="absolute inset-0 bg-white/18" />
-                              <span className="relative z-10 block text-xs font-bold">
-                                {preset.label}
-                              </span>
-                              <span className="relative z-10 mt-1 block text-[11px] font-semibold leading-snug text-gray-600">
-                                {preset.description}
+                              <span className="absolute inset-0 bg-white/10" />
+                              <span className="absolute inset-x-2 bottom-2 rounded-lg bg-white/72 px-2.5 py-2 shadow-sm backdrop-blur-[1px]">
+                                <span className="block text-xs font-bold text-gray-800">
+                                  {preset.label}
+                                </span>
+                                <span className="mt-0.5 block text-[11px] font-semibold leading-snug text-gray-600">
+                                  {preset.description}
+                                </span>
                               </span>
                             </button>
                           );
