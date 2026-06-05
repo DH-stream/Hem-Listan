@@ -3,17 +3,20 @@ import { AnimatePresence, motion } from "framer-motion";
 import LucideIcon from "./LucideIcon";
 import {
   APPEARANCE_PRESETS,
-  AppearanceTarget,
   deleteCustomAppearanceImage,
   getAppearancePreset,
   ListAppearance,
-  ListAppearanceImageRef,
+  ListAppearanceBackgroundRef,
   saveCustomAppearanceImage,
 } from "../lib/listVisuals";
 
 type ListActionsFlowModalProps = {
   isOpen: boolean;
   listName?: string;
+  listIcon?: string;
+  listThemeColor?: string;
+  progressLabel?: string;
+  progressPercent?: number;
   onClose: () => void;
   onSendCopy: () => Promise<string | null>;
   onShareList: () => void;
@@ -39,17 +42,10 @@ const actions = [
     destructive: false,
   },
   {
-    key: "changeIconImage",
-    title: "Ändra ikonbild",
-    subtitle: "Välj bild bakom ikonens cirkel.",
+    key: "customizeAppearance",
+    title: "Anpassa utseende",
+    subtitle: "Byt bakgrund på ikon och listkort.",
     icon: "sparkles",
-    destructive: false,
-  },
-  {
-    key: "changeBannerImage",
-    title: "Ändra bannerbild",
-    subtitle: "Välj bakgrund på listkortet.",
-    icon: "image",
     destructive: false,
   },
   {
@@ -73,6 +69,10 @@ type UploadStatus = "idle" | "loading" | "error";
 export default function ListActionsFlowModal({
   isOpen,
   listName,
+  listIcon = "list",
+  listThemeColor = "#1a5319",
+  progressLabel = "0/0 klara",
+  progressPercent = 0,
   onClose,
   onSendCopy,
   onShareList,
@@ -87,7 +87,6 @@ export default function ListActionsFlowModal({
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">(
     "idle",
   );
-  const [pickerTarget, setPickerTarget] = useState<AppearanceTarget>("iconImage");
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -113,12 +112,6 @@ export default function ListActionsFlowModal({
     onClose();
   };
 
-  const openAppearancePicker = (target: AppearanceTarget) => {
-    setPickerTarget(target);
-    setUploadStatus("idle");
-    setMode("appearancePicker");
-  };
-
   const handleAction = async (key: (typeof actions)[number]["key"]) => {
     if (key === "sendCopy") {
       setMode("shareLink");
@@ -140,13 +133,9 @@ export default function ListActionsFlowModal({
       return;
     }
 
-    if (key === "changeIconImage") {
-      openAppearancePicker("iconImage");
-      return;
-    }
-
-    if (key === "changeBannerImage") {
-      openAppearancePicker("bannerImage");
+    if (key === "customizeAppearance") {
+      setUploadStatus("idle");
+      setMode("appearancePicker");
       return;
     }
 
@@ -158,15 +147,31 @@ export default function ListActionsFlowModal({
     handleClose();
   };
 
-  const updateAppearanceImage = (ref: ListAppearanceImageRef | null) => {
-    const previousRef = selectedAppearance[pickerTarget];
-    onUpdateAppearance({ ...selectedAppearance, [pickerTarget]: ref });
+  const updateBackground = (background: ListAppearanceBackgroundRef | null) => {
+    const previousBackground = selectedAppearance.background;
+    onUpdateAppearance({ background });
 
-    if (previousRef?.type === "custom" && previousRef.id !== ref?.id) {
-      void deleteCustomAppearanceImage(previousRef.id).catch((error) => {
+    if (
+      previousBackground?.type === "custom" &&
+      previousBackground.id !== background?.id
+    ) {
+      void deleteCustomAppearanceImage(previousBackground.id).catch((error) => {
         console.error("delete_list_appearance_image_error", { error });
       });
     }
+  };
+
+  const updateCustomCrop = (
+    field: "positionX" | "positionY" | "zoom",
+    value: number,
+  ) => {
+    const background = selectedAppearance.background;
+    if (background?.type !== "custom") return;
+
+    updateBackground({
+      ...background,
+      [field]: value,
+    });
   };
 
   const handleUploadClick = () => {
@@ -183,7 +188,7 @@ export default function ListActionsFlowModal({
     setUploadStatus("loading");
     try {
       const ref = await saveCustomAppearanceImage(file);
-      updateAppearanceImage(ref);
+      updateBackground(ref);
       setUploadStatus("idle");
     } catch (error) {
       console.error("save_list_appearance_image_error", { error });
@@ -215,16 +220,29 @@ export default function ListActionsFlowModal({
     }
   };
 
-  const selectedRef = selectedAppearance[pickerTarget] || null;
-  const selectedPreset = getAppearancePreset(selectedRef);
+  const selectedBackground = selectedAppearance.background || null;
+  const selectedPreset = getAppearancePreset(selectedBackground);
   const selectedCustomUrl =
-    selectedRef?.type === "custom" ? customImageUrls[selectedRef.id] : undefined;
-  const pickerTitle =
-    pickerTarget === "iconImage" ? "Ändra ikonbild" : "Ändra bannerbild";
-  const pickerDescription =
-    pickerTarget === "iconImage"
-      ? "Bilden visas som cirkelbakgrund bakom listans befintliga ikon."
-      : "Bilden visas bakom listkortet med en ljus läsbarhetsgradient.";
+    selectedBackground?.type === "custom"
+      ? customImageUrls[selectedBackground.id]
+      : undefined;
+  const backgroundStyle = selectedPreset
+    ? {
+        backgroundColor: selectedPreset.backgroundColor,
+        backgroundImage: selectedPreset.backgroundImage,
+        backgroundPosition: "center",
+        backgroundSize: "auto, cover, cover, cover",
+      }
+    : selectedCustomUrl
+      ? {
+          backgroundImage: `url(${selectedCustomUrl})`,
+          backgroundPosition: `${selectedBackground?.positionX ?? 50}% ${selectedBackground?.positionY ?? 50}%`,
+          backgroundSize:
+            (selectedBackground?.zoom ?? 1) > 1
+              ? `${Math.round((selectedBackground?.zoom ?? 1) * 100)}%`
+              : "cover",
+        }
+      : undefined;
 
   return (
     <AnimatePresence>
@@ -240,7 +258,7 @@ export default function ListActionsFlowModal({
         >
           <motion.div
             layout="size"
-            layoutDependency={`${mode}-${shareStatus}-${pickerTarget}`}
+            layoutDependency={`${mode}-${shareStatus}-${selectedBackground?.id || "none"}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="list-actions-flow-title"
@@ -423,7 +441,7 @@ export default function ListActionsFlowModal({
                 </motion.div>
               ) : mode === "appearancePicker" ? (
                 <motion.div
-                  key={`appearancePicker-${pickerTarget}`}
+                  key="appearancePicker"
                   className="select-none"
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -432,17 +450,14 @@ export default function ListActionsFlowModal({
                 >
                   <div className="mb-5 flex items-start gap-3 pr-8">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-green-50 text-green-700 ring-1 ring-green-100">
-                      <LucideIcon
-                        name={pickerTarget === "iconImage" ? "sparkles" : "image"}
-                        className="h-5 w-5"
-                      />
+                      <LucideIcon name="sparkles" className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 pt-0.5">
                       <h2
                         id="list-actions-flow-title"
                         className="text-lg font-bold leading-tight text-gray-900"
                       >
-                        {pickerTitle}
+                        Anpassa utseende
                       </h2>
                       {listName && (
                         <p className="mt-1 truncate text-xs font-bold text-gray-500">
@@ -454,65 +469,81 @@ export default function ListActionsFlowModal({
 
                   <div id="list-actions-flow-description" className="space-y-4">
                     <p className="text-sm font-medium leading-relaxed text-gray-600">
-                      {pickerDescription}
+                      Välj en bakgrund som visas både i ikonens cirkel och bakom listkortet.
                     </p>
 
-                    <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-3">
-                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
-                        Nuvarande val
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`relative shrink-0 overflow-hidden border border-gray-100 bg-white ${
-                            pickerTarget === "iconImage"
-                              ? "h-12 w-12 rounded-full"
-                              : "h-12 w-20 rounded-xl"
-                          }`}
-                        >
-                          {selectedRef?.type === "preset" && selectedPreset && (
-                            <div
-                              aria-hidden="true"
-                              className={`absolute inset-0 ${selectedPreset.className}`}
-                            />
+                    <div
+                      className="relative overflow-hidden rounded-xl border border-gray-100 bg-surface-container-lowest p-4 shadow-sm"
+                    >
+                      {backgroundStyle && (
+                        <>
+                          <div
+                            aria-hidden="true"
+                            className="absolute inset-0 bg-cover bg-center"
+                            style={backgroundStyle}
+                          />
+                          <div
+                            aria-hidden="true"
+                            className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.86)_0%,rgba(255,255,255,0.68)_48%,rgba(255,255,255,0.38)_100%)]"
+                          />
+                        </>
+                      )}
+                      <div className="relative z-10 flex items-center gap-4">
+                        <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#E0F2F1] text-primary-container">
+                          {backgroundStyle && (
+                            <>
+                              <div
+                                aria-hidden="true"
+                                className="absolute inset-0 bg-cover bg-center"
+                                style={backgroundStyle}
+                              />
+                              <div aria-hidden="true" className="absolute inset-0 bg-white/42" />
+                            </>
                           )}
-                          {selectedRef?.type === "custom" && selectedCustomUrl && (
-                            <div
-                              aria-hidden="true"
-                              className="absolute inset-0 bg-cover bg-center"
-                              style={{ backgroundImage: `url(${selectedCustomUrl})` }}
-                            />
-                          )}
+                          <LucideIcon
+                            name={listIcon}
+                            className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
+                          />
                         </div>
-                        <div className="min-w-0 text-xs font-bold text-gray-600">
-                          {selectedRef?.type === "preset" && selectedPreset
-                            ? selectedPreset.label
-                            : selectedRef?.type === "custom"
-                              ? "Egen bild"
-                              : "Ingen bild vald"}
+                        <div className="min-w-0 flex-1 pr-2">
+                          <h3 className="truncate font-display text-base font-bold text-text-main">
+                            {listName || "Min lista"}
+                          </h3>
+                          <div className="mb-1 mt-1.5 flex items-center justify-between font-sans text-xs font-medium text-outline">
+                            <span>{progressLabel}</span>
+                            <span>{progressPercent}%</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-container-low">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${progressPercent}%`,
+                                backgroundColor: listThemeColor,
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     <div>
                       <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
-                        Färdiga presets
+                        Färdiga bakgrunder
                       </p>
-                      <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1">
+                      <div className="grid grid-cols-2 gap-2">
                         {APPEARANCE_PRESETS.map((preset) => {
                           const isSelected =
-                            selectedRef?.type === "preset" && selectedRef.id === preset.id;
+                            selectedBackground?.type === "preset" &&
+                            selectedBackground.id === preset.id;
 
                           return (
                             <button
                               key={preset.id}
                               type="button"
                               onClick={() =>
-                                updateAppearanceImage({
-                                  type: "preset",
-                                  id: preset.id,
-                                })
+                                updateBackground({ type: "preset", id: preset.id })
                               }
-                              className={`relative min-h-[72px] overflow-hidden rounded-xl border p-3 text-left transition-[border-color,transform] active:scale-[0.97] ${
+                              className={`relative min-h-[86px] overflow-hidden rounded-xl border p-3 text-left transition-[border-color,transform] active:scale-[0.97] ${
                                 isSelected
                                   ? "border-primary text-primary"
                                   : "border-gray-100 text-gray-700 hover:border-gray-200"
@@ -521,14 +552,20 @@ export default function ListActionsFlowModal({
                             >
                               <span
                                 aria-hidden="true"
-                                className={`absolute inset-0 opacity-90 ${preset.className}`}
+                                className="absolute inset-0"
+                                style={{
+                                  backgroundColor: preset.backgroundColor,
+                                  backgroundImage: preset.backgroundImage,
+                                  backgroundPosition: "center",
+                                  backgroundSize: "auto, cover, cover, cover",
+                                }}
                               />
-                              <span className="absolute inset-0 bg-white/24" />
-                              <span className="relative z-10 block text-[10px] font-bold uppercase tracking-wide text-gray-500">
-                                {preset.category}
-                              </span>
-                              <span className="relative z-10 mt-1 block text-xs font-bold">
+                              <span className="absolute inset-0 bg-white/18" />
+                              <span className="relative z-10 block text-xs font-bold">
                                 {preset.label}
+                              </span>
+                              <span className="relative z-10 mt-1 block text-[11px] font-semibold leading-snug text-gray-600">
+                                {preset.description}
                               </span>
                             </button>
                           );
@@ -536,7 +573,7 @@ export default function ListActionsFlowModal({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -544,27 +581,78 @@ export default function ListActionsFlowModal({
                         className="hidden"
                         onChange={handleUploadChange}
                       />
-                      <button
-                        type="button"
-                        onClick={handleUploadClick}
-                        disabled={uploadStatus === "loading"}
-                        className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {uploadStatus === "loading" ? "Sparar..." : "Ladda upp egen bild"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateAppearanceImage(null)}
-                        className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]"
-                      >
-                        Ta bort bild
-                      </button>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={handleUploadClick}
+                          disabled={uploadStatus === "loading"}
+                          className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {uploadStatus === "loading" ? "Sparar..." : "Ladda upp egen bild"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateBackground(null)}
+                          className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]"
+                        >
+                          Ta bort bakgrund
+                        </button>
+                      </div>
+
+                      {selectedBackground?.type === "custom" && (
+                        <div className="space-y-3 pt-1">
+                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                            Beskär / positionera egen bild
+                          </p>
+                          <label className="block text-xs font-bold text-gray-600">
+                            Horisontell position
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedBackground.positionX ?? 50}
+                              onChange={(event) =>
+                                updateCustomCrop("positionX", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                          <label className="block text-xs font-bold text-gray-600">
+                            Vertikal position
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedBackground.positionY ?? 50}
+                              onChange={(event) =>
+                                updateCustomCrop("positionY", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                          <label className="block text-xs font-bold text-gray-600">
+                            Zoom
+                            <input
+                              type="range"
+                              min="1"
+                              max="2"
+                              step="0.05"
+                              value={selectedBackground.zoom ?? 1}
+                              onChange={(event) =>
+                                updateCustomCrop("zoom", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      {uploadStatus === "error" && (
+                        <p className="text-xs font-bold text-red-700">
+                          Bilden kunde inte sparas lokalt. Försök med en mindre bild.
+                        </p>
+                      )}
                     </div>
-                    {uploadStatus === "error" && (
-                      <p className="text-xs font-bold text-red-700">
-                        Bilden kunde inte sparas lokalt. Försök med en mindre bild.
-                      </p>
-                    )}
                   </div>
 
                   <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

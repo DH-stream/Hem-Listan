@@ -9,7 +9,7 @@ import {
   getAppearancePreset,
   getCustomAppearanceImageUrl,
   ListAppearance,
-  ListAppearanceImageRef,
+  ListAppearanceBackgroundRef,
   readListAppearanceMap,
   writeListAppearance,
 } from "../lib/listVisuals";
@@ -172,11 +172,9 @@ export default function DashboardView({
   useEffect(() => {
     let isActive = true;
 
-    const customRefs = Object.values(listAppearance).flatMap((appearance) =>
-      [appearance.iconImage, appearance.bannerImage].filter(
-        (ref): ref is ListAppearanceImageRef => ref?.type === "custom",
-      ),
-    );
+    const customRefs = Object.values(listAppearance)
+      .map((appearance) => appearance.background)
+      .filter((ref): ref is ListAppearanceBackgroundRef => ref?.type === "custom");
 
     setCustomImageUrls((currentUrls) => {
       const activeIds = new Set(customRefs.map((ref) => ref.id));
@@ -237,12 +235,21 @@ export default function DashboardView({
   }, [listAppearance]);
 
 
-  const getAppearanceBackground = (ref?: ListAppearanceImageRef | null) => {
+  const getAppearanceBackground = (ref?: ListAppearanceBackgroundRef | null) => {
     if (!ref) return undefined;
 
     if (ref.type === "preset") {
       const preset = getAppearancePreset(ref);
-      return preset ? { className: preset.className } : undefined;
+      return preset
+        ? {
+            style: {
+              backgroundColor: preset.backgroundColor,
+              backgroundImage: preset.backgroundImage,
+              backgroundPosition: "center",
+              backgroundSize: "auto, cover, cover, cover",
+            },
+          }
+        : undefined;
     }
 
     const url = customImageUrls[ref.id];
@@ -250,6 +257,11 @@ export default function DashboardView({
       ? {
           style: {
             backgroundImage: `url(${url})`,
+            backgroundPosition: `${ref.positionX ?? 50}% ${ref.positionY ?? 50}%`,
+            backgroundSize:
+              (ref.zoom ?? 1) > 1
+                ? `${Math.round((ref.zoom ?? 1) * 100)}%`
+                : "cover",
           },
         }
       : undefined;
@@ -334,6 +346,15 @@ export default function DashboardView({
   };
 
   const activeFact = getGreetingAndFact();
+
+
+  const pendingTotalTasks = pendingActionsList?.tasks.length || 0;
+  const pendingCheckedTasks =
+    pendingActionsList?.tasks.filter((task) => task.checked).length || 0;
+  const pendingProgressPercent =
+    pendingTotalTasks > 0
+      ? Math.round((pendingCheckedTasks / pendingTotalTasks) * 100)
+      : 0;
 
   // Pastel backgrounds for list index circular icons
   const getIconBg = (iconName: string) => {
@@ -454,8 +475,7 @@ export default function DashboardView({
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
             const appearance = listAppearance[list.id] || {};
-            const iconBackground = getAppearanceBackground(appearance.iconImage);
-            const bannerBackground = getAppearanceBackground(appearance.bannerImage);
+            const background = getAppearanceBackground(appearance.background);
 
             return (
               <motion.div
@@ -480,16 +500,16 @@ export default function DashboardView({
                 }`}
                 layoutId={`list-card-${list.id}`}
               >
-                {bannerBackground && (
+                {background && (
                   <>
                     <div
                       aria-hidden="true"
-                      className={`pointer-events-none absolute inset-0 z-0 bg-cover bg-center ${bannerBackground.className || ""}`}
-                      style={bannerBackground.style}
+                      className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center"
+                      style={background.style}
                     />
                     <div
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.96)_0%,rgba(255,252,247,0.9)_44%,rgba(255,255,255,0.56)_100%)]"
+                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.86)_0%,rgba(255,255,255,0.68)_48%,rgba(255,255,255,0.38)_100%)]"
                     />
                   </>
                 )}
@@ -497,12 +517,12 @@ export default function DashboardView({
                   <div
                     className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(list.icon)}`}
                   >
-                    {iconBackground && (
+                    {background && (
                       <>
                         <div
                           aria-hidden="true"
-                          className={`absolute inset-0 bg-cover bg-center ${iconBackground.className || ""}`}
-                          style={iconBackground.style}
+                          className="absolute inset-0 bg-cover bg-center"
+                          style={background.style}
                         />
                         <div
                           aria-hidden="true"
@@ -564,6 +584,10 @@ export default function DashboardView({
       <ListActionsFlowModal
         isOpen={!!pendingActionsList}
         listName={pendingActionsList?.name}
+        listIcon={pendingActionsList?.icon}
+        listThemeColor={pendingActionsList?.themeColor}
+        progressLabel={`${pendingCheckedTasks}/${pendingTotalTasks} klara`}
+        progressPercent={pendingProgressPercent}
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
