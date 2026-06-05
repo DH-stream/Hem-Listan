@@ -908,8 +908,12 @@ export default function App() {
     }
 
     setDeletedLists(prev => prev.filter(list => list.id !== listId));
-    await loadFromSupabase();
     console.log("cloud_restore_list_success", { listId });
+
+    void loadFromSupabase().catch(error => {
+      console.error("cloud_restore_list_refresh_error", { listId, error });
+    });
+
     return true;
   };
 
