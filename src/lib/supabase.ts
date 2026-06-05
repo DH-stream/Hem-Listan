@@ -151,6 +151,8 @@ type CreateListShareRpcPayload = {
     icon: string;
     themeColor: string;
     category: List["category"];
+    senderName?: string;
+    shareMessageVariant: 0 | 1 | 2;
     tasks: Array<Pick<TaskItem, "text" | "checked" | "notes" | "type" | "url" | "progress">>;
     meals?: Array<Pick<MealSlot, "day" | "type" | "name">>;
   };
@@ -179,7 +181,9 @@ const parseJsonResponse = async (response: Response): Promise<unknown> => {
 const isUuidValue = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
-export const createListShare = async (list: List): Promise<string | null> => {
+const getShareMessageVariant = (): 0 | 1 | 2 => Math.floor(Math.random() * 3) as 0 | 1 | 2;
+
+export const createListShare = async (list: List, senderName?: string): Promise<string | null> => {
   const { url, anonKey } = getSupabaseConfig();
   const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_create_list_share`;
   const timeoutMs = 10000;
@@ -199,6 +203,9 @@ export const createListShare = async (list: List): Promise<string | null> => {
     ...authDiagnostics,
   });
 
+  const normalizedSenderName = senderName?.trim() || undefined;
+  const shareMessageVariant = getShareMessageVariant();
+
   const rpcPayload: CreateListShareRpcPayload = {
     p_source_list_id: list.id,
     p_title: list.name,
@@ -211,6 +218,8 @@ export const createListShare = async (list: List): Promise<string | null> => {
       icon: list.icon || 'list',
       themeColor: list.themeColor || '#1a5319',
       category: list.category || 'general',
+      senderName: normalizedSenderName,
+      shareMessageVariant,
       tasks: list.tasks.map(task => ({
         text: task.text,
         checked: task.checked ?? false,
@@ -238,6 +247,8 @@ export const createListShare = async (list: List): Promise<string | null> => {
       p_category: rpcPayload.p_category,
       taskCount: rpcPayload.p_snapshot.tasks.length,
       mealCount: rpcPayload.p_snapshot.meals?.length ?? 0,
+      hasSenderName: Boolean(rpcPayload.p_snapshot.senderName),
+      shareMessageVariant: rpcPayload.p_snapshot.shareMessageVariant,
     },
   });
 

@@ -130,7 +130,8 @@ export default function DashboardView({
   const handleSendList = async (): Promise<string | null> => {
     if (!pendingActionsList) return null;
 
-    const token = await createListShare(pendingActionsList);
+    const senderName = userName.trim() === "Hem-Listan" ? undefined : userName;
+    const token = await createListShare(pendingActionsList, senderName);
     if (!token) return null;
 
     return `${window.location.origin}/share/${token}`;
