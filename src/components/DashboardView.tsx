@@ -7,6 +7,7 @@ import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListShare } from "../lib/supabase";
 import {
   getAppearanceBackgroundStyle,
+  getAppearanceBadgeStyle,
   getCustomAppearanceImageUrl,
   ListAppearance,
   ListAppearanceBackgroundRef,
@@ -172,9 +173,11 @@ export default function DashboardView({
   useEffect(() => {
     let isActive = true;
 
-    const customRefs = Object.values(listAppearance)
-      .map((appearance) => appearance.background)
-      .filter((ref): ref is ListAppearanceBackgroundRef => ref?.type === "custom");
+    const customRefs = Object.values(listAppearance).flatMap((appearance) =>
+      [appearance.background, appearance.iconImageOverride].filter(
+        (ref): ref is ListAppearanceBackgroundRef => ref?.type === "custom",
+      ),
+    );
 
     setCustomImageUrls((currentUrls) => {
       const activeIds = new Set(customRefs.map((ref) => ref.id));
@@ -449,6 +452,16 @@ export default function DashboardView({
               customImageUrls,
               list.id,
             );
+            const badgeBackground = getAppearanceBadgeStyle(
+              appearance.background,
+              customImageUrls,
+              `${list.id}:badge`,
+            );
+            const iconImage = getAppearanceBackgroundStyle(
+              appearance.iconImageOverride,
+              customImageUrls,
+              `${list.id}:icon`,
+            );
 
             return (
               <motion.div
@@ -490,12 +503,12 @@ export default function DashboardView({
                   <div
                     className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(displayIcon)}`}
                   >
-                    {background && (
+                    {badgeBackground && (
                       <>
                         <div
                           aria-hidden="true"
                           className="absolute inset-0 bg-cover bg-center"
-                          style={background}
+                          style={badgeBackground}
                         />
                         <div
                           aria-hidden="true"
@@ -503,7 +516,15 @@ export default function DashboardView({
                         />
                       </>
                     )}
-                    <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
+                    {iconImage ? (
+                      <div
+                        aria-hidden="true"
+                        className="relative z-10 h-9 w-9 rounded-full bg-cover bg-center shadow-sm ring-1 ring-white/70"
+                        style={iconImage}
+                      />
+                    ) : (
+                      <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
+                    )}
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">

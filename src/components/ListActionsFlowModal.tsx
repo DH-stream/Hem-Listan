@@ -5,6 +5,7 @@ import {
   APPEARANCE_PRESETS,
   deleteCustomAppearanceImage,
   getAppearanceBackgroundStyle,
+  getAppearanceBadgeStyle,
   ListAppearance,
   ListAppearanceBackgroundRef,
   saveCustomAppearanceImage,
@@ -77,6 +78,7 @@ const contentTransition = { duration: 0.14, ease: easing } as const;
 type FlowMode = "actions" | "deleteConfirm" | "shareLink" | "appearancePicker";
 type ShareStatus = "idle" | "loading" | "success" | "error";
 type UploadStatus = "idle" | "loading" | "error";
+type UploadTarget = "background" | "iconImage";
 
 export default function ListActionsFlowModal({
   isOpen,
@@ -101,6 +103,7 @@ export default function ListActionsFlowModal({
     "idle",
   );
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
+  const [uploadTarget, setUploadTarget] = useState<UploadTarget>("background");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -178,6 +181,33 @@ export default function ListActionsFlowModal({
     onUpdateAppearance({ ...selectedAppearance, icon: icon || null });
   };
 
+  const updateIconImage = (iconImageOverride: ListAppearanceBackgroundRef | null) => {
+    const previousIconImage = selectedAppearance.iconImageOverride;
+    onUpdateAppearance({ ...selectedAppearance, iconImageOverride });
+
+    if (
+      previousIconImage?.type === "custom" &&
+      previousIconImage.id !== iconImageOverride?.id
+    ) {
+      void deleteCustomAppearanceImage(previousIconImage.id).catch((error) => {
+        console.error("delete_list_icon_image_error", { error });
+      });
+    }
+  };
+
+  const updateCustomIconCrop = (
+    field: "positionX" | "positionY" | "zoom",
+    value: number,
+  ) => {
+    const iconImageOverride = selectedAppearance.iconImageOverride;
+    if (iconImageOverride?.type !== "custom") return;
+
+    updateIconImage({
+      ...iconImageOverride,
+      [field]: value,
+    });
+  };
+
   const updateCustomCrop = (
     field: "positionX" | "positionY" | "zoom",
     value: number,
@@ -191,7 +221,8 @@ export default function ListActionsFlowModal({
     });
   };
 
-  const handleUploadClick = () => {
+  const handleUploadClick = (target: UploadTarget) => {
+    setUploadTarget(target);
     fileInputRef.current?.click();
   };
 
@@ -205,7 +236,11 @@ export default function ListActionsFlowModal({
     setUploadStatus("loading");
     try {
       const ref = await saveCustomAppearanceImage(file);
-      updateBackground(ref);
+      if (uploadTarget === "iconImage") {
+        updateIconImage(ref);
+      } else {
+        updateBackground(ref);
+      }
       setUploadStatus("idle");
     } catch (error) {
       console.error("save_list_appearance_image_error", { error });
@@ -238,11 +273,22 @@ export default function ListActionsFlowModal({
   };
 
   const selectedIcon = selectedAppearance.icon || listIcon;
+  const selectedIconImage = selectedAppearance.iconImageOverride || null;
   const selectedBackground = selectedAppearance.background || null;
   const backgroundStyle = getAppearanceBackgroundStyle(
     selectedBackground,
     customImageUrls,
     listId,
+  );
+  const badgeBackgroundStyle = getAppearanceBadgeStyle(
+    selectedBackground,
+    customImageUrls,
+    `${listId}:badge`,
+  );
+  const iconImageStyle = getAppearanceBackgroundStyle(
+    selectedIconImage,
+    customImageUrls,
+    `${listId}:icon`,
   );
 
   return (
@@ -515,6 +561,89 @@ export default function ListActionsFlowModal({
                       </div>
                     </div>
 
+                    <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                            Egen ikonbild
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-gray-500">
+                            Visas bara i den runda ikonbrickan.
+                          </p>
+                        </div>
+                        {iconImageStyle && (
+                          <div
+                            aria-hidden="true"
+                            className="h-11 w-11 shrink-0 rounded-full bg-cover bg-center ring-1 ring-white"
+                            style={iconImageStyle}
+                          />
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUploadClick("iconImage")}
+                          disabled={uploadStatus === "loading"}
+                          className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {uploadStatus === "loading" && uploadTarget === "iconImage"
+                            ? "Sparar..."
+                            : "Ladda upp ikonbild"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateIconImage(null)}
+                          className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]"
+                        >
+                          Ta bort ikonbild
+                        </button>
+                      </div>
+                      {selectedIconImage?.type === "custom" && (
+                        <div className="space-y-3 pt-1">
+                          <label className="block text-xs font-bold text-gray-600">
+                            Ikon horisontellt
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedIconImage.positionX ?? 50}
+                              onChange={(event) =>
+                                updateCustomIconCrop("positionX", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                          <label className="block text-xs font-bold text-gray-600">
+                            Ikon vertikalt
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={selectedIconImage.positionY ?? 50}
+                              onChange={(event) =>
+                                updateCustomIconCrop("positionY", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                          <label className="block text-xs font-bold text-gray-600">
+                            Ikon zoom
+                            <input
+                              type="range"
+                              min="1"
+                              max="2"
+                              step="0.05"
+                              value={selectedIconImage.zoom ?? 1}
+                              onChange={(event) =>
+                                updateCustomIconCrop("zoom", Number(event.target.value))
+                              }
+                              className="mt-2 w-full accent-primary"
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
                     <div
                       className="relative overflow-hidden rounded-xl border border-gray-100 bg-surface-container-lowest p-4 shadow-sm"
                     >
@@ -533,20 +662,28 @@ export default function ListActionsFlowModal({
                       )}
                       <div className="relative z-10 flex items-center gap-4">
                         <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#E0F2F1] text-primary-container">
-                          {backgroundStyle && (
+                          {badgeBackgroundStyle && (
                             <>
                               <div
                                 aria-hidden="true"
                                 className="absolute inset-0 bg-cover bg-center"
-                                style={backgroundStyle}
+                                style={badgeBackgroundStyle}
                               />
                               <div aria-hidden="true" className="absolute inset-0 bg-white/42" />
                             </>
                           )}
-                          <LucideIcon
-                            name={selectedIcon}
-                            className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
-                          />
+                          {iconImageStyle ? (
+                            <div
+                              aria-hidden="true"
+                              className="relative z-10 h-9 w-9 rounded-full bg-cover bg-center shadow-sm ring-1 ring-white/70"
+                              style={iconImageStyle}
+                            />
+                          ) : (
+                            <LucideIcon
+                              name={selectedIcon}
+                              className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
+                            />
+                          )}
                         </div>
                         <div className="min-w-0 flex-1 pr-2">
                           <h3 className="truncate font-display text-base font-bold text-text-main">
@@ -626,7 +763,7 @@ export default function ListActionsFlowModal({
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <button
                           type="button"
-                          onClick={handleUploadClick}
+                          onClick={() => handleUploadClick("background")}
                           disabled={uploadStatus === "loading"}
                           className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
                         >

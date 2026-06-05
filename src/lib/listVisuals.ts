@@ -11,6 +11,7 @@ export type ListAppearanceBackgroundRef = {
 export type ListAppearance = {
   background?: ListAppearanceBackgroundRef | null;
   icon?: string | null;
+  iconImageOverride?: ListAppearanceBackgroundRef | null;
 };
 
 export type ListAppearanceMap = Record<string, ListAppearance>;
@@ -47,28 +48,28 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
     label: "Kärlek / Omtanke",
     description: "Varm rosa och kräm med mjuka hjärtformer.",
     backgroundColor: "#fff3ef",
-    backgroundImage: `url("data:image/svg+xml,${heartMotif}"), radial-gradient(circle at 16% 18%, rgba(244, 112, 154, 0.55), transparent 30%), radial-gradient(circle at 88% 20%, rgba(255, 190, 156, 0.70), transparent 28%), radial-gradient(circle at 62% 86%, rgba(252, 231, 243, 0.88), transparent 34%), linear-gradient(135deg, rgba(255, 247, 240, 0.98), rgba(252, 218, 232, 0.92))`,
+    backgroundImage: `url("data:image/svg+xml,${heartMotif}"), linear-gradient(135deg, rgba(255, 247, 240, 0.98), rgba(252, 218, 232, 0.92))`,
   },
   {
     id: "nature-green",
     label: "Natur / Grönt",
     description: "Botanisk grön bakgrund med bladkänsla.",
     backgroundColor: "#eef7e8",
-    backgroundImage: `url("data:image/svg+xml,${leafMotif}"), radial-gradient(circle at 18% 22%, rgba(76, 175, 80, 0.62), transparent 30%), radial-gradient(circle at 84% 68%, rgba(180, 216, 125, 0.78), transparent 34%), radial-gradient(circle at 56% 12%, rgba(255, 214, 102, 0.35), transparent 22%), linear-gradient(135deg, rgba(229, 245, 223, 0.98), rgba(251, 247, 212, 0.78))`,
+    backgroundImage: `url("data:image/svg+xml,${leafMotif}"), linear-gradient(135deg, rgba(229, 245, 223, 0.98), rgba(251, 247, 212, 0.78))`,
   },
   {
     id: "clean-fresh",
     label: "Rent / Fräscht",
     description: "Luftig blågrön, fräsch och spa-lik.",
     backgroundColor: "#eefbfb",
-    backgroundImage: `url("data:image/svg+xml,${freshMotif}"), radial-gradient(circle at 18% 24%, rgba(96, 207, 222, 0.58), transparent 30%), radial-gradient(circle at 86% 18%, rgba(176, 235, 226, 0.76), transparent 28%), radial-gradient(circle at 66% 84%, rgba(196, 238, 224, 0.62), transparent 32%), linear-gradient(135deg, rgba(246, 253, 255, 0.99), rgba(218, 246, 236, 0.82))`,
+    backgroundImage: `url("data:image/svg+xml,${freshMotif}"), linear-gradient(135deg, rgba(246, 253, 255, 0.99), rgba(218, 246, 236, 0.82))`,
   },
   {
     id: "playful-family",
     label: "Lekfullt / Familj",
     description: "Mjuka prickar och varma familjevänliga former.",
     backgroundColor: "#fff8e6",
-    backgroundImage: `url("data:image/svg+xml,${playfulMotif}"), radial-gradient(circle at 16% 22%, rgba(255, 202, 74, 0.70), transparent 25%), radial-gradient(circle at 84% 26%, rgba(108, 197, 235, 0.56), transparent 25%), radial-gradient(circle at 58% 82%, rgba(244, 143, 177, 0.48), transparent 28%), linear-gradient(135deg, rgba(255, 251, 222, 0.98), rgba(255, 232, 214, 0.88))`,
+    backgroundImage: `url("data:image/svg+xml,${playfulMotif}"), linear-gradient(135deg, rgba(255, 251, 222, 0.98), rgba(255, 232, 214, 0.88))`,
   },
 ];
 
@@ -99,8 +100,9 @@ const normalizeListAppearance = (value: unknown): ListAppearance => {
     normalizeBackgroundRef(appearance.bannerImage) ||
     normalizeBackgroundRef(appearance.iconImage);
   const icon = typeof appearance.icon === "string" ? appearance.icon : null;
+  const iconImage = normalizeBackgroundRef(appearance.iconImageOverride);
 
-  return background || icon ? { background, icon } : {};
+  return background || icon || iconImage ? { background, icon, iconImageOverride: iconImage } : {};
 };
 
 export const getAppearancePreset = (
@@ -136,17 +138,12 @@ export const getAppearanceBackgroundStyle = (
     const motifX = seededValue(hash, 0, -18, 22);
     const motifY = seededValue(hash, 8, -12, 24);
     const motifSize = seededValue(hash, 16, 130, 176);
-    const glowX = seededValue(hash, 4, 8, 30);
-    const glowY = seededValue(hash, 12, 12, 36);
-    const accentX = seededValue(hash, 20, 70, 96);
-    const accentY = seededValue(hash, 2, 8, 32);
-
     return {
       backgroundColor: preset.backgroundColor,
       backgroundImage: preset.backgroundImage,
-      backgroundPosition: `${motifX}px ${motifY}px, ${glowX}% ${glowY}%, ${accentX}% ${accentY}%, 58% 84%, center`,
-      backgroundRepeat: "repeat, no-repeat, no-repeat, no-repeat, no-repeat",
-      backgroundSize: `${motifSize}px ${motifSize}px, cover, cover, cover, cover`,
+      backgroundPosition: `${motifX}px ${motifY}px, center`,
+      backgroundRepeat: "repeat, no-repeat",
+      backgroundSize: `${motifSize}px ${motifSize}px, cover`,
     };
   }
 
@@ -162,6 +159,33 @@ export const getAppearanceBackgroundStyle = (
       }
     : undefined;
 };
+export const getAppearanceBadgeStyle = (
+  ref: ListAppearanceBackgroundRef | null | undefined,
+  customImageUrls: Record<string, string>,
+  seed: string,
+): CSSProperties | undefined => {
+  if (!ref) return undefined;
+
+  if (ref.type === "preset") {
+    const preset = getAppearancePreset(ref);
+    if (!preset) return undefined;
+
+    const hash = hashSeed(`${seed}:${ref.id}:badge`);
+    const accentX = seededValue(hash, 6, 18, 82);
+    const accentY = seededValue(hash, 14, 18, 82);
+
+    return {
+      backgroundColor: preset.backgroundColor,
+      backgroundImage: `radial-gradient(circle at ${accentX}% ${accentY}%, rgba(255,255,255,0.34), transparent 34%), linear-gradient(135deg, rgba(255,255,255,0.08), rgba(0,0,0,0.05))`,
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+      backgroundSize: "cover",
+    };
+  }
+
+  return getAppearanceBackgroundStyle(ref, customImageUrls, seed);
+};
+
 export const readListAppearanceMap = (): ListAppearanceMap => {
   try {
     const raw = localStorage.getItem(LIST_APPEARANCE_STORAGE_KEY);
@@ -175,7 +199,11 @@ export const readListAppearanceMap = (): ListAppearanceMap => {
     return Object.entries(parsed).reduce<ListAppearanceMap>(
       (acc, [listId, appearance]) => {
         const normalizedAppearance = normalizeListAppearance(appearance);
-        if (normalizedAppearance.background || normalizedAppearance.icon) {
+        if (
+          normalizedAppearance.background ||
+          normalizedAppearance.icon ||
+          normalizedAppearance.iconImageOverride
+        ) {
           acc[listId] = normalizedAppearance;
         }
         return acc;
@@ -194,11 +222,12 @@ export const writeListAppearance = (
   const currentAppearance = readListAppearanceMap();
   const background = appearance.background || null;
   const icon = appearance.icon || null;
+  const iconImage = appearance.iconImageOverride || null;
 
-  if (!background && !icon) {
+  if (!background && !icon && !iconImage) {
     delete currentAppearance[listId];
   } else {
-    currentAppearance[listId] = { background, icon };
+    currentAppearance[listId] = { background, icon, iconImageOverride: iconImage };
   }
 
   try {
