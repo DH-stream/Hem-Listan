@@ -55,6 +55,9 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
     case "link_off":
     case "linkoff":
       return <Lucide.Link2Off {...props} />;
+    case "image":
+    case "photo":
+      return <Lucide.Image {...props} />;
     case "external_link":
     case "externallink":
       return <Lucide.ExternalLink {...props} />;

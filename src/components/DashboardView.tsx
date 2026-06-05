@@ -6,10 +6,12 @@ import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListShare } from "../lib/supabase";
 import {
-  getBannerOption,
-  readListVisualsMap,
-  writeListVisuals,
-  ListVisuals,
+  getAppearancePreset,
+  getCustomAppearanceImageUrl,
+  ListAppearance,
+  ListAppearanceImageRef,
+  readListAppearanceMap,
+  writeListAppearance,
 } from "../lib/listVisuals";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
@@ -49,7 +51,10 @@ export default function DashboardView({
     null,
   );
   const [pressingListId, setPressingListId] = useState<string | null>(null);
-  const [listVisuals, setListVisuals] = useState(() => readListVisualsMap());
+  const [listAppearance, setListAppearance] = useState(() => readListAppearanceMap());
+  const [customImageUrls, setCustomImageUrls] = useState<Record<string, string>>(
+    {},
+  );
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
   const pressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -157,10 +162,97 @@ export default function DashboardView({
     }
   };
 
-  const handleUpdateListVisuals = (visuals: ListVisuals) => {
+  const handleUpdateListAppearance = (appearance: ListAppearance) => {
     if (!pendingActionsList) return;
 
-    setListVisuals(writeListVisuals(pendingActionsList.id, visuals));
+    setListAppearance(writeListAppearance(pendingActionsList.id, appearance));
+  };
+
+
+  useEffect(() => {
+    let isActive = true;
+
+    const customRefs = Object.values(listAppearance).flatMap((appearance) =>
+      [appearance.iconImage, appearance.bannerImage].filter(
+        (ref): ref is ListAppearanceImageRef => ref?.type === "custom",
+      ),
+    );
+
+    setCustomImageUrls((currentUrls) => {
+      const activeIds = new Set(customRefs.map((ref) => ref.id));
+      const nextUrls = Object.entries(currentUrls).reduce<Record<string, string>>(
+        (acc, [id, url]) => {
+          if (activeIds.has(id)) {
+            acc[id] = url;
+          } else {
+            URL.revokeObjectURL(url);
+          }
+          return acc;
+        },
+        {},
+      );
+
+      const missingRefs = customRefs.filter((ref) => !nextUrls[ref.id]);
+      if (missingRefs.length > 0) {
+        Promise.all(
+          missingRefs.map(async (ref) => {
+            const url = await getCustomAppearanceImageUrl(ref.id);
+            return { id: ref.id, url };
+          }),
+        )
+          .then((results) => {
+            if (!isActive) {
+              results.forEach((result) => {
+                if (result.url) URL.revokeObjectURL(result.url);
+              });
+              return;
+            }
+
+            const loadedUrls = results.reduce<Record<string, string>>(
+              (acc, result) => {
+                if (result.url) acc[result.id] = result.url;
+                return acc;
+              },
+              {},
+            );
+
+            if (Object.keys(loadedUrls).length > 0) {
+              setCustomImageUrls((latestUrls) => ({
+                ...latestUrls,
+                ...loadedUrls,
+              }));
+            }
+          })
+          .catch((error) => {
+            console.error("load_list_appearance_image_error", { error });
+          });
+      }
+
+      return nextUrls;
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [listAppearance]);
+
+
+  const getAppearanceBackground = (ref?: ListAppearanceImageRef | null) => {
+    if (!ref) return undefined;
+
+    if (ref.type === "preset") {
+      const preset = getAppearancePreset(ref);
+      return preset ? { className: preset.className } : undefined;
+    }
+
+    const url = customImageUrls[ref.id];
+    return url
+      ? {
+          style: {
+            backgroundImage: `url(${url})`,
+          },
+        }
+      : undefined;
   };
 
   const getTodayDateString = () => {
@@ -361,9 +453,9 @@ export default function DashboardView({
               totalTasks > 0
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
-            const visuals = listVisuals[list.id] || {};
-            const displayIcon = visuals.icon || list.icon;
-            const bannerOption = getBannerOption(visuals.banner);
+            const appearance = listAppearance[list.id] || {};
+            const iconBackground = getAppearanceBackground(appearance.iconImage);
+            const bannerBackground = getAppearanceBackground(appearance.bannerImage);
 
             return (
               <motion.div
@@ -388,17 +480,37 @@ export default function DashboardView({
                 }`}
                 layoutId={`list-card-${list.id}`}
               >
-                {bannerOption && (
-                  <div
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute inset-0 z-0 opacity-45 ${bannerOption.className}`}
-                  />
+                {bannerBackground && (
+                  <>
+                    <div
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute inset-0 z-0 bg-cover bg-center ${bannerBackground.className || ""}`}
+                      style={bannerBackground.style}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.96)_0%,rgba(255,252,247,0.9)_44%,rgba(255,255,255,0.56)_100%)]"
+                    />
+                  </>
                 )}
                 <div className="relative z-10 flex items-center gap-4 flex-1">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(displayIcon)}`}
+                    className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(list.icon)}`}
                   >
-                    <LucideIcon name={displayIcon} className="w-6 h-6" />
+                    {iconBackground && (
+                      <>
+                        <div
+                          aria-hidden="true"
+                          className={`absolute inset-0 bg-cover bg-center ${iconBackground.className || ""}`}
+                          style={iconBackground.style}
+                        />
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-white/42"
+                        />
+                      </>
+                    )}
+                    <LucideIcon name={list.icon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">
@@ -455,11 +567,11 @@ export default function DashboardView({
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
-        selectedVisuals={
-          pendingActionsList ? listVisuals[pendingActionsList.id] || {} : {}
+        selectedAppearance={
+          pendingActionsList ? listAppearance[pendingActionsList.id] || {} : {}
         }
-        fallbackIcon={pendingActionsList?.icon}
-        onUpdateVisuals={handleUpdateListVisuals}
+        customImageUrls={customImageUrls}
+        onUpdateAppearance={handleUpdateListAppearance}
         onConfirmDelete={handleConfirmDeleteList}
       />
 
