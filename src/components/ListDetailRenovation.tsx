@@ -127,6 +127,16 @@ export default function ListDetailRenovation({
     }
   };
 
+  const renderDeleteButton = (taskId: string) => (
+    <button
+      onClick={() => onDeleteTask(list.id, taskId)}
+      className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
+      title="Ta bort"
+    >
+      <LucideIcon name="close" className="w-4 h-4" />
+    </button>
+  );
+
   return (
     <div className="w-full max-w-[768px] mx-auto px-5 pb-[180px]">
       {/* Back Navigation Top Header */}
@@ -236,13 +246,7 @@ export default function ListDetailRenovation({
                           >
                             <LucideIcon name="check" className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => onDeleteTask(list.id, task.id)}
-                            className="p-1 hover:bg-[#F2E4CD] text-error rounded-full transition-colors"
-                            title="Ta bort"
-                          >
-                            <LucideIcon name="close" className="w-3.5 h-3.5" />
-                          </button>
+                          {renderDeleteButton(task.id)}
                         </div>
                       </div>
                       
@@ -311,12 +315,7 @@ export default function ListDetailRenovation({
                             <LucideIcon name="link" className="w-3.5 h-3.5" />
                           </a>
                         )}
-                        <button
-                          onClick={() => onDeleteTask(list.id, task.id)}
-                          className="p-1.5 hover:bg-surface-container text-error rounded-full transition-colors opacity-40 group-hover:opacity-100"
-                        >
-                          <LucideIcon name="close" className="w-4 h-4" />
-                        </button>
+                        {renderDeleteButton(task.id)}
                       </div>
                     </motion.div>
                   ))}
@@ -362,13 +361,7 @@ export default function ListDetailRenovation({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => onDeleteTask(list.id, task.id)}
-                          className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-0 group-hover:opacity-100"
-                          title="Radera"
-                        >
-                          <LucideIcon name="close" className="w-4 h-4" />
-                        </button>
+                        {renderDeleteButton(task.id)}
                         <LucideIcon name="grip-vertical" className="w-4 h-4 text-outline opacity-40 drag-handle" />
                       </div>
                     </motion.div>
@@ -439,6 +432,7 @@ export default function ListDetailRenovation({
                               +
                             </button>
                           </div>
+                          {renderDeleteButton(task.id)}
                         </div>
 
                         {/* Responsive Progress bar Indicator */}
@@ -496,13 +490,7 @@ export default function ListDetailRenovation({
                             )}
                           </div>
                         </div>
-                        <button
-                          onClick={() => onDeleteTask(list.id, task.id)}
-                          className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
-                          title="Radera"
-                        >
-                          <LucideIcon name="close" className="w-4 h-4" />
-                        </button>
+                        {renderDeleteButton(task.id)}
                       </motion.div>
                     );
                   })}
