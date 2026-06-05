@@ -23,6 +23,7 @@ interface DashboardViewProps {
   onTriggerCreate: () => void;
   onAddListFromTemplate: (template: QuickTemplate) => void; // Ändrad från any
   onOpenSettings: () => void;
+  onDeleteList: (listId: string) => void;
 }
 
 export default function DashboardView({
@@ -34,6 +35,7 @@ export default function DashboardView({
   onTriggerCreate,
   onAddListFromTemplate,
   onOpenSettings,
+  onDeleteList,
 }: DashboardViewProps) {
   const [logoLoaded, setLogoLoaded] = useState(false);
   const [pendingActionsList, setPendingActionsList] = useState<List | null>(
@@ -138,10 +140,8 @@ export default function DashboardView({
 
   const handleConfirmDeleteList = () => {
     if (pendingActionsList) {
-      console.log("delete_list_confirmed_unwired", {
-        listId: pendingActionsList.id,
-        name: pendingActionsList.name,
-      });
+      onDeleteList(pendingActionsList.id);
+      setPendingActionsList(null);
     }
   };
 

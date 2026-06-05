@@ -21,6 +21,7 @@ import {
   addTask,
   updateTask,
   deleteTask,
+  softDeleteList,
   upsertMeal,
   deleteMeal,
 } from "./lib/supabase";
@@ -664,6 +665,46 @@ export default function App() {
     }
   };
 
+  const handleDeleteList = async (listId: string) => {
+    const listIndex = lists.findIndex(l => l.id === listId);
+    const list = lists[listIndex];
+    if (!list) return;
+
+    const updated = lists.filter(l => l.id !== listId);
+    applyAndSync(updated);
+
+    if (selectedListId === listId) {
+      setSelectedListId(null);
+      startTransition(() => setCurrentView("dashboard"));
+    }
+
+    if (!isUuid(listId)) {
+      clearPendingTasksForTempList(listId);
+      console.log("cloud_soft_delete_list_skipped", { listId, reason: "local_only_list" });
+      return;
+    }
+
+    const canSave = await canCloudSave("soft_delete_list");
+    if (!canSave) {
+      console.log("cloud_soft_delete_list_skipped", { listId, reason: "no_session" });
+      return;
+    }
+
+    const deleted = await softDeleteList(listId);
+    if (deleted) {
+      console.log("cloud_soft_delete_list_success", { listId });
+      return;
+    }
+
+    setListsAndSync(prev => {
+      if (prev.some(l => l.id === listId)) return prev;
+      const restored = [...prev];
+      restored.splice(Math.min(listIndex, restored.length), 0, list);
+      return restored;
+    });
+    console.error("cloud_soft_delete_list_error", { listId });
+  };
+
   const handleResetLists = () => {
     localStorage.removeItem("hem-listan-lists");
     applyAndSync([]);
@@ -752,6 +793,7 @@ export default function App() {
                 onTriggerCreate={() => startTransition(() => setCurrentView("create"))}
                 onAddListFromTemplate={handleAddListFromTemplate}
                 onOpenSettings={() => setShowSettings(true)}
+                onDeleteList={handleDeleteList}
               />
             </motion.div>
           )}

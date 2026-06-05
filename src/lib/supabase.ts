@@ -150,6 +150,7 @@ export const fetchLists = async (): Promise<List[] | null> => {
   const { data: listsData, error } = await client
     .from('hl_lists')
     .select('*')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error || !listsData) return null;
@@ -470,6 +471,152 @@ export const deleteList = async (listId: string) => {
   const client = getSupabaseClient();
   if (!client) return;
   await client.from('hl_lists').delete().eq('id', listId);
+};
+
+type SoftDeleteListRpcPayload = {
+  p_list_id: string;
+};
+
+type SoftDeleteListRpcSafeDetails = {
+  listId: string;
+};
+
+const softDeleteListWithRawRpc = async (
+  rpcPayload: SoftDeleteListRpcPayload,
+  safeRpcDetails: SoftDeleteListRpcSafeDetails
+): Promise<boolean> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_soft_delete_list`;
+  const timeoutMs = 10000;
+
+  console.log("soft_delete_list_rpc_payload", {
+    rpcPayload: safeRpcDetails,
+  });
+
+  if (!url || !anonKey) {
+    console.error("soft_delete_list_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  console.log("soft_delete_list_rpc_start", {
+    endpoint,
+    timeoutMs,
+    listId: rpcPayload.p_list_id,
+  });
+
+  try {
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
+      hasAccessToken: Boolean(accessToken),
+      userId: authSnapshot.userId,
+    };
+
+    if (!accessToken) {
+      console.error("soft_delete_list_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+        rpcPayload: safeRpcDetails,
+      });
+      return false;
+    }
+
+    console.log("soft_delete_list_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("soft_delete_list_rpc_error", {
+        error: "timeout",
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        rpcPayload: safeRpcDetails,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("soft_delete_list_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        rpcPayload: safeRpcDetails,
+      });
+
+      if (!response.ok) {
+        console.error("soft_delete_list_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          rpcPayload: safeRpcDetails,
+        });
+        return false;
+      }
+
+      console.log("soft_delete_list_rpc_success", {
+        listId: rpcPayload.p_list_id,
+      });
+      return true;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("soft_delete_list_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
+};
+
+export const softDeleteList = async (listId: string): Promise<boolean> => {
+  const client = getSupabaseClient();
+  const rpcPayload: SoftDeleteListRpcPayload = { p_list_id: listId };
+  const safeRpcDetails: SoftDeleteListRpcSafeDetails = { listId };
+
+  console.log("soft_delete_list_start", { listId });
+
+  if (!client) {
+    console.error("soft_delete_list_rpc_error", {
+      error: "supabase_client_unavailable",
+      rpcPayload: safeRpcDetails,
+    });
+    return false;
+  }
+
+  return softDeleteListWithRawRpc(rpcPayload, safeRpcDetails);
 };
 
 type AddTaskRpcPayload = {
