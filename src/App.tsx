@@ -355,11 +355,19 @@ export default function App() {
     }
   };
 
+  const resolveCloudListId = (listId: string): string | null => {
+    if (isUuid(listId)) return listId;
+    if (selectedListId && isUuid(selectedListId) && lists.some(l => l.id === selectedListId)) return selectedListId;
+    return null;
+  };
+
   const handleAddTask = async (
     listId: string, text: string, categoryName?: string,
     taskType?: "task" | "note" | "progress" | "link",
     url?: string, notes?: string, progress?: number
   ) => {
+    const cloudListId = resolveCloudListId(listId);
+    const optimisticListId = cloudListId ?? listId;
     const tempId = `task-${Date.now()}-${Math.floor(Math.random() * 1050)}`;
     const newTask: TaskItem = {
       id: tempId, text, checked: false,
@@ -367,21 +375,29 @@ export default function App() {
       type: taskType || "task",
       url, progress
     };
-    const updated = lists.map(l => l.id !== listId ? l : { ...l, tasks: [newTask, ...l.tasks] });
+    const updated = lists.map(l => l.id !== optimisticListId ? l : { ...l, tasks: [newTask, ...l.tasks] });
     applyAndSync(updated);
 
     if (await canCloudSave("add_task")) {
-      const dbId = await addTask(listId, newTask);
-      if (dbId) {
-        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
-          ...l, tasks: l.tasks.map(t => t.id === tempId ? { ...t, id: dbId } : t)
-        }));
-        console.log("cloud_add_task_success", { listId, taskId: dbId });
-      } else {
-        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
+      if (!cloudListId) {
+        setListsAndSync(prev => prev.map(l => l.id !== optimisticListId ? l : {
           ...l, tasks: l.tasks.filter(t => t.id !== tempId)
         }));
-        console.error("cloud_add_task_error", { listId, taskId: tempId });
+        console.error("cloud_add_task_blocked_temp_list_id", { listId, taskId: tempId });
+        return;
+      }
+
+      const dbId = await addTask(cloudListId, newTask);
+      if (dbId) {
+        setListsAndSync(prev => prev.map(l => l.id !== cloudListId ? l : {
+          ...l, tasks: l.tasks.map(t => t.id === tempId ? { ...t, id: dbId } : t)
+        }));
+        console.log("cloud_add_task_success", { listId: cloudListId, taskId: dbId });
+      } else {
+        setListsAndSync(prev => prev.map(l => l.id !== cloudListId ? l : {
+          ...l, tasks: l.tasks.filter(t => t.id !== tempId)
+        }));
+        console.error("cloud_add_task_error", { listId: cloudListId, taskId: tempId });
       }
     }
   };
@@ -548,6 +564,7 @@ export default function App() {
       const dbId = await createList(newList, sessionUser.id);
       if (dbId) {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        setSelectedListId(prev => prev === tempId ? dbId : prev);
         console.log("cloud_create_list_success", { listId: dbId, name });
       } else {
         setListsAndSync(prev => prev.filter(l => l.id !== tempId));
@@ -579,6 +596,7 @@ export default function App() {
       const dbId = await createList(instantiated, sessionUser.id);
       if (dbId) {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        setSelectedListId(prev => prev === tempId ? dbId : prev);
         console.log("cloud_create_list_success", { listId: dbId, name: instantiated.name });
 
         for (const task of instantiated.tasks) {
