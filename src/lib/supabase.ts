@@ -203,6 +203,163 @@ export const fetchLists = async (): Promise<List[] | null> => {
   }));
 };
 
+type CreateListRpcPayload = {
+  p_id: string;
+  p_owner_id: string;
+  p_name: string;
+  p_icon: string;
+  p_theme_color: string;
+  p_category: string;
+};
+
+type CreateListRpcSafeDetails = {
+  id: string;
+  name: string;
+  icon: string;
+  theme_color: string;
+  category: string;
+  hasOwnerId: boolean;
+};
+
+type CreateListDiagnosticContext = {
+  dbId: string;
+  listId: string;
+  name: string;
+  ownerId: string;
+  rpcPayload: CreateListRpcSafeDetails;
+};
+
+const createListWithRawRpc = async (
+  rpcPayload: CreateListRpcPayload,
+  context: CreateListDiagnosticContext
+): Promise<string | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_create_list`;
+  const timeoutMs = 10000;
+
+  console.log("create_list_raw_rpc_payload", {
+    rpcPayload: context.rpcPayload,
+    listId: context.listId,
+    dbId: context.dbId,
+    name: context.name,
+    ownerId: context.ownerId,
+  });
+
+  if (!url || !anonKey) {
+    console.error("create_list_raw_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...context,
+    });
+    return null;
+  }
+
+  const startedAt = Date.now();
+  console.log("create_list_raw_rpc_start", {
+    endpoint,
+    timeoutMs,
+    listId: context.listId,
+    dbId: context.dbId,
+    name: context.name,
+    ownerId: context.ownerId,
+  });
+
+  try {
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
+      hasAccessToken: Boolean(accessToken),
+      userId: authSnapshot.userId,
+    };
+
+    if (!accessToken) {
+      console.error("create_list_raw_rpc_auth_snapshot_missing", authDiagnostics);
+      console.error("create_list_raw_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+        ...context,
+      });
+      return null;
+    }
+
+    console.log("create_list_raw_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("create_list_raw_rpc_timeout", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        ...context,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("create_list_raw_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        ...context,
+      });
+
+      if (!response.ok) {
+        console.error("create_list_raw_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          ...context,
+        });
+        return null;
+      }
+
+      const createdId = typeof responseBody === 'string' && responseBody ? responseBody : context.dbId;
+      console.log("create_list_raw_rpc_success", {
+        listId: context.listId,
+        dbId: createdId,
+        name: context.name,
+        ownerId: context.ownerId,
+      });
+      return createdId;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("create_list_raw_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      ...context,
+    });
+    return null;
+  }
+};
+
 // Skapa ny lista
 export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: string): Promise<string | null> => {
   const client = getSupabaseClient();
@@ -237,6 +394,21 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     category: insertData.category,
     hasOwnerId: Boolean(insertData.owner_id),
   };
+  const rpcPayload: CreateListRpcPayload = {
+    p_id: dbId,
+    p_owner_id: ownerId,
+    p_name: insertData.name,
+    p_icon: insertData.icon,
+    p_theme_color: insertData.theme_color,
+    p_category: insertData.category,
+  };
+  const rpcContext: CreateListDiagnosticContext = {
+    dbId,
+    listId: list.id,
+    name: list.name,
+    ownerId,
+    rpcPayload: safeInsertDetails,
+  };
 
   console.log("create_list_insert_payload", {
     insertData: safeInsertDetails,
@@ -262,7 +434,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
         listId: list.id,
         name: list.name,
       });
-      return null;
+      return createListWithRawRpc(rpcPayload, rpcContext);
     }
 
     console.log("create_list_insert_success", {
@@ -278,7 +450,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
       name: list.name,
     });
 
-    return null;
+    return createListWithRawRpc(rpcPayload, rpcContext);
   }
 };
 
