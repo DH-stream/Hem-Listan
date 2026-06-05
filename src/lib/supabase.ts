@@ -205,34 +205,159 @@ export const fetchLists = async (): Promise<List[] | null> => {
 };
 
 
-export const fetchDeletedLists = async (): Promise<DeletedList[] | null> => {
-  const client = getSupabaseClient();
-  if (!client) return null;
+type DeletedListRow = {
+  id: string;
+  name: string;
+  icon: string | null;
+  theme_color: string | null;
+  category: string;
+  deleted_at: string;
+};
 
-  const { data: { user } } = await client.auth.getUser();
-  if (!user) return null;
+const mapDeletedListRow = (row: DeletedListRow): DeletedList => ({
+  id: row.id,
+  name: row.name,
+  icon: row.icon || 'list',
+  themeColor: row.theme_color || '#1a5319',
+  category: row.category as "renovation" | "grocery" | "general",
+  tasks: [],
+  meals: row.category === 'grocery' ? [] : undefined,
+  deletedAt: row.deleted_at,
+  restoreSource: "cloud" as const,
+});
 
+export const fetchDeletedLists = async (): Promise<DeletedList[]> => {
+  const timeoutMs = 10000;
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: listsData, error } = await client
-    .from('hl_lists')
-    .select('id,name,icon,theme_color,category,deleted_at')
-    .not('deleted_at', 'is', null)
-    .gte('deleted_at', twoDaysAgo)
-    .order('deleted_at', { ascending: false });
 
-  if (error || !listsData) return null;
+  console.log("fetch_deleted_lists_start", { timeoutMs, twoDaysAgo });
+  console.log("fetch_deleted_lists_sdk_start", { skipped: true, reason: "using_raw_rest_auth_snapshot" });
 
-  return listsData.map(l => ({
-    id: l.id,
-    name: l.name,
-    icon: l.icon || 'list',
-    themeColor: l.theme_color || '#1a5319',
-    category: l.category as "renovation" | "grocery" | "general",
-    tasks: [],
-    meals: l.category === 'grocery' ? [] : undefined,
-    deletedAt: l.deleted_at,
-    restoreSource: "cloud" as const,
-  }));
+  const { url, anonKey } = getSupabaseConfig();
+  const authSnapshot = getSupabaseAuthSnapshot();
+  const accessToken = authSnapshot.accessToken;
+  const authDiagnostics = {
+    hasAccessToken: Boolean(accessToken),
+    userId: authSnapshot.userId,
+  };
+
+  console.log("fetch_deleted_lists_raw_start", {
+    timeoutMs,
+    twoDaysAgo,
+    hasUrl: Boolean(url),
+    hasAnonKey: Boolean(anonKey),
+    ...authDiagnostics,
+  });
+
+  if (!url || !anonKey) {
+    console.error("fetch_deleted_lists_raw_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...authDiagnostics,
+    });
+    return [];
+  }
+
+  if (!accessToken) {
+    console.error("fetch_deleted_lists_raw_error", {
+      error: "missing_auth_snapshot_access_token",
+      ...authDiagnostics,
+    });
+    return [];
+  }
+
+  console.log("fetch_deleted_lists_raw_auth_snapshot_found", authDiagnostics);
+
+  const baseUrl = url.replace(/\/$/, '');
+  const query = new URLSearchParams();
+  query.set("select", "id,name,icon,theme_color,category,deleted_at");
+  query.append("deleted_at", "not.is.null");
+  query.append("deleted_at", `gte.${twoDaysAgo}`);
+  query.set("order", "deleted_at.desc");
+
+  const endpoint = `${baseUrl}/rest/v1/hl_lists?${query.toString()}`;
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    console.error("fetch_deleted_lists_raw_error", {
+      error: "timeout",
+      timeoutMs,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      ...authDiagnostics,
+    });
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    let responseBody: unknown = responseText;
+
+    if (responseText) {
+      try {
+        responseBody = JSON.parse(responseText);
+      } catch {
+        responseBody = responseText;
+      }
+    }
+
+    console.log("fetch_deleted_lists_raw_response", {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      elapsedMs: Date.now() - startedAt,
+      body: responseBody,
+      ...authDiagnostics,
+    });
+
+    if (!response.ok) {
+      console.error("fetch_deleted_lists_raw_error", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody,
+        ...authDiagnostics,
+      });
+      return [];
+    }
+
+    if (!Array.isArray(responseBody)) {
+      console.error("fetch_deleted_lists_raw_error", {
+        error: "unexpected_response_body",
+        body: responseBody,
+        ...authDiagnostics,
+      });
+      return [];
+    }
+
+    const deletedLists = (responseBody as DeletedListRow[]).map(mapDeletedListRow);
+    console.log("fetch_deleted_lists_raw_success", {
+      count: deletedLists.length,
+      elapsedMs: Date.now() - startedAt,
+      ...authDiagnostics,
+    });
+
+    return deletedLists;
+  } catch (error) {
+    console.error("fetch_deleted_lists_raw_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      ...authDiagnostics,
+    });
+    return [];
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 };
 
 type CreateListRpcPayload = {

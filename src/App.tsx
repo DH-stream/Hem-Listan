@@ -245,8 +245,7 @@ export default function App() {
       const hasCloudSession = isLoggedIn || Boolean(sessionUser) || Boolean(authSnapshot.accessToken);
 
       if (hasCloudSession) {
-        const fetched = await fetchDeletedLists();
-        if (fetched) cloudDeletedLists = fetched;
+        cloudDeletedLists = await fetchDeletedLists();
       }
 
       const localDeletedIds = new Set(localDeletedLists.map(list => list.id));
@@ -256,7 +255,12 @@ export default function App() {
       ].sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
 
       setDeletedLists(mergedDeletedLists);
+      console.log("load_deleted_lists_done", { count: mergedDeletedLists.length });
       return true;
+    } catch (error) {
+      console.error("load_deleted_lists_error", { error });
+      setDeletedLists(loadLocalDeletedLists());
+      return false;
     } finally {
       setDeletedListsLoading(false);
     }
