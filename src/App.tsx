@@ -154,6 +154,10 @@ export default function App() {
     return <PublicShareView token={publicShareToken} />;
   }
 
+  return <MainApp />;
+}
+
+function MainApp() {
   const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
