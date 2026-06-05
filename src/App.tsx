@@ -28,6 +28,9 @@ import {
   deleteMeal,
 } from "./lib/supabase";
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 // ── localStorage helpers ─────────────────────────────────────────────
 const getListDeletedAt = (list: List): string | undefined => list.deletedAt ?? list.deleted_at;
 
@@ -57,11 +60,12 @@ const loadLocalLists = (): List[] => {
 
 const loadLocalActiveLists = (): List[] =>
   loadLocalLists()
-    .filter(list => !getListDeletedAt(list))
+    .filter(list => !getListDeletedAt(list) || isUuid(list.id))
     .map(stripDeletedFields);
 
 const loadLocalDeletedLists = (): DeletedList[] =>
   loadLocalLists()
+    .filter(list => !isUuid(list.id))
     .map(list => ({ list, deletedAt: getListDeletedAt(list) }))
     .filter((entry): entry is { list: List; deletedAt: string } => isWithinDeletedListRestoreWindow(entry.deletedAt))
     .map(({ list, deletedAt }) => ({
@@ -82,7 +86,7 @@ const saveLocalLists = (lists: List[]) => {
 };
 
 const saveLocalActiveLists = (activeLists: List[]) => {
-  const deletedLists = loadLocalLists().filter(list => getListDeletedAt(list));
+  const deletedLists = loadLocalLists().filter(list => !isUuid(list.id) && getListDeletedAt(list));
   saveLocalLists([
     ...activeLists.map(stripDeletedFields),
     ...deletedLists,
@@ -98,8 +102,6 @@ const saveLocalDeletedList = (list: List, deletedAt: string) => {
 };
 
 const migrationKeyForUser = (userId: string) => `hem-listan-supabase-migrated-${userId}`;
-const isUuid = (value: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const taskFingerprint = (task: TaskItem) => JSON.stringify({
   text: task.text,
@@ -790,8 +792,8 @@ export default function App() {
 
     const canSave = await canCloudSave("soft_delete_list");
     if (!canSave) {
-      saveLocalDeletedList(list, new Date().toISOString());
-      console.log("cloud_soft_delete_list_skipped", { listId, reason: "local_only_no_session" });
+      restoreListLocally();
+      console.error("cloud_soft_delete_list_error", { listId, reason: "cloud_save_unavailable" });
       return;
     }
 
@@ -811,18 +813,84 @@ export default function App() {
   };
 
 
+  const replaceRestoredLocalList = (oldListId: string, restoredList: List) => {
+    const storedLists = loadLocalLists().map(list => list.id === oldListId ? restoredList : list);
+    saveLocalLists(storedLists);
+    setLists(prev => {
+      const activeWithoutRestored = prev.filter(list => list.id !== oldListId && list.id !== restoredList.id);
+      return [restoredList, ...activeWithoutRestored];
+    });
+    setSelectedListId(prev => prev === oldListId ? restoredList.id : prev);
+  };
+
+  const syncRestoredLocalListToSupabase = async (restoredList: List, originalListId: string) => {
+    if (!sessionUser) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "missing_session_user" });
+      return false;
+    }
+
+    console.log("cloud_restore_list_sync_start", { listId: originalListId, name: restoredList.name });
+    const dbId = await createList(restoredList, sessionUser.id);
+    if (!dbId || !isUuid(dbId)) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "createList_returned_null" });
+      return false;
+    }
+
+    let syncedList: List = { ...restoredList, id: dbId };
+    let syncSucceeded = true;
+
+    for (const task of restoredList.tasks) {
+      const taskDbId = await addTask(dbId, task);
+      if (taskDbId) {
+        syncedList = {
+          ...syncedList,
+          tasks: syncedList.tasks.map(t => t.id === task.id ? { ...t, id: taskDbId } : t),
+        };
+      } else {
+        syncSucceeded = false;
+        console.error("cloud_restore_list_error", { listId: originalListId, taskId: task.id, reason: "addTask_returned_null" });
+      }
+    }
+
+    for (const meal of restoredList.meals ?? []) {
+      const mealDbId = await upsertMeal(dbId, meal);
+      if (mealDbId) {
+        syncedList = {
+          ...syncedList,
+          meals: (syncedList.meals ?? []).map(m => m.id === meal.id ? { ...m, id: mealDbId } : m),
+        };
+      } else {
+        syncSucceeded = false;
+        console.error("cloud_restore_list_error", { listId: originalListId, mealId: meal.id, reason: "upsertMeal_returned_null" });
+      }
+    }
+
+    if (!syncSucceeded) {
+      console.error("cloud_restore_list_error", { listId: originalListId, reason: "child_sync_failed_kept_local" });
+      return false;
+    }
+
+    replaceRestoredLocalList(originalListId, syncedList);
+    console.log("cloud_restore_list_sync_success", { listId: dbId, localListId: originalListId, name: restoredList.name });
+    return true;
+  };
+
   const handleRestoreDeletedList = async (listId: string) => {
     const localStoredList = loadLocalLists().find(list => list.id === listId && getListDeletedAt(list));
 
     if (localStoredList) {
       const restoredList = stripDeletedFields(localStoredList);
-      const storedLists = loadLocalLists().map(list => list.id === listId ? restoredList : list);
-      saveLocalLists(storedLists);
-      setLists(prev => {
-        const activeWithoutRestored = prev.filter(list => list.id !== listId);
-        return [restoredList, ...activeWithoutRestored];
-      });
+      replaceRestoredLocalList(listId, restoredList);
       setDeletedLists(prev => prev.filter(list => list.id !== listId));
+
+      const canSave = await canCloudSave("restore_local_list_sync");
+      if (canSave) {
+        const synced = await syncRestoredLocalListToSupabase(restoredList, listId);
+        if (!synced) {
+          console.error("cloud_restore_list_error", { listId, source: "local", reason: "kept_local_only" });
+        }
+      }
+
       console.log("cloud_restore_list_success", { listId, source: "local" });
       return true;
     }
