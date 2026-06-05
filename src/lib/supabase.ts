@@ -330,6 +330,30 @@ type AddTaskDiagnosticContext = {
   rpcPayload: AddTaskRpcSafeDetails;
 };
 
+type UpdateTaskRpcPayload = {
+  p_task_id: string;
+  p_checked?: boolean;
+  p_text?: string;
+  p_notes?: string;
+  p_progress?: number;
+  p_url?: string;
+};
+
+type UpdateTaskRpcSafeDetails = {
+  taskId: string;
+  hasText: boolean;
+  checked?: boolean;
+  hasNotes: boolean;
+  progress?: number;
+  hasUrl: boolean;
+  keys: string[];
+};
+
+type UpdateTaskDiagnosticContext = {
+  taskId: string;
+  rpcPayload: UpdateTaskRpcSafeDetails;
+};
+
 const addTaskWithRawRpc = async (
   client: SupabaseClient,
   rpcPayload: AddTaskRpcPayload,
@@ -543,6 +567,128 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
   }
 };
 
+const updateTaskWithRawRpc = async (
+  rpcPayload: UpdateTaskRpcPayload,
+  context: UpdateTaskDiagnosticContext
+): Promise<boolean> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_update_task`;
+  const timeoutMs = 10000;
+
+  console.log("update_task_raw_rpc_payload", {
+    rpcPayload: context.rpcPayload,
+    taskId: context.taskId,
+  });
+
+  if (!url || !anonKey) {
+    console.error("update_task_raw_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...context,
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  console.log("update_task_raw_rpc_start", {
+    endpoint,
+    timeoutMs,
+    taskId: context.taskId,
+  });
+
+  try {
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
+      hasAccessToken: Boolean(accessToken),
+      userId: authSnapshot.userId,
+    };
+
+    if (!accessToken) {
+      console.error("update_task_raw_rpc_auth_snapshot_missing", authDiagnostics);
+      console.error("update_task_raw_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+        ...context,
+      });
+      return false;
+    }
+
+    console.log("update_task_raw_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("update_task_raw_rpc_timeout", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        ...context,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("update_task_raw_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        ...context,
+      });
+
+      if (!response.ok) {
+        console.error("update_task_raw_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          ...context,
+        });
+        return false;
+      }
+
+      console.log("update_task_raw_rpc_success", {
+        taskId: context.taskId,
+        rpcPayload: context.rpcPayload,
+      });
+      return true;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("update_task_raw_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      ...context,
+    });
+    return false;
+  }
+};
+
 // Uppdatera task
 export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Promise<boolean> => {
   const client = getSupabaseClient();
@@ -568,6 +714,23 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
     keys: Object.keys(updateData),
   };
 
+  const rpcPayload: UpdateTaskRpcPayload = {
+    p_task_id: taskId,
+    ...(updates.checked !== undefined && { p_checked: updates.checked }),
+    ...(updates.text !== undefined && { p_text: updates.text }),
+    ...(updates.notes !== undefined && { p_notes: updates.notes }),
+    ...(updates.progress !== undefined && { p_progress: updates.progress }),
+    ...(updates.url !== undefined && { p_url: updates.url }),
+  };
+
+  const rawRpcContext: UpdateTaskDiagnosticContext = {
+    taskId,
+    rpcPayload: {
+      taskId,
+      ...safeUpdateDetails,
+    },
+  };
+
   console.log("update_task_payload", { taskId, updates: safeUpdateDetails });
   console.log("update_task_start", { taskId, updates: safeUpdateDetails });
 
@@ -583,14 +746,14 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
 
     if (error) {
       console.error("update_task_error", { error, taskId, updates: safeUpdateDetails });
-      return false;
+      return updateTaskWithRawRpc(rpcPayload, rawRpcContext);
     }
 
     console.log("update_task_success", { taskId, updates: safeUpdateDetails });
     return true;
   } catch (error) {
     console.error("update_task_exception", { error, taskId, updates: safeUpdateDetails });
-    return false;
+    return updateTaskWithRawRpc(rpcPayload, rawRpcContext);
   }
 };
 
