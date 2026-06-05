@@ -31,7 +31,7 @@ const loadLocalLists = (): List[] => {
     const saved = localStorage.getItem("hem-listan-lists");
     if (saved) return JSON.parse(saved);
   } catch {}
-  return INITIAL_LISTS;
+  return [];
 };
 
 const saveLocalLists = (lists: List[]) => {
@@ -603,7 +603,7 @@ export default function App() {
 
   const handleResetLists = () => {
     localStorage.removeItem("hem-listan-lists");
-    applyAndSync(INITIAL_LISTS);
+    applyAndSync([]);
   };
 
   const handleSelectList = (id: string) => {
