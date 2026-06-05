@@ -27,6 +27,17 @@ type ListActionsFlowModalProps = {
   onConfirmDelete: () => void;
 };
 
+const ICON_OPTIONS = [
+  { key: "shopping_cart", label: "Handla" },
+  { key: "construction", label: "Fix" },
+  { key: "home", label: "Hem" },
+  { key: "today", label: "Plan" },
+  { key: "book", label: "Läsa" },
+  { key: "restaurant", label: "Mat" },
+  { key: "favorite", label: "Omtanke" },
+  { key: "flight", label: "Resa" },
+] as const;
+
 const actions = [
   {
     key: "sendCopy",
@@ -163,6 +174,10 @@ export default function ListActionsFlowModal({
     }
   };
 
+  const updateIcon = (icon?: string | null) => {
+    onUpdateAppearance({ ...selectedAppearance, icon: icon || null });
+  };
+
   const updateCustomCrop = (
     field: "positionX" | "positionY" | "zoom",
     value: number,
@@ -222,6 +237,7 @@ export default function ListActionsFlowModal({
     }
   };
 
+  const selectedIcon = selectedAppearance.icon || listIcon;
   const selectedBackground = selectedAppearance.background || null;
   const backgroundStyle = getAppearanceBackgroundStyle(
     selectedBackground,
@@ -455,8 +471,49 @@ export default function ListActionsFlowModal({
 
                   <div id="list-actions-flow-description" className="space-y-4">
                     <p className="text-sm font-medium leading-relaxed text-gray-600">
-                      Välj en bakgrund som visas både i ikonens cirkel och bakom listkortet.
+                      Välj ikon och en bakgrund som visas både i ikonens cirkel och bakom listkortet.
                     </p>
+
+                    <div>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Ikon
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        <button
+                          type="button"
+                          onClick={() => updateIcon(null)}
+                          className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-bold transition-[background-color,border-color,transform] active:scale-[0.97] ${
+                            !selectedAppearance.icon
+                              ? "border-primary bg-green-50 text-primary"
+                              : "border-gray-100 bg-gray-50/80 text-gray-600 hover:bg-white"
+                          }`}
+                          aria-pressed={!selectedAppearance.icon}
+                        >
+                          <LucideIcon name={listIcon} className="h-4 w-4" />
+                          <span>Standardikon</span>
+                        </button>
+                        {ICON_OPTIONS.map((option) => {
+                          const isSelected = selectedAppearance.icon === option.key;
+
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => updateIcon(option.key)}
+                              className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-bold transition-[background-color,border-color,transform] active:scale-[0.97] ${
+                                isSelected
+                                  ? "border-primary bg-green-50 text-primary"
+                                  : "border-gray-100 bg-gray-50/80 text-gray-600 hover:bg-white"
+                              }`}
+                              aria-pressed={isSelected}
+                            >
+                              <LucideIcon name={option.key} className="h-4 w-4" />
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
                     <div
                       className="relative overflow-hidden rounded-xl border border-gray-100 bg-surface-container-lowest p-4 shadow-sm"
@@ -470,7 +527,7 @@ export default function ListActionsFlowModal({
                           />
                           <div
                             aria-hidden="true"
-                            className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.86)_0%,rgba(255,255,255,0.68)_48%,rgba(255,255,255,0.38)_100%)]"
+                            className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.76)_0%,rgba(255,255,255,0.52)_48%,rgba(255,255,255,0.24)_100%)]"
                           />
                         </>
                       )}
@@ -487,7 +544,7 @@ export default function ListActionsFlowModal({
                             </>
                           )}
                           <LucideIcon
-                            name={listIcon}
+                            name={selectedIcon}
                             className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
                           />
                         </div>

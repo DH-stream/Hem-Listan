@@ -443,6 +443,7 @@ export default function DashboardView({
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
             const appearance = listAppearance[list.id] || {};
+            const displayIcon = appearance.icon || list.icon;
             const background = getAppearanceBackgroundStyle(
               appearance.background,
               customImageUrls,
@@ -481,13 +482,13 @@ export default function DashboardView({
                     />
                     <div
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.86)_0%,rgba(255,255,255,0.68)_48%,rgba(255,255,255,0.38)_100%)]"
+                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.76)_0%,rgba(255,255,255,0.52)_48%,rgba(255,255,255,0.24)_100%)]"
                     />
                   </>
                 )}
                 <div className="relative z-10 flex items-center gap-4 flex-1">
                   <div
-                    className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(list.icon)}`}
+                    className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(displayIcon)}`}
                   >
                     {background && (
                       <>
@@ -502,7 +503,7 @@ export default function DashboardView({
                         />
                       </>
                     )}
-                    <LucideIcon name={list.icon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
+                    <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">
