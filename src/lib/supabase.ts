@@ -354,6 +354,19 @@ type UpdateTaskDiagnosticContext = {
   rpcPayload: UpdateTaskRpcSafeDetails;
 };
 
+type DeleteTaskRpcPayload = {
+  p_task_id: string;
+};
+
+type DeleteTaskRpcSafeDetails = {
+  taskId: string;
+};
+
+type DeleteTaskDiagnosticContext = {
+  taskId: string;
+  rpcPayload: DeleteTaskRpcSafeDetails;
+};
+
 const addTaskWithRawRpc = async (
   client: SupabaseClient,
   rpcPayload: AddTaskRpcPayload,
@@ -689,6 +702,128 @@ const updateTaskWithRawRpc = async (
   }
 };
 
+const deleteTaskWithRawRpc = async (
+  rpcPayload: DeleteTaskRpcPayload,
+  context: DeleteTaskDiagnosticContext
+): Promise<boolean> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_delete_task`;
+  const timeoutMs = 10000;
+
+  console.log("delete_task_raw_rpc_payload", {
+    rpcPayload: context.rpcPayload,
+    taskId: context.taskId,
+  });
+
+  if (!url || !anonKey) {
+    console.error("delete_task_raw_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...context,
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  console.log("delete_task_raw_rpc_start", {
+    endpoint,
+    timeoutMs,
+    taskId: context.taskId,
+  });
+
+  try {
+    const authSnapshot = getSupabaseAuthSnapshot();
+    const accessToken = authSnapshot.accessToken;
+    const authDiagnostics = {
+      hasAccessToken: Boolean(accessToken),
+      userId: authSnapshot.userId,
+    };
+
+    if (!accessToken) {
+      console.error("delete_task_raw_rpc_auth_snapshot_missing", authDiagnostics);
+      console.error("delete_task_raw_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+        ...context,
+      });
+      return false;
+    }
+
+    console.log("delete_task_raw_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("delete_task_raw_rpc_timeout", {
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+        ...context,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let responseBody: unknown = responseText;
+
+      if (responseText) {
+        try {
+          responseBody = JSON.parse(responseText);
+        } catch {
+          responseBody = responseText;
+        }
+      }
+
+      console.log("delete_task_raw_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+        ...context,
+      });
+
+      if (!response.ok) {
+        console.error("delete_task_raw_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+          ...context,
+        });
+        return false;
+      }
+
+      console.log("delete_task_raw_rpc_success", {
+        taskId: context.taskId,
+        rpcPayload: context.rpcPayload,
+      });
+      return true;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("delete_task_raw_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+      ...context,
+    });
+    return false;
+  }
+};
+
 // Uppdatera task
 export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Promise<boolean> => {
   const client = getSupabaseClient();
@@ -765,6 +900,17 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
     return false;
   }
 
+  const rpcPayload: DeleteTaskRpcPayload = {
+    p_task_id: taskId,
+  };
+
+  const rawRpcContext: DeleteTaskDiagnosticContext = {
+    taskId,
+    rpcPayload: {
+      taskId,
+    },
+  };
+
   console.log("delete_task_start", { taskId });
 
   try {
@@ -779,14 +925,14 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
 
     if (error) {
       console.error("delete_task_error", { error, taskId });
-      return false;
+      return deleteTaskWithRawRpc(rpcPayload, rawRpcContext);
     }
 
     console.log("delete_task_success", { taskId });
     return true;
   } catch (error) {
     console.error("delete_task_exception", { error, taskId });
-    return false;
+    return deleteTaskWithRawRpc(rpcPayload, rawRpcContext);
   }
 };
 
