@@ -4,6 +4,7 @@ import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
+import { createListShare } from "../lib/supabase";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -126,10 +127,13 @@ export default function DashboardView({
     });
   };
 
-  const handleSendList = () => {
-    if (pendingActionsList) {
-      logListActionPlaceholder("send_list_unwired", pendingActionsList);
-    }
+  const handleSendList = async (): Promise<string | null> => {
+    if (!pendingActionsList) return null;
+
+    const token = await createListShare(pendingActionsList);
+    if (!token) return null;
+
+    return `${window.location.origin}/share/${token}`;
   };
 
   const handleShareList = () => {

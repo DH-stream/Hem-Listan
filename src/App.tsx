@@ -8,6 +8,7 @@ import ListDetailRenovation from "./components/ListDetailRenovation";
 import ListDetailGrocery from "./components/ListDetailGrocery";
 import CreateListView from "./components/CreateListView";
 import DebugPanel from "./components/DebugPanel";
+import PublicShareView from "./components/PublicShareView";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
 import {
@@ -141,7 +142,22 @@ const listFingerprint = (list: List) => JSON.stringify({
   meals: (list.meals ?? []).map(mealFingerprint),
 });
 
+const getPublicShareTokenFromPath = () => {
+  const match = window.location.pathname.match(/^\/share\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
 export default function App() {
+  const publicShareToken = getPublicShareTokenFromPath();
+
+  if (publicShareToken) {
+    return <PublicShareView token={publicShareToken} />;
+  }
+
+  return <MainApp />;
+}
+
+function MainApp() {
   const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
