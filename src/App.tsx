@@ -86,6 +86,7 @@ export default function App() {
   const [pulseCount, setPulseCount] = useState(0);
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
+  const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
 
   const [userName, setUserName] = useState<string>(
     () => localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan"
@@ -357,8 +358,47 @@ export default function App() {
 
   const resolveCloudListId = (listId: string): string | null => {
     if (isUuid(listId)) return listId;
+    if (lists.some(l => l.id === listId)) return null;
     if (selectedListId && isUuid(selectedListId) && lists.some(l => l.id === selectedListId)) return selectedListId;
     return null;
+  };
+
+  const queuePendingTaskForTempList = (listId: string, task: TaskItem) => {
+    pendingTasksByTempListIdRef.current[listId] = [
+      ...(pendingTasksByTempListIdRef.current[listId] ?? []),
+      task
+    ];
+  };
+
+  const clearPendingTasksForTempList = (listId: string) => {
+    delete pendingTasksByTempListIdRef.current[listId];
+  };
+
+  const flushPendingTasksForTempList = async (tempListId: string, cloudListId: string) => {
+    const pendingTasks = pendingTasksByTempListIdRef.current[tempListId] ?? [];
+    clearPendingTasksForTempList(tempListId);
+
+    for (const task of pendingTasks) {
+      const dbId = await addTask(cloudListId, task);
+      if (dbId) {
+        setListsAndSync(prev => prev.map(l => {
+          if (l.id !== cloudListId) return l;
+          const hasOptimisticTask = l.tasks.some(t => t.id === task.id);
+          return {
+            ...l,
+            tasks: hasOptimisticTask
+              ? l.tasks.map(t => t.id === task.id ? { ...t, id: dbId } : t)
+              : [{ ...task, id: dbId }, ...l.tasks]
+          };
+        }));
+        console.log("cloud_add_task_success", { listId: cloudListId, taskId: dbId });
+      } else {
+        setListsAndSync(prev => prev.map(l => l.id !== cloudListId ? l : {
+          ...l, tasks: l.tasks.filter(t => t.id !== task.id)
+        }));
+        console.error("cloud_add_task_error", { listId: cloudListId, taskId: task.id });
+      }
+    }
   };
 
   const handleAddTask = async (
@@ -380,10 +420,8 @@ export default function App() {
 
     if (await canCloudSave("add_task")) {
       if (!cloudListId) {
-        setListsAndSync(prev => prev.map(l => l.id !== optimisticListId ? l : {
-          ...l, tasks: l.tasks.filter(t => t.id !== tempId)
-        }));
-        console.error("cloud_add_task_blocked_temp_list_id", { listId, taskId: tempId });
+        queuePendingTaskForTempList(listId, newTask);
+        console.log("cloud_add_task_queued_for_pending_list", { listId, taskId: tempId });
         return;
       }
 
@@ -557,6 +595,7 @@ export default function App() {
       console.log("cloud_create_list_start", { listId: tempId, name });
       if (!sessionUser) {
         setListsAndSync(prev => prev.filter(l => l.id !== tempId));
+        clearPendingTasksForTempList(tempId);
         console.error("cloud_create_list_error", { listId: tempId, name, reason: "missing_session_user" });
         return;
       }
@@ -566,8 +605,10 @@ export default function App() {
         setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
         setSelectedListId(prev => prev === tempId ? dbId : prev);
         console.log("cloud_create_list_success", { listId: dbId, name });
+        await flushPendingTasksForTempList(tempId, dbId);
       } else {
         setListsAndSync(prev => prev.filter(l => l.id !== tempId));
+        clearPendingTasksForTempList(tempId);
         console.error("cloud_create_list_error", { listId: tempId, name, reason: "createList_returned_null" });
       }
     }
@@ -589,6 +630,7 @@ export default function App() {
       console.log("cloud_create_list_start", { listId: tempId, name: instantiated.name });
       if (!sessionUser) {
         setListsAndSync(prev => prev.filter(l => l.id !== tempId));
+        clearPendingTasksForTempList(tempId);
         console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "missing_session_user" });
         return;
       }
@@ -612,8 +654,11 @@ export default function App() {
             console.error("cloud_add_task_error", { listId: dbId, taskId: task.id });
           }
         }
+
+        await flushPendingTasksForTempList(tempId, dbId);
       } else {
         setListsAndSync(prev => prev.filter(l => l.id !== tempId));
+        clearPendingTasksForTempList(tempId);
         console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "createList_returned_null" });
       }
     }
