@@ -368,16 +368,22 @@ export default function SettingsModal({
     if (!restoreConfirmList) return;
 
     setRestoringListId(restoreConfirmList.id);
-    const restored = await onRestoreDeletedList(restoreConfirmList.id);
-    setRestoringListId(null);
+    try {
+      const restored = await onRestoreDeletedList(restoreConfirmList.id);
 
-    if (restored) {
-      showSuccess("Lista återställd");
-      setRestoreConfirmList(null);
-      return;
+      if (restored) {
+        showSuccess("Lista återställd");
+        setRestoreConfirmList(null);
+        return;
+      }
+
+      showError("Kunde inte återställa listan.");
+    } catch (error) {
+      console.error("restore_deleted_list_error", { listId: restoreConfirmList.id, error });
+      showError("Kunde inte återställa listan.");
+    } finally {
+      setRestoringListId(null);
     }
-
-    showError("Kunde inte återställa listan.");
   }, [onRestoreDeletedList, restoreConfirmList, showError, showSuccess]);
 
   const activeSessionUser = sessionUser ?? fallbackSessionUser;
