@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { List, Stats, MealType, TaskItem } from "./types";
+import { DeletedList, List, Stats, MealType, TaskItem } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -17,11 +17,13 @@ import {
   getSupabaseAuthSnapshot,
   clearSupabaseAuthSnapshot,
   fetchLists,
+  fetchDeletedLists,
   createList,
   addTask,
   updateTask,
   deleteTask,
   softDeleteList,
+  restoreList,
   upsertMeal,
   deleteMeal,
 } from "./lib/supabase";
@@ -85,6 +87,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pulseCount, setPulseCount] = useState(0);
+  const [deletedLists, setDeletedLists] = useState<DeletedList[]>([]);
+  const [deletedListsLoading, setDeletedListsLoading] = useState(false);
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
   const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
@@ -176,6 +180,25 @@ export default function App() {
     saveLocalLists(fetched);
     return true;
   };
+
+
+  const loadDeletedLists = async () => {
+    setDeletedListsLoading(true);
+    try {
+      const fetched = await fetchDeletedLists();
+      if (!fetched) return false;
+
+      setDeletedLists(fetched);
+      return true;
+    } finally {
+      setDeletedListsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showSettings) return;
+    void loadDeletedLists();
+  }, [showSettings]);
 
   const migrateLocalToSupabase = async (localLists: List[], ownerId: string) => {
     const existingLists = await fetchLists();
@@ -671,7 +694,7 @@ export default function App() {
     if (!list) return;
 
     const wasSelected = selectedListId === listId;
-    const restoreList = () => {
+    const restoreListLocally = () => {
       setListsAndSync(prev => {
         if (prev.some(l => l.id === listId)) return prev;
         const restored = [...prev];
@@ -701,7 +724,7 @@ export default function App() {
 
     const canSave = await canCloudSave("soft_delete_list");
     if (!canSave) {
-      restoreList();
+      restoreListLocally();
       console.error("cloud_soft_delete_list_error", { listId, reason: "cloud_save_unavailable" });
       return;
     }
@@ -712,13 +735,33 @@ export default function App() {
       return;
     }
 
-    restoreList();
+    restoreListLocally();
     console.error("cloud_soft_delete_list_error", { listId });
   };
 
   const handleResetLists = () => {
     localStorage.removeItem("hem-listan-lists");
     applyAndSync([]);
+  };
+
+
+  const handleRestoreDeletedList = async (listId: string) => {
+    const canSave = await canCloudSave("restore_list");
+    if (!canSave) {
+      console.error("cloud_restore_list_error", { listId, reason: "cloud_save_unavailable" });
+      return false;
+    }
+
+    const restored = await restoreList(listId);
+    if (!restored) {
+      console.error("cloud_restore_list_error", { listId });
+      return false;
+    }
+
+    setDeletedLists(prev => prev.filter(list => list.id !== listId));
+    await loadFromSupabase();
+    console.log("cloud_restore_list_success", { listId });
+    return true;
   };
 
   const handleSelectList = (id: string) => {
@@ -860,6 +903,10 @@ export default function App() {
             onUpdateUserName={handleUpdateUserName}
             onUpdateUserImage={handleUpdateUserImage}
             onClose={() => setShowSettings(false)}
+            deletedLists={deletedLists}
+            deletedListsLoading={deletedListsLoading}
+            onLoadDeletedLists={loadDeletedLists}
+            onRestoreDeletedList={handleRestoreDeletedList}
             onResetLists={handleResetLists}
           />
         )}

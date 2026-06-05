@@ -37,6 +37,10 @@ export interface List {
   meals?: MealSlot[]; // for grocery/schema lists
 }
 
+export interface DeletedList extends List {
+  deletedAt: string;
+}
+
 export interface Stats {
   listsCount: number;
   itemsLeftCount: number;
