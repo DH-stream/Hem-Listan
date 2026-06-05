@@ -4,7 +4,7 @@ import LucideIcon from "./LucideIcon";
 import {
   APPEARANCE_PRESETS,
   deleteCustomAppearanceImage,
-  getAppearancePreset,
+  getAppearanceBackgroundStyle,
   ListAppearance,
   ListAppearanceBackgroundRef,
   saveCustomAppearanceImage,
@@ -13,6 +13,7 @@ import {
 type ListActionsFlowModalProps = {
   isOpen: boolean;
   listName?: string;
+  listId?: string;
   listIcon?: string;
   listThemeColor?: string;
   progressLabel?: string;
@@ -69,6 +70,7 @@ type UploadStatus = "idle" | "loading" | "error";
 export default function ListActionsFlowModal({
   isOpen,
   listName,
+  listId = "appearance-preview",
   listIcon = "list",
   listThemeColor = "#1a5319",
   progressLabel = "0/0 klara",
@@ -221,28 +223,11 @@ export default function ListActionsFlowModal({
   };
 
   const selectedBackground = selectedAppearance.background || null;
-  const selectedPreset = getAppearancePreset(selectedBackground);
-  const selectedCustomUrl =
-    selectedBackground?.type === "custom"
-      ? customImageUrls[selectedBackground.id]
-      : undefined;
-  const backgroundStyle = selectedPreset
-    ? {
-        backgroundColor: selectedPreset.backgroundColor,
-        backgroundImage: selectedPreset.backgroundImage,
-        backgroundPosition: "center",
-        backgroundSize: "auto, cover, cover, cover",
-      }
-    : selectedCustomUrl
-      ? {
-          backgroundImage: `url(${selectedCustomUrl})`,
-          backgroundPosition: `${selectedBackground?.positionX ?? 50}% ${selectedBackground?.positionY ?? 50}%`,
-          backgroundSize:
-            (selectedBackground?.zoom ?? 1) > 1
-              ? `${Math.round((selectedBackground?.zoom ?? 1) * 100)}%`
-              : "cover",
-        }
-      : undefined;
+  const backgroundStyle = getAppearanceBackgroundStyle(
+    selectedBackground,
+    customImageUrls,
+    listId,
+  );
 
   return (
     <AnimatePresence>
@@ -273,7 +258,7 @@ export default function ListActionsFlowModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 4 }}
             transition={cardTransition}
-            className="relative my-8 w-full max-w-md transform-gpu overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl will-change-transform"
+            className="relative my-4 flex max-h-[calc(100dvh-2rem)] w-full max-w-md transform-gpu flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white p-0 shadow-2xl will-change-transform sm:my-8 sm:max-h-[calc(100dvh-4rem)]"
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -285,6 +270,7 @@ export default function ListActionsFlowModal({
               <LucideIcon name="close" className="h-5 w-5" />
             </button>
 
+            <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]">
             <AnimatePresence mode="popLayout" initial={false}>
               {mode === "actions" ? (
                 <motion.div
@@ -553,12 +539,11 @@ export default function ListActionsFlowModal({
                               <span
                                 aria-hidden="true"
                                 className="absolute inset-0"
-                                style={{
-                                  backgroundColor: preset.backgroundColor,
-                                  backgroundImage: preset.backgroundImage,
-                                  backgroundPosition: "center",
-                                  backgroundSize: "auto, cover, cover, cover",
-                                }}
+                                style={getAppearanceBackgroundStyle(
+                                  { type: "preset", id: preset.id },
+                                  {},
+                                  `${listId}:${preset.id}`,
+                                )}
                               />
                               <span className="absolute inset-0 bg-white/18" />
                               <span className="relative z-10 block text-xs font-bold">
@@ -727,6 +712,7 @@ export default function ListActionsFlowModal({
                 </motion.div>
               )}
             </AnimatePresence>
+            </div>
           </motion.div>
         </motion.div>
       )}

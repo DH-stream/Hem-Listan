@@ -6,7 +6,7 @@ import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListShare } from "../lib/supabase";
 import {
-  getAppearancePreset,
+  getAppearanceBackgroundStyle,
   getCustomAppearanceImageUrl,
   ListAppearance,
   ListAppearanceBackgroundRef,
@@ -235,38 +235,6 @@ export default function DashboardView({
   }, [listAppearance]);
 
 
-  const getAppearanceBackground = (ref?: ListAppearanceBackgroundRef | null) => {
-    if (!ref) return undefined;
-
-    if (ref.type === "preset") {
-      const preset = getAppearancePreset(ref);
-      return preset
-        ? {
-            style: {
-              backgroundColor: preset.backgroundColor,
-              backgroundImage: preset.backgroundImage,
-              backgroundPosition: "center",
-              backgroundSize: "auto, cover, cover, cover",
-            },
-          }
-        : undefined;
-    }
-
-    const url = customImageUrls[ref.id];
-    return url
-      ? {
-          style: {
-            backgroundImage: `url(${url})`,
-            backgroundPosition: `${ref.positionX ?? 50}% ${ref.positionY ?? 50}%`,
-            backgroundSize:
-              (ref.zoom ?? 1) > 1
-                ? `${Math.round((ref.zoom ?? 1) * 100)}%`
-                : "cover",
-          },
-        }
-      : undefined;
-  };
-
   const getTodayDateString = () => {
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
   };
@@ -475,7 +443,11 @@ export default function DashboardView({
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
             const appearance = listAppearance[list.id] || {};
-            const background = getAppearanceBackground(appearance.background);
+            const background = getAppearanceBackgroundStyle(
+              appearance.background,
+              customImageUrls,
+              list.id,
+            );
 
             return (
               <motion.div
@@ -505,7 +477,7 @@ export default function DashboardView({
                     <div
                       aria-hidden="true"
                       className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center"
-                      style={background.style}
+                      style={background}
                     />
                     <div
                       aria-hidden="true"
@@ -522,7 +494,7 @@ export default function DashboardView({
                         <div
                           aria-hidden="true"
                           className="absolute inset-0 bg-cover bg-center"
-                          style={background.style}
+                          style={background}
                         />
                         <div
                           aria-hidden="true"
@@ -584,6 +556,7 @@ export default function DashboardView({
       <ListActionsFlowModal
         isOpen={!!pendingActionsList}
         listName={pendingActionsList?.name}
+        listId={pendingActionsList?.id}
         listIcon={pendingActionsList?.icon}
         listThemeColor={pendingActionsList?.themeColor}
         progressLabel={`${pendingCheckedTasks}/${pendingTotalTasks} klara`}
