@@ -80,6 +80,13 @@ type ShareStatus = "idle" | "loading" | "success" | "error";
 type UploadStatus = "idle" | "loading" | "error";
 type UploadTarget = "background" | "iconImage";
 
+type CropDraft = {
+  target: UploadTarget;
+  ref: ListAppearanceBackgroundRef;
+  previewUrl: string;
+  isNew: boolean;
+};
+
 export default function ListActionsFlowModal({
   isOpen,
   listName,
@@ -104,7 +111,17 @@ export default function ListActionsFlowModal({
   );
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [uploadTarget, setUploadTarget] = useState<UploadTarget>("background");
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cropDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    positionX: number;
+    positionY: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -125,6 +142,7 @@ export default function ListActionsFlowModal({
 
   const handleClose = () => {
     setMode("actions");
+    setCropDraft(null);
     onClose();
   };
 
@@ -165,7 +183,7 @@ export default function ListActionsFlowModal({
 
   const updateBackground = (background: ListAppearanceBackgroundRef | null) => {
     const previousBackground = selectedAppearance.background;
-    onUpdateAppearance({ background });
+    onUpdateAppearance({ ...selectedAppearance, background });
 
     if (
       previousBackground?.type === "custom" &&
@@ -195,30 +213,92 @@ export default function ListActionsFlowModal({
     }
   };
 
-  const updateCustomIconCrop = (
-    field: "positionX" | "positionY" | "zoom",
-    value: number,
+  const openCropEditor = (
+    target: UploadTarget,
+    ref: ListAppearanceBackgroundRef,
+    previewUrl?: string,
+    isNew = false,
   ) => {
-    const iconImageOverride = selectedAppearance.iconImageOverride;
-    if (iconImageOverride?.type !== "custom") return;
+    const existingUrl = target === "iconImage"
+      ? customImageUrls[selectedAppearance.iconImageOverride?.id || ""]
+      : customImageUrls[selectedAppearance.background?.id || ""];
+    const url = previewUrl || existingUrl;
+    if (!url) return;
 
-    updateIconImage({
-      ...iconImageOverride,
-      [field]: value,
+    setCropDraft({
+      target,
+      ref: {
+        ...ref,
+        positionX: ref.positionX ?? 50,
+        positionY: ref.positionY ?? 50,
+        zoom: ref.zoom ?? 1,
+      },
+      previewUrl: url,
+      isNew,
     });
   };
 
-  const updateCustomCrop = (
-    field: "positionX" | "positionY" | "zoom",
-    value: number,
-  ) => {
-    const background = selectedAppearance.background;
-    if (background?.type !== "custom") return;
+  const closeCropEditor = async (shouldDeleteNewImage = false) => {
+    if (cropDraft?.isNew) {
+      URL.revokeObjectURL(cropDraft.previewUrl);
+      if (shouldDeleteNewImage) {
+        await deleteCustomAppearanceImage(cropDraft.ref.id).catch((error) => {
+          console.error("delete_unsaved_crop_image_error", { error });
+        });
+      }
+    }
+    cropDragRef.current = null;
+    setCropDraft(null);
+  };
 
-    updateBackground({
-      ...background,
-      [field]: value,
+  const saveCropEditor = () => {
+    if (!cropDraft) return;
+
+    if (cropDraft.target === "iconImage") {
+      updateIconImage(cropDraft.ref);
+    } else {
+      updateBackground(cropDraft.ref);
+    }
+
+    void closeCropEditor(false);
+  };
+
+  const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!cropDraft) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    cropDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      positionX: cropDraft.ref.positionX ?? 50,
+      positionY: cropDraft.ref.positionY ?? 50,
+      width: rect.width,
+      height: rect.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!cropDraft || !drag || drag.pointerId !== event.pointerId) return;
+
+    const deltaX = ((event.clientX - drag.startX) / drag.width) * 100;
+    const deltaY = ((event.clientY - drag.startY) / drag.height) * 100;
+
+    setCropDraft({
+      ...cropDraft,
+      ref: {
+        ...cropDraft.ref,
+        positionX: Math.min(100, Math.max(0, drag.positionX - deltaX)),
+        positionY: Math.min(100, Math.max(0, drag.positionY - deltaY)),
+      },
     });
+  };
+
+  const handleCropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (cropDragRef.current?.pointerId === event.pointerId) {
+      cropDragRef.current = null;
+    }
   };
 
   const handleUploadClick = (target: UploadTarget) => {
@@ -236,11 +316,8 @@ export default function ListActionsFlowModal({
     setUploadStatus("loading");
     try {
       const ref = await saveCustomAppearanceImage(file);
-      if (uploadTarget === "iconImage") {
-        updateIconImage(ref);
-      } else {
-        updateBackground(ref);
-      }
+      const previewUrl = URL.createObjectURL(file);
+      openCropEditor(uploadTarget, ref, previewUrl, true);
       setUploadStatus("idle");
     } catch (error) {
       console.error("save_list_appearance_image_error", { error });
@@ -290,6 +367,16 @@ export default function ListActionsFlowModal({
     customImageUrls,
     `${listId}:icon`,
   );
+  const cropPreviewStyle = cropDraft
+    ? {
+        backgroundImage: `url(${cropDraft.previewUrl})`,
+        backgroundPosition: `${cropDraft.ref.positionX ?? 50}% ${cropDraft.ref.positionY ?? 50}%`,
+        backgroundSize:
+          (cropDraft.ref.zoom ?? 1) > 1
+            ? `${Math.round((cropDraft.ref.zoom ?? 1) * 100)}%`
+            : "cover",
+      }
+    : undefined;
 
   return (
     <AnimatePresence>
@@ -599,48 +686,13 @@ export default function ListActionsFlowModal({
                         </button>
                       </div>
                       {selectedIconImage?.type === "custom" && (
-                        <div className="space-y-3 pt-1">
-                          <label className="block text-xs font-bold text-gray-600">
-                            Ikon horisontellt
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={selectedIconImage.positionX ?? 50}
-                              onChange={(event) =>
-                                updateCustomIconCrop("positionX", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                          <label className="block text-xs font-bold text-gray-600">
-                            Ikon vertikalt
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={selectedIconImage.positionY ?? 50}
-                              onChange={(event) =>
-                                updateCustomIconCrop("positionY", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                          <label className="block text-xs font-bold text-gray-600">
-                            Ikon zoom
-                            <input
-                              type="range"
-                              min="1"
-                              max="2"
-                              step="0.05"
-                              value={selectedIconImage.zoom ?? 1}
-                              onChange={(event) =>
-                                updateCustomIconCrop("zoom", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCropEditor("iconImage", selectedIconImage)}
+                          className="min-h-[44px] w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]"
+                        >
+                          Redigera beskärning
+                        </button>
                       )}
                     </div>
 
@@ -672,18 +724,20 @@ export default function ListActionsFlowModal({
                               <div aria-hidden="true" className="absolute inset-0 bg-white/42" />
                             </>
                           )}
-                          {iconImageStyle ? (
-                            <div
-                              aria-hidden="true"
-                              className="relative z-10 h-9 w-9 rounded-full bg-cover bg-center shadow-sm ring-1 ring-white/70"
-                              style={iconImageStyle}
-                            />
-                          ) : (
-                            <LucideIcon
-                              name={selectedIcon}
-                              className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
-                            />
+                          {iconImageStyle && (
+                            <>
+                              <div
+                                aria-hidden="true"
+                                className="absolute inset-0 bg-cover bg-center"
+                                style={iconImageStyle}
+                              />
+                              <div aria-hidden="true" className="absolute inset-0 bg-black/10" />
+                            </>
                           )}
+                          <LucideIcon
+                            name={selectedIcon}
+                            className="relative z-10 h-6 w-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]"
+                          />
                         </div>
                         <div className="min-w-0 flex-1 pr-2">
                           <h3 className="truncate font-display text-base font-bold text-text-main">
@@ -767,7 +821,7 @@ export default function ListActionsFlowModal({
                           disabled={uploadStatus === "loading"}
                           className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {uploadStatus === "loading" ? "Sparar..." : "Ladda upp egen bild"}
+                          {uploadStatus === "loading" && uploadTarget === "background" ? "Sparar..." : "Ladda upp egen bild"}
                         </button>
                         <button
                           type="button"
@@ -779,51 +833,13 @@ export default function ListActionsFlowModal({
                       </div>
 
                       {selectedBackground?.type === "custom" && (
-                        <div className="space-y-3 pt-1">
-                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                            Beskär / positionera egen bild
-                          </p>
-                          <label className="block text-xs font-bold text-gray-600">
-                            Horisontell position
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={selectedBackground.positionX ?? 50}
-                              onChange={(event) =>
-                                updateCustomCrop("positionX", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                          <label className="block text-xs font-bold text-gray-600">
-                            Vertikal position
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={selectedBackground.positionY ?? 50}
-                              onChange={(event) =>
-                                updateCustomCrop("positionY", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                          <label className="block text-xs font-bold text-gray-600">
-                            Zoom
-                            <input
-                              type="range"
-                              min="1"
-                              max="2"
-                              step="0.05"
-                              value={selectedBackground.zoom ?? 1}
-                              onChange={(event) =>
-                                updateCustomCrop("zoom", Number(event.target.value))
-                              }
-                              className="mt-2 w-full accent-primary"
-                            />
-                          </label>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCropEditor("background", selectedBackground)}
+                          className="min-h-[44px] w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]"
+                        >
+                          Redigera beskärning
+                        </button>
                       )}
 
                       {uploadStatus === "error" && (
@@ -906,6 +922,101 @@ export default function ListActionsFlowModal({
                 </motion.div>
               )}
             </AnimatePresence>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+      {cropDraft && (
+        <motion.div
+          key="appearance-crop-modal"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={backdropTransition}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 font-sans"
+          onClick={() => void closeCropEditor(true)}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="appearance-crop-title"
+            initial={{ opacity: 0, scale: 0.98, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, y: 6 }}
+            transition={cardTransition}
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 pr-8">
+              <h2 id="appearance-crop-title" className="text-lg font-bold text-gray-900">
+                {cropDraft.target === "iconImage" ? "Beskär ikonbild" : "Beskär bakgrund"}
+              </h2>
+              <p className="mt-1 text-xs font-medium leading-relaxed text-gray-500">
+                Dra bilden bakom ramen och justera zoom innan du sparar.
+              </p>
+            </div>
+
+            <div className="flex justify-center">
+              <div
+                className={`relative touch-none overflow-hidden bg-gray-900 shadow-inner ${
+                  cropDraft.target === "iconImage"
+                    ? "h-64 w-64 rounded-full"
+                    : "aspect-[16/9] w-full rounded-xl"
+                }`}
+                onPointerDown={handleCropPointerDown}
+                onPointerMove={handleCropPointerMove}
+                onPointerUp={handleCropPointerUp}
+                onPointerCancel={handleCropPointerUp}
+              >
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={cropPreviewStyle}
+                />
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute inset-0 ${
+                    cropDraft.target === "iconImage"
+                      ? "rounded-full ring-2 ring-white/90 ring-inset"
+                      : "rounded-xl ring-2 ring-white/90 ring-inset"
+                  }`}
+                />
+              </div>
+            </div>
+
+            <label className="mt-5 block text-xs font-bold text-gray-600">
+              Zoom
+              <input
+                type="range"
+                min="1"
+                max="2"
+                step="0.05"
+                value={cropDraft.ref.zoom ?? 1}
+                onChange={(event) =>
+                  setCropDraft({
+                    ...cropDraft,
+                    ref: { ...cropDraft.ref, zoom: Number(event.target.value) },
+                  })
+                }
+                className="mt-2 w-full accent-primary"
+              />
+            </label>
+
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => void closeCropEditor(true)}
+                className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] sm:min-w-28"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={saveCropEditor}
+                className="min-h-[44px] rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-[background-color,transform] hover:bg-secondary active:scale-[0.97] sm:min-w-28"
+              >
+                Spara
+              </button>
             </div>
           </motion.div>
         </motion.div>

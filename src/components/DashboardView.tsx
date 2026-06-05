@@ -516,15 +516,17 @@ export default function DashboardView({
                         />
                       </>
                     )}
-                    {iconImage ? (
-                      <div
-                        aria-hidden="true"
-                        className="relative z-10 h-9 w-9 rounded-full bg-cover bg-center shadow-sm ring-1 ring-white/70"
-                        style={iconImage}
-                      />
-                    ) : (
-                      <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
+                    {iconImage && (
+                      <>
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-cover bg-center"
+                          style={iconImage}
+                        />
+                        <div aria-hidden="true" className="absolute inset-0 bg-black/10" />
+                      </>
                     )}
+                    <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">
