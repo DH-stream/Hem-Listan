@@ -335,22 +335,24 @@ export default function App() {
   const handleToggleTask = async (listId: string, taskId: string) => {
     const task = lists.find(l => l.id === listId)?.tasks.find(t => t.id === taskId);
     if (!task) return;
+    const previousTask = { ...task };
     const newChecked = !task.checked;
     const updated = lists.map(l => l.id !== listId ? l : {
       ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, checked: newChecked } : t)
     });
+    applyAndSync(updated);
 
     if (await canCloudSave("toggle_task")) {
       const updatedInCloud = await updateTask(taskId, { checked: newChecked });
       if (updatedInCloud) {
-        applyAndSync(updated);
+        console.log("cloud_toggle_task_success", { listId, taskId, checked: newChecked });
       } else {
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, tasks: l.tasks.map(t => t.id === taskId ? previousTask : t)
+        }));
         console.error("cloud_toggle_task_error", { listId, taskId, checked: newChecked });
       }
-      return;
     }
-
-    applyAndSync(updated);
   };
 
   const handleAddTask = async (
@@ -366,59 +368,74 @@ export default function App() {
       url, progress
     };
     const updated = lists.map(l => l.id !== listId ? l : { ...l, tasks: [newTask, ...l.tasks] });
+    applyAndSync(updated);
 
     if (await canCloudSave("add_task")) {
       const dbId = await addTask(listId, newTask);
       if (dbId) {
-        setListsAndSync(prev => prev.map(l => {
-          if (l.id !== listId || l.tasks.some(t => t.id === dbId)) return l;
-          return { ...l, tasks: [{ ...newTask, id: dbId }, ...l.tasks] };
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, tasks: l.tasks.map(t => t.id === tempId ? { ...t, id: dbId } : t)
         }));
+        console.log("cloud_add_task_success", { listId, taskId: dbId });
       } else {
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, tasks: l.tasks.filter(t => t.id !== tempId)
+        }));
         console.error("cloud_add_task_error", { listId, taskId: tempId });
       }
-      return;
     }
-
-    applyAndSync(updated);
   };
 
   const handleUpdateTask = async (listId: string, taskId: string, updates: Partial<TaskItem>) => {
+    const task = lists.find(l => l.id === listId)?.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const previousTask = { ...task };
     const updated = lists.map(l => l.id !== listId ? l : {
       ...l, tasks: l.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
     });
+    applyAndSync(updated);
 
     if (await canCloudSave("update_task")) {
       const updatedInCloud = await updateTask(taskId, updates);
       if (updatedInCloud) {
-        applyAndSync(updated);
+        console.log("cloud_update_task_success", { listId, taskId, updates });
       } else {
+        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
+          ...l, tasks: l.tasks.map(t => t.id === taskId ? previousTask : t)
+        }));
         console.error("cloud_update_task_error", { listId, taskId, updates });
       }
-      return;
     }
-
-    applyAndSync(updated);
   };
 
   const handleDeleteTask = async (listId: string, taskId: string) => {
+    const list = lists.find(l => l.id === listId);
+    const task = list?.tasks.find(t => t.id === taskId);
+    if (!list || !task) return;
+    const taskIndex = list.tasks.findIndex(t => t.id === taskId);
+    const previousTask = { ...task };
     const updated = lists.map(l => l.id !== listId ? l : {
       ...l, tasks: l.tasks.filter(t => t.id !== taskId)
     });
+    applyAndSync(updated);
 
     const canSave = await canCloudSave("delete_task");
     if (!canSave) {
       console.log("cloud_delete_task_skipped", { listId, taskId, reason: "no_session" });
-      applyAndSync(updated);
       return;
     }
 
     console.log("cloud_delete_task_start", { listId, taskId });
     const deleted = await deleteTask(taskId);
     if (deleted) {
-      applyAndSync(updated);
       console.log("cloud_delete_task_success", { listId, taskId });
     } else {
+      setListsAndSync(prev => prev.map(l => {
+        if (l.id !== listId || l.tasks.some(t => t.id === taskId)) return l;
+        const tasks = [...l.tasks];
+        tasks.splice(taskIndex, 0, previousTask);
+        return { ...l, tasks };
+      }));
       console.error("cloud_delete_task_error", { listId, taskId });
     }
   };
@@ -517,27 +534,26 @@ export default function App() {
       tasks: [],
       meals: category === "grocery" ? [] : undefined
     };
+    applyAndSync([newList, ...lists]);
+    startTransition(() => setCurrentView("dashboard"));
 
     if (await canCloudSave("create_list")) {
       console.log("cloud_create_list_start", { listId: tempId, name });
       if (!sessionUser) {
+        setListsAndSync(prev => prev.filter(l => l.id !== tempId));
         console.error("cloud_create_list_error", { listId: tempId, name, reason: "missing_session_user" });
         return;
       }
 
       const dbId = await createList(newList, sessionUser.id);
       if (dbId) {
-        applyAndSync([{ ...newList, id: dbId }, ...lists]);
-        startTransition(() => setCurrentView("dashboard"));
+        setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
         console.log("cloud_create_list_success", { listId: dbId, name });
       } else {
+        setListsAndSync(prev => prev.filter(l => l.id !== tempId));
         console.error("cloud_create_list_error", { listId: tempId, name, reason: "createList_returned_null" });
       }
-      return;
     }
-
-    applyAndSync([newList, ...lists]);
-    startTransition(() => setCurrentView("dashboard"));
   };
 
   const handleAddListFromTemplate = async (template: any) => {
@@ -550,34 +566,39 @@ export default function App() {
       category: template.category,
       tasks: template.tasks.map((t: any, idx: number) => ({ ...t, id: `task-${Date.now()}-${idx}` }))
     };
+    applyAndSync([instantiated, ...lists]);
 
     if (await canCloudSave("create_list_from_template")) {
       console.log("cloud_create_list_start", { listId: tempId, name: instantiated.name });
       if (!sessionUser) {
+        setListsAndSync(prev => prev.filter(l => l.id !== tempId));
         console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "missing_session_user" });
         return;
       }
 
       const dbId = await createList(instantiated, sessionUser.id);
       if (dbId) {
-        const confirmedTasks: TaskItem[] = [];
+        setListsAndSync(prev => prev.map(l => l.id === tempId ? { ...l, id: dbId } : l));
+        console.log("cloud_create_list_success", { listId: dbId, name: instantiated.name });
+
         for (const task of instantiated.tasks) {
           const taskDbId = await addTask(dbId, task);
           if (taskDbId) {
-            confirmedTasks.push({ ...task, id: taskDbId });
+            setListsAndSync(prev => prev.map(l => l.id !== dbId ? l : {
+              ...l, tasks: l.tasks.map(t => t.id === task.id ? { ...t, id: taskDbId } : t)
+            }));
           } else {
+            setListsAndSync(prev => prev.map(l => l.id !== dbId ? l : {
+              ...l, tasks: l.tasks.filter(t => t.id !== task.id)
+            }));
             console.error("cloud_add_task_error", { listId: dbId, taskId: task.id });
           }
         }
-        applyAndSync([{ ...instantiated, id: dbId, tasks: confirmedTasks }, ...lists]);
-        console.log("cloud_create_list_success", { listId: dbId, name: instantiated.name });
       } else {
+        setListsAndSync(prev => prev.filter(l => l.id !== tempId));
         console.error("cloud_create_list_error", { listId: tempId, name: instantiated.name, reason: "createList_returned_null" });
       }
-      return;
     }
-
-    applyAndSync([instantiated, ...lists]);
   };
 
   const handleResetLists = () => {
