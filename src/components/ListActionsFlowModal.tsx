@@ -195,6 +195,7 @@ export default function ListActionsFlowModal({
               ) : (
                 <motion.div
                   key="deleteConfirm"
+                  className="select-none"
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}

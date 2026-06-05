@@ -18,7 +18,6 @@ interface SettingsModalProps {
   deletedListsLoading: boolean;
   onLoadDeletedLists: () => Promise<boolean>;
   onRestoreDeletedList: (listId: string) => Promise<boolean>;
-  onResetLists: () => void;
 }
 
 // ── Bildkomprimering ───────────────────────────────────────────────
@@ -225,7 +224,6 @@ export default function SettingsModal({
   deletedListsLoading,
   onLoadDeletedLists,
   onRestoreDeletedList,
-  onResetLists,
 }: SettingsModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(userImage);
@@ -567,25 +565,27 @@ export default function SettingsModal({
           <div className="space-y-2 border-t border-[#EDEADF] pt-2">
             <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Fara &amp; återställning</h3>
 
-            <div className="overflow-hidden rounded-xl border border-[#EDEADF] bg-[#FAF9F5]">
+            <div className="rounded-xl border border-[#EDEADF] bg-[#FAF9F5] p-2 shadow-sm">
               <button
                 type="button"
                 onClick={toggleDeletedLists}
-                className="flex min-h-[54px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-white/70"
+                className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.99]"
                 aria-expanded={deletedListsOpen}
               >
                 <span className="min-w-0">
                   <span className="block text-xs font-bold text-gray-900">Borttagna listor</span>
-                  <span className="mt-0.5 block text-[11px] font-medium text-gray-500">
+                  <span className="mt-0.5 block text-[11px] font-medium text-[#706B5C]">
                     {deletedLists.length > 0
                       ? `${deletedLists.length} ${deletedLists.length === 1 ? "lista" : "listor"} kan återställas i upp till 2 dagar`
                       : "Inga borttagna listor"}
                   </span>
                 </span>
-                <LucideIcon
-                  name="chevron_down"
-                  className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${deletedListsOpen ? "rotate-180" : ""}`}
-                />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FAF9F5] text-gray-400 ring-1 ring-[#EDEADF]">
+                  <LucideIcon
+                    name="chevron_down"
+                    className={`h-4 w-4 transition-transform ${deletedListsOpen ? "rotate-180" : ""}`}
+                  />
+                </span>
               </button>
 
               <AnimatePresence initial={false}>
@@ -595,22 +595,22 @@ export default function SettingsModal({
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-                    className="overflow-hidden border-t border-[#EDEADF] bg-white"
+                    className="overflow-hidden"
                   >
-                    <div className="max-h-52 space-y-1.5 overflow-y-auto p-2" style={{ WebkitOverflowScrolling: "touch" }}>
+                    <div className="mt-2 max-h-52 space-y-1.5 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
                       {deletedListsLoading ? (
-                        <p className="px-2 py-3 text-[11px] font-medium text-gray-400">Hämtar borttagna listor...</p>
+                        <p className="rounded-lg bg-white px-3 py-3 text-[11px] font-medium text-gray-400 shadow-sm">Hämtar borttagna listor...</p>
                       ) : deletedLists.length === 0 ? (
-                        <p className="px-2 py-3 text-[11px] font-medium text-gray-400">Inga borttagna listor</p>
+                        <p className="rounded-lg bg-white px-3 py-3 text-[11px] font-medium text-gray-400 shadow-sm">Inga borttagna listor</p>
                       ) : (
                         deletedLists.map((list) => (
-                          <div key={list.id} className="flex min-h-[48px] items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/80 px-2 py-2">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-gray-600 ring-1 ring-gray-200">
+                          <div key={list.id} className="flex min-h-[48px] items-center gap-2 rounded-lg bg-white px-2.5 py-2 shadow-sm">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#FAF9F5] text-gray-600 ring-1 ring-[#EDEADF]">
                               <LucideIcon name={list.icon || "list"} className="h-3.5 w-3.5" />
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-xs font-bold text-gray-900">{list.name}</span>
-                              <span className="mt-0.5 block truncate text-[10px] font-medium text-gray-500">{formatDeletedListTime(list.deletedAt)}</span>
+                              <span className="mt-0.5 block truncate text-[10px] font-medium text-[#706B5C]">{formatDeletedListTime(list.deletedAt)}</span>
                             </span>
                             <button
                               type="button"
@@ -628,20 +628,6 @@ export default function SettingsModal({
                 )}
               </AnimatePresence>
             </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("Är du säker på att du vill återställa alla listor?")) {
-                  onResetLists();
-                  onClose();
-                }
-              }}
-              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-xs font-bold text-white transition-transform hover:bg-red-600 active:scale-[0.97]"
-            >
-              <LucideIcon name="archive" className="h-4 w-4" />
-              <span>Återställ standardlistor</span>
-            </button>
           </div>
         </div>
 

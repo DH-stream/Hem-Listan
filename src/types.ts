@@ -35,10 +35,13 @@ export interface List {
   category: "renovation" | "grocery" | "general";
   tasks: TaskItem[];
   meals?: MealSlot[]; // for grocery/schema lists
+  deletedAt?: string;
+  deleted_at?: string;
 }
 
 export interface DeletedList extends List {
   deletedAt: string;
+  restoreSource?: "local" | "cloud";
 }
 
 export interface Stats {

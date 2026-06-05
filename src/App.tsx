@@ -29,6 +29,24 @@ import {
 } from "./lib/supabase";
 
 // ── localStorage helpers ─────────────────────────────────────────────
+const getListDeletedAt = (list: List): string | undefined => list.deletedAt ?? list.deleted_at;
+
+const isWithinDeletedListRestoreWindow = (deletedAt?: string): deletedAt is string => {
+  if (!deletedAt) return false;
+
+  const deletedTime = new Date(deletedAt).getTime();
+  if (Number.isNaN(deletedTime)) return false;
+
+  return deletedTime >= Date.now() - 2 * 24 * 60 * 60 * 1000;
+};
+
+const stripDeletedFields = (list: List): List => {
+  const { deletedAt, deleted_at, ...activeList } = list;
+  void deletedAt;
+  void deleted_at;
+  return activeList;
+};
+
 const loadLocalLists = (): List[] => {
   try {
     const saved = localStorage.getItem("hem-listan-lists");
@@ -37,12 +55,46 @@ const loadLocalLists = (): List[] => {
   return [];
 };
 
+const loadLocalActiveLists = (): List[] =>
+  loadLocalLists()
+    .filter(list => !getListDeletedAt(list))
+    .map(stripDeletedFields);
+
+const loadLocalDeletedLists = (): DeletedList[] =>
+  loadLocalLists()
+    .map(list => ({ list, deletedAt: getListDeletedAt(list) }))
+    .filter((entry): entry is { list: List; deletedAt: string } => isWithinDeletedListRestoreWindow(entry.deletedAt))
+    .map(({ list, deletedAt }) => ({
+      ...list,
+      deletedAt,
+      tasks: list.tasks ?? [],
+      meals: list.meals,
+      restoreSource: "local" as const,
+    }))
+    .sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+
 const saveLocalLists = (lists: List[]) => {
   try {
     localStorage.setItem("hem-listan-lists", JSON.stringify(lists));
   } catch (e) {
     console.warn("localStorage write error:", e);
   }
+};
+
+const saveLocalActiveLists = (activeLists: List[]) => {
+  const deletedLists = loadLocalLists().filter(list => getListDeletedAt(list));
+  saveLocalLists([
+    ...activeLists.map(stripDeletedFields),
+    ...deletedLists,
+  ]);
+};
+
+const saveLocalDeletedList = (list: List, deletedAt: string) => {
+  const storedLists = loadLocalLists().filter(storedList => storedList.id !== list.id);
+  saveLocalLists([
+    ...storedLists,
+    { ...list, deletedAt },
+  ]);
 };
 
 const migrationKeyForUser = (userId: string) => `hem-listan-supabase-migrated-${userId}`;
@@ -78,7 +130,7 @@ const listFingerprint = (list: List) => JSON.stringify({
 });
 
 export default function App() {
-  const [lists, setLists] = useState<List[]>(loadLocalLists);
+  const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
@@ -162,7 +214,7 @@ export default function App() {
         setIsLoggedIn(false);
         setSessionUser(null);
         unsubscribeRealtime();
-        setLists(loadLocalLists());
+        setLists(loadLocalActiveLists());
       }
     });
 
@@ -177,7 +229,7 @@ export default function App() {
     if (!fetched) return false;
 
     setLists(fetched);
-    saveLocalLists(fetched);
+    saveLocalActiveLists(fetched);
     return true;
   };
 
@@ -185,10 +237,23 @@ export default function App() {
   const loadDeletedLists = async () => {
     setDeletedListsLoading(true);
     try {
-      const fetched = await fetchDeletedLists();
-      if (!fetched) return false;
+      const localDeletedLists = loadLocalDeletedLists();
+      let cloudDeletedLists: DeletedList[] = [];
+      const authSnapshot = getSupabaseAuthSnapshot();
+      const hasCloudSession = isLoggedIn || Boolean(sessionUser) || Boolean(authSnapshot.accessToken);
 
-      setDeletedLists(fetched);
+      if (hasCloudSession) {
+        const fetched = await fetchDeletedLists();
+        if (fetched) cloudDeletedLists = fetched;
+      }
+
+      const localDeletedIds = new Set(localDeletedLists.map(list => list.id));
+      const mergedDeletedLists = [
+        ...localDeletedLists,
+        ...cloudDeletedLists.filter(list => !localDeletedIds.has(list.id)),
+      ].sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+
+      setDeletedLists(mergedDeletedLists);
       return true;
     } finally {
       setDeletedListsLoading(false);
@@ -268,7 +333,7 @@ export default function App() {
     }
 
     const runMigration = async () => {
-      const localLists = loadLocalLists();
+      const localLists = loadLocalActiveLists();
       const hasCustomLists = localLists.length > 0 && JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
       const migrationKey = migrationKeyForUser(userId);
       if (localStorage.getItem(migrationKey) === "true") return;
@@ -327,13 +392,13 @@ export default function App() {
   const applyAndSync = (updatedLists: List[]) => {
     setLists(updatedLists);
     setPulseCount(p => p + 1);
-    saveLocalLists(updatedLists);
+    saveLocalActiveLists(updatedLists);
   };
 
   const setListsAndSync = (updater: (currentLists: List[]) => List[]) => {
     setLists(prev => {
       const updated = updater(prev);
-      saveLocalLists(updated);
+      saveLocalActiveLists(updated);
       return updated;
     });
   };
@@ -718,14 +783,15 @@ export default function App() {
 
     if (!isUuid(listId)) {
       clearPendingTasksForTempList(listId);
+      saveLocalDeletedList(list, new Date().toISOString());
       console.log("cloud_soft_delete_list_skipped", { listId, reason: "local_only_list" });
       return;
     }
 
     const canSave = await canCloudSave("soft_delete_list");
     if (!canSave) {
-      restoreListLocally();
-      console.error("cloud_soft_delete_list_error", { listId, reason: "cloud_save_unavailable" });
+      saveLocalDeletedList(list, new Date().toISOString());
+      console.log("cloud_soft_delete_list_skipped", { listId, reason: "local_only_no_session" });
       return;
     }
 
@@ -746,6 +812,21 @@ export default function App() {
 
 
   const handleRestoreDeletedList = async (listId: string) => {
+    const localStoredList = loadLocalLists().find(list => list.id === listId && getListDeletedAt(list));
+
+    if (localStoredList) {
+      const restoredList = stripDeletedFields(localStoredList);
+      const storedLists = loadLocalLists().map(list => list.id === listId ? restoredList : list);
+      saveLocalLists(storedLists);
+      setLists(prev => {
+        const activeWithoutRestored = prev.filter(list => list.id !== listId);
+        return [restoredList, ...activeWithoutRestored];
+      });
+      setDeletedLists(prev => prev.filter(list => list.id !== listId));
+      console.log("cloud_restore_list_success", { listId, source: "local" });
+      return true;
+    }
+
     const canSave = await canCloudSave("restore_list");
     if (!canSave) {
       console.error("cloud_restore_list_error", { listId, reason: "cloud_save_unavailable" });
@@ -907,7 +988,6 @@ export default function App() {
             deletedListsLoading={deletedListsLoading}
             onLoadDeletedLists={loadDeletedLists}
             onRestoreDeletedList={handleRestoreDeletedList}
-            onResetLists={handleResetLists}
           />
         )}
       </AnimatePresence>

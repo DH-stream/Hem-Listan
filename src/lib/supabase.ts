@@ -231,6 +231,7 @@ export const fetchDeletedLists = async (): Promise<DeletedList[] | null> => {
     tasks: [],
     meals: l.category === 'grocery' ? [] : undefined,
     deletedAt: l.deleted_at,
+    restoreSource: "cloud" as const,
   }));
 };
 
