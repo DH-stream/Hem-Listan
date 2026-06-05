@@ -49,3 +49,21 @@ export interface Stats {
   itemsLeftCount: number;
   completedCount: number;
 }
+
+
+export interface PublicListShare {
+  title: string;
+  icon?: string;
+  themeColor?: string;
+  category?: List["category"];
+  snapshot: {
+    name?: string;
+    title?: string;
+    icon?: string;
+    themeColor?: string;
+    category?: List["category"];
+    tasks?: TaskItem[];
+    meals?: MealSlot[];
+  };
+  createdAt: string;
+}

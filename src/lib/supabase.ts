@@ -1,5 +1,5 @@
 import { createClient, Session, SupabaseClient } from "@supabase/supabase-js";
-import { DeletedList, List, TaskItem, MealSlot } from "../types";
+import { DeletedList, List, PublicListShare, TaskItem, MealSlot } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -136,6 +136,311 @@ export const getLocalCredentials = () => ({
   url: localStorage.getItem("hem_listan_supabase_url") || "",
   anonKey: localStorage.getItem("hem_listan_supabase_anon_key") || ""
 });
+
+
+
+type CreateListShareRpcPayload = {
+  p_source_list_id: string;
+  p_title: string;
+  p_icon: string | null;
+  p_theme_color: string | null;
+  p_category: string | null;
+  p_snapshot: {
+    name: string;
+    title: string;
+    icon: string;
+    themeColor: string;
+    category: List["category"];
+    tasks: Array<Pick<TaskItem, "text" | "checked" | "notes" | "type" | "url" | "progress">>;
+    meals?: Array<Pick<MealSlot, "day" | "type" | "name">>;
+  };
+};
+
+type PublicListShareRpcRow = {
+  title: string;
+  icon: string | null;
+  theme_color: string | null;
+  category: string | null;
+  snapshot: PublicListShare["snapshot"];
+  created_at: string;
+};
+
+const parseJsonResponse = async (response: Response): Promise<unknown> => {
+  const responseText = await response.text();
+  if (!responseText) return null;
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return responseText;
+  }
+};
+
+const isUuidValue = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+export const createListShare = async (list: List): Promise<string | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_create_list_share`;
+  const timeoutMs = 10000;
+  const startedAt = Date.now();
+  const authSnapshot = getSupabaseAuthSnapshot();
+  const accessToken = authSnapshot.accessToken;
+  const authDiagnostics = {
+    hasAccessToken: Boolean(accessToken),
+    userId: authSnapshot.userId,
+  };
+
+  console.log("create_list_share_start", {
+    listId: list.id,
+    name: list.name,
+    taskCount: list.tasks.length,
+    mealCount: list.meals?.length ?? 0,
+    ...authDiagnostics,
+  });
+
+  const rpcPayload: CreateListShareRpcPayload = {
+    p_source_list_id: list.id,
+    p_title: list.name,
+    p_icon: list.icon || null,
+    p_theme_color: list.themeColor || null,
+    p_category: list.category || null,
+    p_snapshot: {
+      name: list.name,
+      title: list.name,
+      icon: list.icon || 'list',
+      themeColor: list.themeColor || '#1a5319',
+      category: list.category || 'general',
+      tasks: list.tasks.map(task => ({
+        text: task.text,
+        checked: task.checked ?? false,
+        notes: task.notes || undefined,
+        type: task.type || 'task',
+        url: task.url || undefined,
+        progress: task.progress ?? undefined,
+      })),
+      ...(list.category === 'grocery' && {
+        meals: (list.meals ?? []).map(meal => ({
+          day: meal.day,
+          type: meal.type,
+          name: meal.name,
+        })),
+      }),
+    },
+  };
+
+  console.log("create_list_share_rpc_payload", {
+    rpcPayload: {
+      p_source_list_id: rpcPayload.p_source_list_id,
+      p_title: rpcPayload.p_title,
+      p_icon: rpcPayload.p_icon,
+      p_theme_color: rpcPayload.p_theme_color,
+      p_category: rpcPayload.p_category,
+      taskCount: rpcPayload.p_snapshot.tasks.length,
+      mealCount: rpcPayload.p_snapshot.meals?.length ?? 0,
+    },
+  });
+
+  if (!url || !anonKey) {
+    console.error("create_list_share_rpc_error", {
+      error: "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      ...authDiagnostics,
+    });
+    return null;
+  }
+
+  if (!isUuidValue(list.id)) {
+    console.error("create_list_share_rpc_error", {
+      error: "source_list_id_must_be_uuid",
+      listId: list.id,
+      ...authDiagnostics,
+    });
+    return null;
+  }
+
+  console.log("create_list_share_rpc_start", { endpoint, timeoutMs, listId: list.id });
+
+  try {
+    if (!accessToken) {
+      console.error("create_list_share_rpc_error", {
+        error: "missing_auth_snapshot_access_token",
+        ...authDiagnostics,
+      });
+      return null;
+    }
+
+    console.log("create_list_share_rpc_auth_snapshot_found", authDiagnostics);
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("create_list_share_rpc_error", {
+        error: "timeout",
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(rpcPayload),
+        signal: controller.signal,
+      });
+      const responseBody = await parseJsonResponse(response);
+
+      console.log("create_list_share_rpc_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+      });
+
+      if (!response.ok) {
+        console.error("create_list_share_rpc_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+        });
+        return null;
+      }
+
+      const token = typeof responseBody === 'string' ? responseBody : null;
+      if (!token) {
+        console.error("create_list_share_rpc_error", {
+          error: "unexpected_response_body",
+          body: responseBody,
+        });
+        return null;
+      }
+
+      console.log("create_list_share_rpc_success", { token, elapsedMs: Date.now() - startedAt });
+      return token;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("create_list_share_rpc_exception", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+    });
+    return null;
+  }
+};
+
+export const fetchPublicListShare = async (token: string): Promise<PublicListShare | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const endpoint = `${url.replace(/\/$/, '')}/rest/v1/rpc/hl_get_public_list_share`;
+  const timeoutMs = 10000;
+  const startedAt = Date.now();
+
+  console.log("fetch_public_list_share_start", {
+    tokenPresent: Boolean(token),
+    hasUrl: Boolean(url),
+    hasAnonKey: Boolean(anonKey),
+  });
+
+  if (!url || !anonKey || !token) {
+    console.error("fetch_public_list_share_error", {
+      error: !token ? "missing_share_token" : "missing_supabase_config",
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      tokenPresent: Boolean(token),
+    });
+    return null;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      console.error("fetch_public_list_share_error", {
+        error: "timeout",
+        timeoutMs,
+        elapsedMs: Date.now() - startedAt,
+        endpoint,
+      });
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: anonKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ p_share_token: token }),
+        signal: controller.signal,
+      });
+      const responseBody = await parseJsonResponse(response);
+
+      console.log("fetch_public_list_share_response", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Date.now() - startedAt,
+        body: responseBody,
+      });
+
+      if (!response.ok) {
+        console.error("fetch_public_list_share_error", {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          body: responseBody,
+        });
+        return null;
+      }
+
+      if (!Array.isArray(responseBody) || responseBody.length === 0) {
+        console.error("fetch_public_list_share_error", {
+          error: "share_not_found",
+          body: responseBody,
+        });
+        return null;
+      }
+
+      const row = responseBody[0] as PublicListShareRpcRow;
+      const publicShare: PublicListShare = {
+        title: row.title,
+        icon: row.icon || undefined,
+        themeColor: row.theme_color || undefined,
+        category: row.category as List["category"] | undefined,
+        snapshot: row.snapshot ?? {},
+        createdAt: row.created_at,
+      };
+
+      console.log("fetch_public_list_share_success", {
+        title: publicShare.title,
+        taskCount: publicShare.snapshot.tasks?.length ?? 0,
+        mealCount: publicShare.snapshot.meals?.length ?? 0,
+        elapsedMs: Date.now() - startedAt,
+      });
+
+      return publicShare;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    console.error("fetch_public_list_share_error", {
+      error,
+      elapsedMs: Date.now() - startedAt,
+      endpoint,
+    });
+    return null;
+  }
+};
 
 // ── Databasoperationer ───────────────────────────────────────────────
 
