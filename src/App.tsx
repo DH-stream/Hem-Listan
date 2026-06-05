@@ -50,6 +50,16 @@ const stripDeletedFields = (list: List): List => {
   return activeList;
 };
 
+const deletedListToActiveList = (deletedList: DeletedList): List => ({
+  id: deletedList.id,
+  name: deletedList.name,
+  icon: deletedList.icon,
+  themeColor: deletedList.themeColor,
+  category: deletedList.category,
+  tasks: deletedList.tasks ?? [],
+  meals: deletedList.meals,
+});
+
 const loadLocalLists = (): List[] => {
   try {
     const saved = localStorage.getItem("hem-listan-lists");
@@ -905,18 +915,33 @@ export default function App() {
       return false;
     }
 
+    const restoredDeletedList = deletedLists.find(list => list.id === listId);
     const restored = await restoreList(listId);
     if (!restored) {
       console.error("cloud_restore_list_error", { listId });
       return false;
     }
 
+    if (restoredDeletedList) {
+      const activeList = deletedListToActiveList(restoredDeletedList);
+      setListsAndSync(prev => [
+        activeList,
+        ...prev.filter(list => list.id !== listId),
+      ]);
+    }
+
     setDeletedLists(prev => prev.filter(list => list.id !== listId));
     console.log("cloud_restore_list_success", { listId });
 
-    void loadFromSupabase().catch(error => {
-      console.error("cloud_restore_list_refresh_error", { listId, error });
-    });
+    void loadFromSupabase()
+      .then(refreshed => {
+        if (!refreshed) {
+          console.error("cloud_restore_list_refresh_error", { listId });
+        }
+      })
+      .catch(error => {
+        console.error("cloud_restore_list_refresh_error", { listId, error });
+      });
 
     return true;
   };
