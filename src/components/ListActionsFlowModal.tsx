@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import LucideIcon from "./LucideIcon";
+import {
+  LIST_BANNER_OPTIONS,
+  LIST_ICON_OPTIONS,
+  ListVisuals,
+} from "../lib/listVisuals";
 
 type ListActionsFlowModalProps = {
   isOpen: boolean;
@@ -8,6 +13,9 @@ type ListActionsFlowModalProps = {
   onClose: () => void;
   onSendCopy: () => Promise<string | null>;
   onShareList: () => void;
+  selectedVisuals: ListVisuals;
+  fallbackIcon?: string;
+  onUpdateVisuals: (visuals: ListVisuals) => void;
   onConfirmDelete: () => void;
 };
 
@@ -27,6 +35,13 @@ const actions = [
     destructive: false,
   },
   {
+    key: "customizeVisuals",
+    title: "Anpassa utseende",
+    subtitle: "Välj ikon och lokal kortbakgrund.",
+    icon: "sparkles",
+    destructive: false,
+  },
+  {
     key: "deleteList",
     title: "Ta bort lista",
     subtitle: "Flytta till Borttagna listor i 2 dagar.",
@@ -40,7 +55,7 @@ const backdropTransition = { duration: 0.16, ease: easing } as const;
 const cardTransition = { duration: 0.16, ease: easing } as const;
 const contentTransition = { duration: 0.14, ease: easing } as const;
 
-type FlowMode = "actions" | "deleteConfirm" | "shareLink";
+type FlowMode = "actions" | "deleteConfirm" | "shareLink" | "visualPicker";
 type ShareStatus = "idle" | "loading" | "success" | "error";
 
 export default function ListActionsFlowModal({
@@ -49,6 +64,9 @@ export default function ListActionsFlowModal({
   onClose,
   onSendCopy,
   onShareList,
+  selectedVisuals,
+  fallbackIcon,
+  onUpdateVisuals,
   onConfirmDelete,
 }: ListActionsFlowModalProps) {
   const [mode, setMode] = useState<FlowMode>("actions");
@@ -98,12 +116,26 @@ export default function ListActionsFlowModal({
       return;
     }
 
+    if (key === "customizeVisuals") {
+      setMode("visualPicker");
+      return;
+    }
+
     setMode("deleteConfirm");
   };
 
   const handleConfirmDelete = () => {
     onConfirmDelete();
     handleClose();
+  };
+
+
+  const updateIcon = (icon?: string) => {
+    onUpdateVisuals({ ...selectedVisuals, icon });
+  };
+
+  const updateBanner = (banner?: string) => {
+    onUpdateVisuals({ ...selectedVisuals, banner });
   };
 
   const handleCopyLink = async () => {
@@ -321,6 +353,125 @@ export default function ListActionsFlowModal({
                         Kopiera länk
                       </button>
                     )}
+                  </div>
+                </motion.div>
+              ) : mode === "visualPicker" ? (
+                <motion.div
+                  key="visualPicker"
+                  className="select-none"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={contentTransition}
+                >
+                  <div className="mb-5 flex items-start gap-3 pr-8">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-green-50 text-green-700 ring-1 ring-green-100">
+                      <LucideIcon name="sparkles" className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 pt-0.5">
+                      <h2
+                        id="list-actions-flow-title"
+                        className="text-lg font-bold leading-tight text-gray-900"
+                      >
+                        Anpassa utseende
+                      </h2>
+                      {listName && (
+                        <p className="mt-1 truncate text-xs font-bold text-gray-500">
+                          {listName}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div id="list-actions-flow-description" className="space-y-5">
+                    <div>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Ikon
+                      </p>
+                      <div className="grid grid-cols-4 gap-2">
+                        {LIST_ICON_OPTIONS.map((option) => {
+                          const isSelected =
+                            (selectedVisuals.icon || fallbackIcon) === option.key;
+
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => updateIcon(option.key)}
+                              className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-bold transition-[background-color,border-color,transform] active:scale-[0.97] ${
+                                isSelected
+                                  ? "border-primary bg-green-50 text-primary"
+                                  : "border-gray-100 bg-gray-50/80 text-gray-600 hover:bg-white"
+                              }`}
+                              aria-pressed={isSelected}
+                            >
+                              <LucideIcon name={option.key} className="h-4 w-4" />
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Banner
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateBanner(undefined)}
+                          className={`min-h-[54px] rounded-xl border px-3 text-left text-xs font-bold transition-[background-color,border-color,transform] active:scale-[0.97] ${
+                            !selectedVisuals.banner
+                              ? "border-primary bg-green-50 text-primary"
+                              : "border-gray-100 bg-gray-50/80 text-gray-600 hover:bg-white"
+                          }`}
+                          aria-pressed={!selectedVisuals.banner}
+                        >
+                          Ingen banner
+                        </button>
+                        {LIST_BANNER_OPTIONS.map((option) => {
+                          const isSelected = selectedVisuals.banner === option.key;
+
+                          return (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={() => updateBanner(option.key)}
+                              className={`relative min-h-[54px] overflow-hidden rounded-xl border px-3 text-left text-xs font-bold transition-[background-color,border-color,transform] active:scale-[0.97] ${
+                                isSelected
+                                  ? "border-primary text-primary"
+                                  : "border-gray-100 text-gray-700 hover:border-gray-200"
+                              }`}
+                              aria-pressed={isSelected}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`absolute inset-0 opacity-70 ${option.className}`}
+                              />
+                              <span className="relative z-10">{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setMode("actions")}
+                      className="min-h-[44px] rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 shadow-sm transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97] sm:min-w-28"
+                    >
+                      Tillbaka
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="min-h-[44px] rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-[background-color,transform] hover:bg-secondary active:scale-[0.97] sm:min-w-28"
+                    >
+                      Klar
+                    </button>
                   </div>
                 </motion.div>
               ) : (

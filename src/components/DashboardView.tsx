@@ -5,6 +5,12 @@ import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListShare } from "../lib/supabase";
+import {
+  getBannerOption,
+  readListVisualsMap,
+  writeListVisuals,
+  ListVisuals,
+} from "../lib/listVisuals";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -43,6 +49,7 @@ export default function DashboardView({
     null,
   );
   const [pressingListId, setPressingListId] = useState<string | null>(null);
+  const [listVisuals, setListVisuals] = useState(() => readListVisualsMap());
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
   const pressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -148,6 +155,12 @@ export default function DashboardView({
       onDeleteList(pendingActionsList.id);
       setPendingActionsList(null);
     }
+  };
+
+  const handleUpdateListVisuals = (visuals: ListVisuals) => {
+    if (!pendingActionsList) return;
+
+    setListVisuals(writeListVisuals(pendingActionsList.id, visuals));
   };
 
   const getTodayDateString = () => {
@@ -348,6 +361,9 @@ export default function DashboardView({
               totalTasks > 0
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
+            const visuals = listVisuals[list.id] || {};
+            const displayIcon = visuals.icon || list.icon;
+            const bannerOption = getBannerOption(visuals.banner);
 
             return (
               <motion.div
@@ -365,18 +381,24 @@ export default function DashboardView({
                     : { scale: 1, y: 0 }
                 }
                 transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-                className={`bg-surface-container-lowest p-4 rounded-xl border bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-colors duration-300 active:scale-[0.99] ${
+                className={`relative overflow-hidden bg-surface-container-lowest p-4 rounded-xl border bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-colors duration-300 active:scale-[0.99] ${
                   pressingListId === list.id
                     ? "border-primary-fixed shadow-[0px_10px_34px_rgba(0,59,5,0.10)]"
                     : "border-surface-container/40"
                 }`}
                 layoutId={`list-card-${list.id}`}
               >
-                <div className="flex items-center gap-4 flex-1">
+                {bannerOption && (
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(list.icon)}`}
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-0 z-0 opacity-45 ${bannerOption.className}`}
+                  />
+                )}
+                <div className="relative z-10 flex items-center gap-4 flex-1">
+                  <div
+                    className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(displayIcon)}`}
                   >
-                    <LucideIcon name={list.icon} className="w-6 h-6" />
+                    <LucideIcon name={displayIcon} className="w-6 h-6" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">
@@ -405,7 +427,7 @@ export default function DashboardView({
                 </div>
                 <LucideIcon
                   name="chevron-right"
-                  className="w-5 h-5 text-outline opacity-40 ml-2 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
+                  className="relative z-10 w-5 h-5 text-outline opacity-40 ml-2 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
                 />
               </motion.div>
             );
@@ -433,6 +455,11 @@ export default function DashboardView({
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
+        selectedVisuals={
+          pendingActionsList ? listVisuals[pendingActionsList.id] || {} : {}
+        }
+        fallbackIcon={pendingActionsList?.icon}
+        onUpdateVisuals={handleUpdateListVisuals}
         onConfirmDelete={handleConfirmDeleteList}
       />
 
