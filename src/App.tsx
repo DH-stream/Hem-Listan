@@ -670,10 +670,25 @@ export default function App() {
     const list = lists[listIndex];
     if (!list) return;
 
+    const wasSelected = selectedListId === listId;
+    const restoreList = () => {
+      setListsAndSync(prev => {
+        if (prev.some(l => l.id === listId)) return prev;
+        const restored = [...prev];
+        restored.splice(Math.min(listIndex, restored.length), 0, list);
+        return restored;
+      });
+
+      if (wasSelected) {
+        setSelectedListId(listId);
+        startTransition(() => setCurrentView("detail"));
+      }
+    };
+
     const updated = lists.filter(l => l.id !== listId);
     applyAndSync(updated);
 
-    if (selectedListId === listId) {
+    if (wasSelected) {
       setSelectedListId(null);
       startTransition(() => setCurrentView("dashboard"));
     }
@@ -686,7 +701,8 @@ export default function App() {
 
     const canSave = await canCloudSave("soft_delete_list");
     if (!canSave) {
-      console.log("cloud_soft_delete_list_skipped", { listId, reason: "no_session" });
+      restoreList();
+      console.error("cloud_soft_delete_list_error", { listId, reason: "cloud_save_unavailable" });
       return;
     }
 
@@ -696,12 +712,7 @@ export default function App() {
       return;
     }
 
-    setListsAndSync(prev => {
-      if (prev.some(l => l.id === listId)) return prev;
-      const restored = [...prev];
-      restored.splice(Math.min(listIndex, restored.length), 0, list);
-      return restored;
-    });
+    restoreList();
     console.error("cloud_soft_delete_list_error", { listId });
   };
 
