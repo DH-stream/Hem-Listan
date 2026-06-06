@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import LucideIcon from "./LucideIcon";
 
+const MAX_LIST_NAME_LENGTH = 80;
+
 type ListNameEditorProps = {
   name: string;
   canRename: boolean;
@@ -40,6 +42,11 @@ export default function ListNameEditor({
 
     if (!trimmedName) {
       setError("Listnamnet får inte vara tomt.");
+      return;
+    }
+
+    if (trimmedName.length > MAX_LIST_NAME_LENGTH) {
+      setError(`Listnamnet får vara max ${MAX_LIST_NAME_LENGTH} tecken.`);
       return;
     }
 
@@ -90,6 +97,7 @@ export default function ListNameEditor({
         <input
           ref={inputRef}
           value={draftName}
+          maxLength={MAX_LIST_NAME_LENGTH}
           onChange={(event) => {
             setDraftName(event.target.value);
             if (error) setError(null);
@@ -104,7 +112,7 @@ export default function ListNameEditor({
         />
         <button
           type="submit"
-          disabled={isSaving || !draftName.trim()}
+          disabled={isSaving || !draftName.trim() || draftName.trim().length > MAX_LIST_NAME_LENGTH}
           className="shrink-0 rounded-full bg-primary p-1.5 text-white transition-transform duration-150 active:scale-95 disabled:opacity-40"
           title="Spara namn"
           aria-label="Spara namn"
