@@ -1,13 +1,15 @@
 import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { List, TaskItem, MealSlot, MealType } from "../types";
+import { List, ListMember, TaskItem, MealSlot, MealType } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListIndicator from "./SharedListIndicator";
+import ListMembers from "./ListMembers";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 
 interface ListDetailGroceryProps {
   list: List;
+  members: ListMember[] | null;
   onBack: () => void;
   onToggleTask: (listId: string, taskId: string) => void;
   onAddTask: (listId: string, text: string, categoryName?: string) => void;
@@ -34,6 +36,7 @@ interface ListDetailGroceryProps {
 
 export default function ListDetailGrocery({
   list,
+  members,
   onBack,
   onToggleTask,
   onAddTask,
@@ -294,6 +297,7 @@ export default function ListDetailGrocery({
             </h1>
             <SharedListIndicator membershipRole={list.membershipRole} />
           </div>
+          <ListMembers members={members} className="mt-1.5" />
           {/* Dot Pagination indicators */}
           <div className="flex gap-1.5 mt-1.5">
             <span

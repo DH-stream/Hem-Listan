@@ -40,6 +40,14 @@ export interface List {
   membershipRole?: "owner" | "member";
 }
 
+export interface ListMember {
+  userId: string;
+  role: "owner" | "member";
+  displayName: string | null;
+  avatarUrl: string | null;
+  avatarPath: string | null;
+}
+
 export interface DeletedList extends List {
   deletedAt: string;
   restoreSource?: "local" | "cloud";

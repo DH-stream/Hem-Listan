@@ -1,5 +1,5 @@
 import { createClient, Session, SupabaseClient, User } from "@supabase/supabase-js";
-import { DeletedList, List, PublicListShare, TaskItem, MealSlot, UserProfile } from "../types";
+import { DeletedList, List, ListMember, PublicListShare, TaskItem, MealSlot, UserProfile } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -919,6 +919,53 @@ export const acceptListInvite = async (token: string): Promise<string | null> =>
 };
 
 // ── Databasoperationer ───────────────────────────────────────────────
+
+type ListMemberRow = {
+  user_id: string;
+  role: "owner" | "member";
+  display_name: string | null;
+  avatar_url: string | null;
+  avatar_path: string | null;
+};
+
+// Hämta medlemmar först när en listdetalj öppnas.
+// Raw REST + auth snapshot avoids SDK requests that can remain pending in Safari.
+export const fetchListMembers = async (listId: string): Promise<ListMember[] | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const { accessToken } = getSupabaseAuthSnapshot();
+  if (!url || !anonKey || !accessToken) return null;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/hl_get_list_members`, {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_list_id: listId }),
+      signal: controller.signal,
+    });
+    const body = await parseJsonResponse(response);
+    if (!response.ok || !Array.isArray(body)) return null;
+
+    return (body as ListMemberRow[]).map((row) => ({
+      userId: row.user_id,
+      role: row.role,
+      displayName: row.display_name?.trim() || null,
+      avatarUrl: row.avatar_url,
+      avatarPath: row.avatar_path,
+    }));
+  } catch (error) {
+    console.error("fetch_list_members_rest_error", { listId, error });
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
 
 // Hämta alla listor för inloggad användare (egna + delade).
 // Raw REST + auth snapshot avoids SDK requests that can remain pending in Safari.
