@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { DeletedList, List, Stats, MealType, TaskItem } from "./types";
+import { DeletedList, List, Stats, MealType, TaskItem, UserProfile } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -11,6 +11,7 @@ import DebugPanel from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
+import { readCachedUserProfile, writeCachedUserProfile } from "./lib/profile";
 import {
   getSupabaseClient,
   isSupabaseConfigured,
@@ -27,6 +28,11 @@ import {
   restoreList,
   upsertMeal,
   deleteMeal,
+  getInitialProfileDisplayName,
+  loadOrCreateUserProfile,
+  removeUserAvatar,
+  updateUserProfile,
+  uploadUserAvatar,
 } from "./lib/supabase";
 
 const isUuid = (value: string) =>
@@ -161,6 +167,7 @@ function MainApp() {
   const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -189,6 +196,31 @@ function MainApp() {
     const handleAuthenticatedSession = async (user: User) => {
       setIsLoggedIn(true);
       setSessionUser(user);
+      setUserProfile(null);
+      setUserName(getInitialProfileDisplayName(user));
+      setUserImage("");
+
+      const cachedProfile = readCachedUserProfile(user.id);
+      if (cachedProfile) {
+        setUserProfile(cachedProfile);
+        setUserName(cachedProfile.displayName);
+        setUserImage(cachedProfile.avatarUrl ?? "");
+      }
+
+      void loadOrCreateUserProfile(user)
+        .then((profile) => {
+          if (!profile) return;
+          writeCachedUserProfile(profile);
+          if (getSupabaseAuthSnapshot().userId !== user.id) return;
+
+          setUserProfile(profile);
+          setUserName(profile.displayName);
+          setUserImage(profile.avatarUrl ?? "");
+        })
+        .catch((error) => {
+          console.warn("profile_background_load_error", error);
+        });
+
       await migrateLocalToSupabaseIfNeeded(user.id);
       await loadFromSupabase();
       subscribeRealtime();
@@ -221,6 +253,7 @@ function MainApp() {
       console.log("auth_init_no_session", { userId: user?.id });
       setIsLoggedIn(false);
       setSessionUser(null);
+      setUserProfile(null);
     };
 
     initAuth();
@@ -241,6 +274,9 @@ function MainApp() {
         console.log("auth_state_signed_out");
         setIsLoggedIn(false);
         setSessionUser(null);
+        setUserProfile(null);
+        setUserName(localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan");
+        setUserImage(localStorage.getItem("user_profile_image") ?? "");
         unsubscribeRealtime();
         setLists(loadLocalActiveLists());
       }
@@ -443,15 +479,41 @@ function MainApp() {
   };
 
   // ── Handlers ─────────────────────────────────────────────────────
-  const handleUpdateUserName = (name: string) => {
+  const handleUpdateUserName = async (name: string): Promise<boolean> => {
+    const activeUserId = sessionUser?.id ?? getSupabaseAuthSnapshot().userId;
+    if (activeUserId) {
+      const profile = await updateUserProfile(activeUserId, { displayName: name });
+      if (!profile) return false;
+
+      setUserProfile(profile);
+      setUserName(profile.displayName);
+      writeCachedUserProfile(profile);
+      return true;
+    }
+
     setUserName(name);
     localStorage.setItem("hem-listan-user-name", name);
+    return true;
   };
 
-  const handleUpdateUserImage = (base64: string) => {
+  const handleUpdateUserImage = async (base64: string): Promise<boolean> => {
+    const activeUserId = sessionUser?.id ?? getSupabaseAuthSnapshot().userId;
+    if (activeUserId) {
+      const profile = base64
+        ? await uploadUserAvatar(activeUserId, base64, userProfile?.avatarPath)
+        : await removeUserAvatar(activeUserId, userProfile?.avatarPath);
+      if (!profile) return false;
+
+      setUserProfile(profile);
+      setUserImage(profile.avatarUrl ?? "");
+      writeCachedUserProfile(profile);
+      return true;
+    }
+
     setUserImage(base64);
     if (base64) localStorage.setItem("user_profile_image", base64);
     else localStorage.removeItem("user_profile_image");
+    return true;
   };
 
   const handleToggleTask = async (listId: string, taskId: string) => {
@@ -1085,6 +1147,7 @@ function MainApp() {
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
                   userImage={userImage}
+                  userName={userName}
                 />
               )}
             </motion.div>

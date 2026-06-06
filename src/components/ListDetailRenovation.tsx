@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, TaskItem } from "../types";
 import LucideIcon from "./LucideIcon";
+import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
 
 interface ListDetailRenovationProps {
@@ -21,6 +22,7 @@ interface ListDetailRenovationProps {
   onUpdateTask: (listId: string, taskId: string, updates: Partial<TaskItem>) => void;
   onResetList: (listId: string) => void;
   userImage?: string;
+  userName?: string;
 }
 
 export default function ListDetailRenovation({
@@ -31,7 +33,8 @@ export default function ListDetailRenovation({
   onDeleteTask,
   onUpdateTask,
   onResetList,
-  userImage
+  userImage,
+  userName,
 }: ListDetailRenovationProps) {
   const [newTaskText, setNewTaskText] = useState("");
   const [selectedType, setSelectedType] = useState<"task" | "note" | "progress" | "link">("task");
@@ -164,15 +167,19 @@ export default function ListDetailRenovation({
               <span>Återställ</span>
             </button>
           )}
-          {userImage && (
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-outline-variant shrink-0">
+          <div className="w-8 h-8 rounded-full overflow-hidden border border-outline-variant bg-emerald-50 text-emerald-800 shrink-0 flex items-center justify-center">
+            {userImage ? (
               <img
-                alt="User"
+                alt={`${userName || "Hem-Listan"} profilbild`}
                 src={userImage}
                 className="w-full h-full object-cover"
               />
-            </div>
-          )}
+            ) : (
+              <span className="text-[10px] font-bold tracking-wide" aria-hidden="true">
+                {getProfileInitials(userName)}
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
