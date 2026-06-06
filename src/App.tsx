@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { DeletedList, List, Stats, MealType, TaskItem, UserProfile } from "./types";
+import { DeletedList, List, ListMember, Stats, MealType, TaskItem, UserProfile } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -20,6 +20,7 @@ import {
   getSupabaseAuthSnapshot,
   clearSupabaseAuthSnapshot,
   fetchLists,
+  fetchListMembers,
   fetchDeletedLists,
   createList,
   addTask,
@@ -182,6 +183,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [listMembers, setListMembers] = useState<ListMember[] | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -200,6 +202,20 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const [userImage, setUserImage] = useState<string>(
     () => localStorage.getItem("user_profile_image") ?? ""
   );
+
+  useEffect(() => {
+    setListMembers(null);
+    if (currentView !== "detail" || !selectedListId || !isUuid(selectedListId) || !isLoggedIn) return;
+
+    let cancelled = false;
+    void fetchListMembers(selectedListId).then((members) => {
+      if (!cancelled) setListMembers(members);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView, isLoggedIn, selectedListId]);
 
   // ── Auth + Supabase init ─────────────────────────────────────────
   useEffect(() => {
@@ -1228,6 +1244,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
               {activeList.category === "grocery" ? (
                 <ListDetailGrocery
                   list={activeList}
+                  members={listMembers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
@@ -1241,6 +1258,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
               ) : (
                 <ListDetailRenovation
                   list={activeList}
+                  members={listMembers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}

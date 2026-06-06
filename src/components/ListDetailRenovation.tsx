@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { List, TaskItem } from "../types";
+import { List, ListMember, TaskItem } from "../types";
 import LucideIcon from "./LucideIcon";
-import SharedListIndicator from "./SharedListIndicator";
+import SharedListCount from "./SharedListCount";
 import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
 
 interface ListDetailRenovationProps {
   list: List;
+  members: ListMember[] | null;
   onBack: () => void;
   onToggleTask: (listId: string, taskId: string) => void;
   onAddTask: (
@@ -28,6 +29,7 @@ interface ListDetailRenovationProps {
 
 export default function ListDetailRenovation({
   list,
+  members,
   onBack,
   onToggleTask,
   onAddTask,
@@ -153,11 +155,13 @@ export default function ListDetailRenovation({
           >
             <LucideIcon name="arrow_back" className="w-6 h-6" />
           </button>
-          <div className="flex min-w-0 items-center gap-2">
-            <h1 className="min-w-0 truncate font-display text-xl font-bold text-text-main">
-              {list.name}
-            </h1>
-            <SharedListIndicator membershipRole={list.membershipRole} />
+          <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="min-w-0 truncate font-display text-xl font-bold text-text-main">
+                {list.name}
+              </h1>
+            </div>
+            <SharedListCount count={members?.length ?? list.memberCount} className="mt-1" />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

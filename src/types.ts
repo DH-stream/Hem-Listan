@@ -38,6 +38,15 @@ export interface List {
   deletedAt?: string;
   deleted_at?: string;
   membershipRole?: "owner" | "member";
+  memberCount?: number;
+}
+
+export interface ListMember {
+  userId: string;
+  role: "owner" | "member";
+  displayName: string | null;
+  avatarUrl: string | null;
+  avatarPath: string | null;
 }
 
 export interface DeletedList extends List {
