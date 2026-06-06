@@ -313,7 +313,11 @@ export default function DashboardView({
   };
 
   const activeFact = getGreetingAndFact();
-
+  const normalizedUserName = userName?.trim() ?? "";
+  const hasAvatarImage = Boolean(userImage);
+  const hasRealDisplayName =
+    Boolean(normalizedUserName) && normalizedUserName !== "Hem-Listan";
+  const shouldShowUserAvatar = hasAvatarImage || hasRealDisplayName;
 
   const pendingTotalTasks = pendingActionsList?.tasks.length || 0;
   const pendingCheckedTasks =
@@ -340,20 +344,22 @@ export default function DashboardView({
       {/* Top Bar AppBar */}
       <header className="w-full top-0 sticky z-40 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-emerald-50 text-emerald-800 shrink-0 flex items-center justify-center">
-            {userImage && !avatarLoadFailed ? (
-              <img
-                alt={`${userName || "Hem-Listan"} profilbild`}
-                className="w-full h-full object-cover"
-                src={userImage}
-                onError={() => setAvatarLoadFailed(true)}
-              />
-            ) : (
-              <span className="text-xs font-bold tracking-wide" aria-hidden="true">
-                {getProfileInitials(userName)}
-              </span>
-            )}
-          </div>
+          {shouldShowUserAvatar ? (
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-emerald-50 text-emerald-800 shrink-0 flex items-center justify-center">
+              {hasAvatarImage && !avatarLoadFailed ? (
+                <img
+                  alt={`${userName || "Hem-Listan"} profilbild`}
+                  className="w-full h-full object-cover"
+                  src={userImage}
+                  onError={() => setAvatarLoadFailed(true)}
+                />
+              ) : hasRealDisplayName ? (
+                <span className="text-xs font-bold tracking-wide" aria-hidden="true">
+                  {getProfileInitials(normalizedUserName)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1.5">
               Välkommen tillbaka
