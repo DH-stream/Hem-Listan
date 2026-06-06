@@ -494,13 +494,13 @@ export const uploadUserAvatar = async (
 
   if (previousAvatarPath && previousAvatarPath !== avatarPath) {
     const cleanupResult = await deleteAvatarObject(userId, previousAvatarPath, "previous avatar cleanup");
-    if (cleanupResult.kind === "timeout") return null;
-    if (cleanupResult.kind === "response" && !cleanupResult.response.ok) {
-      console.warn("[HL_PROFILE] previous avatar cleanup error", {
+    if (cleanupResult.kind !== "response" || !cleanupResult.response.ok) {
+      console.warn("[HL_PROFILE] previous avatar cleanup failed/skipped", {
         userId,
         previousAvatarPath,
-        status: cleanupResult.response.status,
-        body: cleanupResult.body,
+        resultKind: cleanupResult.kind,
+        status: cleanupResult.kind === "response" ? cleanupResult.response.status : undefined,
+        body: cleanupResult.kind === "response" ? cleanupResult.body : undefined,
       });
     }
   }
@@ -528,13 +528,13 @@ export const removeUserAvatar = async (
 
   if (avatarPath) {
     const removeResult = await deleteAvatarObject(userId, avatarPath, "storage avatar remove");
-    if (removeResult.kind === "timeout") return null;
-    if (removeResult.kind === "response" && !removeResult.response.ok) {
-      console.warn("[HL_PROFILE] storage avatar remove error", {
+    if (removeResult.kind !== "response" || !removeResult.response.ok) {
+      console.warn("[HL_PROFILE] storage avatar remove failed/skipped", {
         userId,
         avatarPath,
-        status: removeResult.response.status,
-        body: removeResult.body,
+        resultKind: removeResult.kind,
+        status: removeResult.kind === "response" ? removeResult.response.status : undefined,
+        body: removeResult.kind === "response" ? removeResult.body : undefined,
       });
     }
   }
