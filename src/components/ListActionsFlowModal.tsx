@@ -21,7 +21,8 @@ type ListActionsFlowModalProps = {
   progressPercent?: number;
   onClose: () => void;
   onSendCopy: () => Promise<string | null>;
-  onShareList: () => void;
+  onShareList: () => Promise<string | null>;
+  canInviteCollaborators?: boolean;
   selectedAppearance: ListAppearance;
   customImageUrls: Record<string, string>;
   onUpdateAppearance: (appearance: ListAppearance) => void;
@@ -49,8 +50,8 @@ const actions = [
   },
   {
     key: "shareList",
-    title: "Dela lista",
-    subtitle: "Bjud in någon att redigera tillsammans.",
+    title: "Bjud in till lista",
+    subtitle: "Bjud in någon att samarbeta i listan.",
     icon: "person",
     destructive: false,
   },
@@ -75,7 +76,7 @@ const backdropTransition = { duration: 0.16, ease: easing } as const;
 const cardTransition = { duration: 0.16, ease: easing } as const;
 const contentTransition = { duration: 0.14, ease: easing } as const;
 
-type FlowMode = "actions" | "deleteConfirm" | "shareLink" | "appearancePicker";
+type FlowMode = "actions" | "deleteConfirm" | "shareLink" | "inviteLink" | "appearancePicker";
 type ShareStatus = "idle" | "loading" | "success" | "error";
 type UploadStatus = "idle" | "loading" | "error";
 type UploadTarget = "background" | "iconImage";
@@ -98,6 +99,7 @@ export default function ListActionsFlowModal({
   onClose,
   onSendCopy,
   onShareList,
+  canInviteCollaborators = false,
   selectedAppearance,
   customImageUrls,
   onUpdateAppearance,
@@ -162,8 +164,16 @@ export default function ListActionsFlowModal({
     }
 
     if (key === "shareList") {
-      onShareList();
-      handleClose();
+      setMode("inviteLink");
+      setShareStatus("loading");
+      setCopyStatus("idle");
+      const link = await onShareList();
+      if (link) {
+        setShareLink(link);
+        setShareStatus("success");
+      } else {
+        setShareStatus("error");
+      }
       return;
     }
 
@@ -399,6 +409,7 @@ export default function ListActionsFlowModal({
             aria-describedby={
               mode === "deleteConfirm" ||
               mode === "shareLink" ||
+              mode === "inviteLink" ||
               mode === "appearancePicker"
                 ? "list-actions-flow-description"
                 : undefined
@@ -444,7 +455,7 @@ export default function ListActionsFlowModal({
                   </div>
 
                   <div className="space-y-2">
-                    {actions.map((action) => (
+                    {actions.filter((action) => action.key !== "shareList" || canInviteCollaborators).map((action) => (
                       <button
                         key={action.key}
                         type="button"
@@ -482,9 +493,9 @@ export default function ListActionsFlowModal({
                     ))}
                   </div>
                 </motion.div>
-              ) : mode === "shareLink" ? (
+              ) : mode === "shareLink" || mode === "inviteLink" ? (
                 <motion.div
-                  key="shareLink"
+                  key={mode}
                   className="select-none"
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -500,7 +511,7 @@ export default function ListActionsFlowModal({
                         id="list-actions-flow-title"
                         className="text-lg font-bold leading-tight text-gray-900"
                       >
-                        Skicka lista
+                        {mode === "inviteLink" ? "Bjud in till lista" : "Skicka lista"}
                       </h2>
                       {listName && (
                         <p className="mt-1 truncate text-xs font-bold text-gray-500">
@@ -515,7 +526,7 @@ export default function ListActionsFlowModal({
                       id="list-actions-flow-description"
                       className="rounded-xl border border-gray-100 bg-gray-50/80 p-4 text-sm font-bold text-gray-700"
                     >
-                      Skapar en låst kopia av listan...
+                      {mode === "inviteLink" ? "Skapar en säker inbjudningslänk..." : "Skapar en låst kopia av listan..."}
                     </div>
                   )}
 
@@ -531,7 +542,7 @@ export default function ListActionsFlowModal({
                   {shareStatus === "success" && (
                     <div id="list-actions-flow-description" className="space-y-4">
                       <p className="text-sm font-medium leading-relaxed text-gray-600">
-                        En fryst, läsbar kopia är skapad. Mottagaren kan öppna länken utan konto och kan inte ändra originallistan.
+                        {mode === "inviteLink" ? "Du bjuder in någon att samarbeta i listan. Alla med åtkomst kan ändra listan." : "En fryst, läsbar kopia är skapad. Mottagaren kan öppna länken utan konto och kan inte ändra originallistan."}
                       </p>
                       <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-3 text-xs font-bold text-gray-700 break-all">
                         {shareLink}
@@ -557,7 +568,7 @@ export default function ListActionsFlowModal({
                     {shareStatus === "error" && (
                       <button
                         type="button"
-                        onClick={() => void handleAction("sendCopy")}
+                        onClick={() => void handleAction(mode === "inviteLink" ? "shareList" : "sendCopy")}
                         className="min-h-[44px] rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-[background-color,transform] hover:bg-secondary active:scale-[0.97] sm:min-w-28"
                       >
                         Försök igen

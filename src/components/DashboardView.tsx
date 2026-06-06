@@ -4,7 +4,7 @@ import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
-import { createListShare } from "../lib/supabase";
+import { createListInvite, createListShare } from "../lib/supabase";
 import {
   getAppearanceBackgroundStyle,
   getAppearanceBadgeStyle,
@@ -136,16 +136,6 @@ export default function DashboardView({
     };
   }, []);
 
-  const logListActionPlaceholder = (
-    eventName: "send_list_unwired" | "share_list_unwired",
-    list: List,
-  ) => {
-    console.log(eventName, {
-      listId: list.id,
-      name: list.name,
-    });
-  };
-
   const handleSendList = async (): Promise<string | null> => {
     if (!pendingActionsList) return null;
 
@@ -156,10 +146,10 @@ export default function DashboardView({
     return `${window.location.origin}/share/${token}`;
   };
 
-  const handleShareList = () => {
-    if (pendingActionsList) {
-      logListActionPlaceholder("share_list_unwired", pendingActionsList);
-    }
+  const handleShareList = async (): Promise<string | null> => {
+    if (!pendingActionsList) return null;
+    const token = await createListInvite(pendingActionsList.id);
+    return token ? `${window.location.origin}/invite/${token}` : null;
   };
 
   const handleConfirmDeleteList = () => {
@@ -594,6 +584,7 @@ export default function DashboardView({
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
+        canInviteCollaborators={Boolean(pendingActionsList && pendingActionsList.membershipRole !== "member" && /^[0-9a-f-]{36}$/i.test(pendingActionsList.id))}
         selectedAppearance={
           pendingActionsList ? listAppearance[pendingActionsList.id] || {} : {}
         }

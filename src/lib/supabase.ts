@@ -861,71 +861,131 @@ export const fetchPublicListShare = async (token: string): Promise<PublicListSha
   }
 };
 
+
+export const createListInvite = async (listId: string): Promise<string | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const { accessToken } = getSupabaseAuthSnapshot();
+  if (!url || !anonKey || !accessToken || !isUuidValue(listId)) return null;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/hl_create_list_invite`, {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_list_id: listId }),
+      signal: controller.signal,
+    });
+    const body = await parseJsonResponse(response);
+    return response.ok && typeof body === "string" ? body : null;
+  } catch (error) {
+    console.error("create_list_invite_error", { listId, error });
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
+export const acceptListInvite = async (token: string): Promise<string | null> => {
+  const { url, anonKey } = getSupabaseConfig();
+  const { accessToken } = getSupabaseAuthSnapshot();
+  if (!url || !anonKey || !accessToken || !token) return null;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${url.replace(/\/$/, '')}/rest/v1/rpc/hl_accept_list_invite`, {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_token: token }),
+      signal: controller.signal,
+    });
+    const body = await parseJsonResponse(response);
+    return response.ok && typeof body === "string" ? body : null;
+  } catch (error) {
+    console.error("accept_list_invite_error", { error });
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 // ── Databasoperationer ───────────────────────────────────────────────
 
-// Hämta alla listor för inloggad användare (egna + delade)
+// Hämta alla listor för inloggad användare (egna + delade).
+// Raw REST + auth snapshot avoids SDK requests that can remain pending in Safari.
 export const fetchLists = async (): Promise<List[] | null> => {
-  const client = getSupabaseClient();
-  if (!client) return null;
-  const { data: { user } } = await client.auth.getUser();
-  if (!user) return null;
+  const { url, anonKey } = getSupabaseConfig();
+  const { accessToken, userId } = getSupabaseAuthSnapshot();
+  if (!url || !anonKey || !accessToken || !userId) return null;
 
-  // Hämta listor som användaren äger eller är medlem i
-  const { data: listsData, error } = await client
-    .from('hl_lists')
-    .select('*')
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+  const baseUrl = url.replace(/\/$/, '');
+  const headers = { apikey: anonKey, Authorization: `Bearer ${accessToken}` };
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 10000);
 
-  if (error || !listsData) return null;
-  if (listsData.length === 0) return [];
+  try {
+    const listsResponse = await fetch(
+      `${baseUrl}/rest/v1/hl_lists?select=id,owner_id,name,icon,theme_color,category,created_at&deleted_at=is.null&order=created_at.desc`,
+      { headers, signal: controller.signal },
+    );
+    const listsBody = await parseJsonResponse(listsResponse);
+    if (!listsResponse.ok || !Array.isArray(listsBody)) return null;
+    if (listsBody.length === 0) return [];
 
-  const listIds = listsData.map(l => l.id);
+    const listIds = listsBody.map((row: any) => row.id);
+    const inFilter = encodeURIComponent(`(${listIds.join(',')})`);
+    const [tasksResponse, mealsResponse] = await Promise.all([
+      fetch(`${baseUrl}/rest/v1/hl_tasks?select=*&list_id=in.${inFilter}&order=sort_order.asc`, { headers, signal: controller.signal }),
+      fetch(`${baseUrl}/rest/v1/hl_meals?select=*&list_id=in.${inFilter}`, { headers, signal: controller.signal }),
+    ]);
+    const [tasksBody, mealsBody] = await Promise.all([
+      parseJsonResponse(tasksResponse),
+      parseJsonResponse(mealsResponse),
+    ]);
+    if (!tasksResponse.ok || !mealsResponse.ok || !Array.isArray(tasksBody) || !Array.isArray(mealsBody)) return null;
 
-  // Hämta tasks + meals för alla dessa listor parallellt
-  const [tasksResult, mealsResult] = await Promise.all([
-    client
-      .from('hl_tasks')
-      .select('*')
-      .in('list_id', listIds)
-      .order('sort_order', { ascending: true }),
-    client
-      .from('hl_meals')
-      .select('*')
-      .in('list_id', listIds)
-  ]);
-
-  if (tasksResult.error || mealsResult.error) return null;
-
-  const tasksData = tasksResult.data || [];
-  const mealsData = mealsResult.data || [];
-
-  return listsData.map(l => ({
-    id: l.id,
-    name: l.name,
-    icon: l.icon || 'list',
-    themeColor: l.theme_color || '#1a5319',
-    category: l.category as "renovation" | "grocery" | "general",
-    tasks: (tasksData || [])
-      .filter(t => t.list_id === l.id)
-      .map(t => ({
-        id: t.id,
-        text: t.text,
-        checked: t.checked ?? false,
-        notes: t.notes || undefined,
-        type: (t.type || 'task') as "task" | "note" | "progress" | "link",
-        url: t.url || undefined,
-        progress: t.progress !== null ? t.progress : undefined,
-      })),
-    meals: (mealsData || [])
-      .filter(m => m.list_id === l.id)
-      .map(m => ({
-        id: m.id,
-        day: m.day,
-        type: m.type as any,
-        name: m.name,
-      })),
-  }));
+    return listsBody.map((listRow: any) => ({
+      id: listRow.id,
+      name: listRow.name,
+      icon: listRow.icon || 'list',
+      themeColor: listRow.theme_color || '#1a5319',
+      category: listRow.category as List["category"],
+      membershipRole: listRow.owner_id === userId ? 'owner' : 'member',
+      tasks: tasksBody
+        .filter((taskRow: any) => taskRow.list_id === listRow.id)
+        .map((taskRow: any) => ({
+          id: taskRow.id,
+          text: taskRow.text,
+          checked: taskRow.checked ?? false,
+          notes: taskRow.notes || undefined,
+          type: (taskRow.type || 'task') as TaskItem["type"],
+          url: taskRow.url || undefined,
+          progress: taskRow.progress !== null ? taskRow.progress : undefined,
+        })),
+      meals: mealsBody
+        .filter((mealRow: any) => mealRow.list_id === listRow.id)
+        .map((mealRow: any) => ({
+          id: mealRow.id,
+          day: mealRow.day,
+          type: mealRow.type as MealSlot["type"],
+          name: mealRow.name,
+        })),
+    }));
+  } catch (error) {
+    console.error("fetch_lists_rest_error", { error });
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 };
 
 

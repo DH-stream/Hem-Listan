@@ -38,6 +38,9 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
     case "person":
     case "user":
       return <Lucide.User {...props} />;
+    case "person-add":
+    case "user-plus":
+      return <Lucide.UserPlus {...props} />;
     case "arrow_back":
     case "arrowleft":
       return <Lucide.ArrowLeft {...props} />;
