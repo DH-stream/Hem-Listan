@@ -11,6 +11,7 @@ import DebugPanel from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
+import { readCachedUserProfile, writeCachedUserProfile } from "./lib/profile";
 import {
   getSupabaseClient,
   isSupabaseConfigured,
@@ -195,12 +196,23 @@ function MainApp() {
     const handleAuthenticatedSession = async (user: User) => {
       setIsLoggedIn(true);
       setSessionUser(user);
+      setUserProfile(null);
       setUserName(getInitialProfileDisplayName(user));
       setUserImage("");
+
+      const cachedProfile = readCachedUserProfile(user.id);
+      if (cachedProfile) {
+        setUserProfile(cachedProfile);
+        setUserName(cachedProfile.displayName);
+        setUserImage(cachedProfile.avatarUrl ?? "");
+      }
 
       void loadOrCreateUserProfile(user)
         .then((profile) => {
           if (!profile) return;
+          writeCachedUserProfile(profile);
+          if (getSupabaseAuthSnapshot().userId !== user.id) return;
+
           setUserProfile(profile);
           setUserName(profile.displayName);
           setUserImage(profile.avatarUrl ?? "");
@@ -475,6 +487,7 @@ function MainApp() {
 
       setUserProfile(profile);
       setUserName(profile.displayName);
+      writeCachedUserProfile(profile);
       return true;
     }
 
@@ -493,6 +506,7 @@ function MainApp() {
 
       setUserProfile(profile);
       setUserImage(profile.avatarUrl ?? "");
+      writeCachedUserProfile(profile);
       return true;
     }
 
