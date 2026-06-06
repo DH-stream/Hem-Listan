@@ -6,9 +6,9 @@ import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
-import RecipeImportReviewSheet, {
+import RecipeImportPreviewModal, {
   RecipeImportPreview,
-} from "./RecipeImportReviewSheet";
+} from "./RecipeImportPreviewModal";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -862,7 +862,7 @@ export default function ListDetailGrocery({
           </button>
         </nav>
       </footer>
-      <RecipeImportReviewSheet
+      <RecipeImportPreviewModal
         open={recipeImportPreview !== null}
         preview={recipeImportPreview}
         onAccept={handleAcceptRecipeImport}
