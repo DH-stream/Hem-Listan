@@ -278,7 +278,36 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
 
       if (code) {
         console.log("auth_callback_code_found");
-        window.history.replaceState({}, document.title, window.location.pathname);
+        console.log("auth_callback_exchange_start");
+
+        try {
+          const { data, error } = await client.auth.exchangeCodeForSession(code);
+          console.log("auth_callback_exchange_result", {
+            hasSession: !!data.session,
+            userId: data.session?.user?.id,
+            error: error?.message,
+          });
+
+          if (error) {
+            console.error("auth_callback_exchange_error", {
+              message: error.message,
+              name: error.name,
+            });
+          }
+
+          if (data.session?.user) {
+            setSupabaseAuthSnapshot(data.session);
+            await handleAuthenticatedSession(data.session.user);
+            return;
+          }
+        } catch (error) {
+          console.error("auth_callback_exchange_error", {
+            message: error instanceof Error ? error.message : String(error),
+            name: error instanceof Error ? error.name : "UnknownError",
+          });
+        } finally {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
       }
 
       const { data: { session } } = await client.auth.getSession();
