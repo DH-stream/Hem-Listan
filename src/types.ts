@@ -37,6 +37,7 @@ export interface List {
   meals?: MealSlot[]; // for grocery/schema lists
   deletedAt?: string;
   deleted_at?: string;
+  membershipRole?: "owner" | "member";
 }
 
 export interface DeletedList extends List {

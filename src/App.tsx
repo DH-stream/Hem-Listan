@@ -9,6 +9,7 @@ import ListDetailGrocery from "./components/ListDetailGrocery";
 import CreateListView from "./components/CreateListView";
 import DebugPanel from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
+import CollaborativeInviteView from "./components/CollaborativeInviteView";
 import SettingsModal from "./components/SettingsModal";
 import LucideIcon from "./components/LucideIcon";
 import { readCachedUserProfile, writeCachedUserProfile } from "./lib/profile";
@@ -33,6 +34,7 @@ import {
   removeUserAvatar,
   updateUserProfile,
   uploadUserAvatar,
+  acceptListInvite,
 } from "./lib/supabase";
 
 const isUuid = (value: string) =>
@@ -148,6 +150,11 @@ const listFingerprint = (list: List) => JSON.stringify({
   meals: (list.meals ?? []).map(mealFingerprint),
 });
 
+const getInviteTokenFromPath = () => {
+  const match = window.location.pathname.match(/^\/invite\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
 const getPublicShareTokenFromPath = () => {
   const match = window.location.pathname.match(/^\/share\/([^/?#]+)/);
   return match ? decodeURIComponent(match[1]) : null;
@@ -160,10 +167,10 @@ export default function App() {
     return <PublicShareView token={publicShareToken} />;
   }
 
-  return <MainApp />;
+  return <MainApp inviteToken={getInviteTokenFromPath()} />;
 }
 
-function MainApp() {
+function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
@@ -176,6 +183,8 @@ function MainApp() {
   const [pulseCount, setPulseCount] = useState(0);
   const [deletedLists, setDeletedLists] = useState<DeletedList[]>([]);
   const [deletedListsLoading, setDeletedListsLoading] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [inviteDismissed, setInviteDismissed] = useState(false);
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
   const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
@@ -1056,6 +1065,26 @@ function MainApp() {
     return true;
   };
 
+  const handleAcceptInvite = async () => {
+    if (!inviteToken || inviteStatus === "loading") return;
+    setInviteStatus("loading");
+    const joinedListId = await acceptListInvite(inviteToken);
+    if (!joinedListId) {
+      setInviteStatus("error");
+      return;
+    }
+
+    const refreshed = await loadFromSupabase();
+    if (!refreshed) {
+      setInviteStatus("error");
+      return;
+    }
+
+    window.history.replaceState({}, document.title, "/");
+    setCurrentView("dashboard");
+    setInviteStatus("success");
+  };
+
   const handleSelectList = (id: string) => {
     setSelectedListId(id);
     setPulseCount(p => p + 1);
@@ -1185,6 +1214,16 @@ function MainApp() {
           )}
         </AnimatePresence>
       </main>
+
+      {!inviteDismissed && inviteToken && (
+        <CollaborativeInviteView
+          isLoggedIn={isLoggedIn}
+          status={inviteStatus}
+          onLogin={() => setShowSettings(true)}
+          onAccept={() => void handleAcceptInvite()}
+          onDone={() => setInviteDismissed(true)}
+        />
+      )}
 
       <AnimatePresence>
         {showSettings && (
