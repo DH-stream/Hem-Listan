@@ -9,7 +9,8 @@ interface CreateListViewProps {
 
 export default function CreateListView({ onCancel, onCreateList }: CreateListViewProps) {
   const [listName, setListName] = useState("");
-  const [selectedIcon, setSelectedIcon] = useState("construction");
+  const [selectedListType, setSelectedListType] = useState<"general" | "grocery">("general");
+  const [selectedIcon, setSelectedIcon] = useState("home");
   const [selectedColor, setSelectedColor] = useState("#003b05"); // default primary green
 
   // Standard icon library from design layout
@@ -37,15 +38,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     e.preventDefault();
     if (!listName.trim()) return;
 
-    // Direct classification mapping based on keyword or icon selection to map categories nicely:
-    let category: "renovation" | "grocery" | "general" = "general";
-    if (selectedIcon === "shopping_cart" || selectedIcon === "restaurant" || listName.toLowerCase().includes("inköp") || listName.toLowerCase().includes("handla")) {
-      category = "grocery";
-    } else if (selectedIcon === "construction" || selectedIcon === "home" || listName.toLowerCase().includes("renovering") || listName.toLowerCase().includes("bygga")) {
-      category = "renovation";
-    }
-
-    onCreateList(listName.trim(), selectedIcon, selectedColor, category);
+    onCreateList(listName.trim(), selectedIcon, selectedColor, selectedListType);
   };
 
   return (
@@ -96,6 +89,63 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
               placeholder="t.ex. Badrumsrenovering"
             />
           </div>
+
+          {/* Functional list type selection */}
+          <fieldset className="space-y-3">
+            <legend className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
+              Vad vill du skapa?
+            </legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                {
+                  value: "general" as const,
+                  title: "Vanlig lista",
+                  subtitle: "Projekt, vardag, packning och fix",
+                  icon: "home"
+                },
+                {
+                  value: "grocery" as const,
+                  title: "Matlista",
+                  subtitle: "Inköp, varor och måltidsplanering",
+                  icon: "shopping_cart"
+                }
+              ].map((listType) => {
+                const isActive = selectedListType === listType.value;
+                return (
+                  <button
+                    key={listType.value}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setSelectedListType(listType.value)}
+                    className={`relative min-h-28 rounded-2xl border p-4 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.98] ${
+                      isActive
+                        ? "border-primary bg-primary/5 shadow-[0_0_0_1px_var(--color-primary),0_8px_24px_rgba(0,59,5,0.06)]"
+                        : "border-outline/15 bg-surface-container-low hover:border-primary/25 hover:bg-surface-muted"
+                    }`}
+                  >
+                    <span
+                      className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${
+                        isActive ? "bg-primary text-white" : "bg-white text-on-surface-variant shadow-sm"
+                      }`}
+                    >
+                      <LucideIcon name={listType.icon} className="h-5 w-5" />
+                    </span>
+                    <span className="block pr-7 font-display text-sm font-bold text-text-main">
+                      {listType.title}
+                    </span>
+                    <span className="mt-1 block pr-3 text-xs leading-relaxed text-on-surface-variant">
+                      {listType.subtitle}
+                    </span>
+                    {isActive && (
+                      <span className="absolute right-3.5 top-3.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white shadow-sm">
+                        <LucideIcon name="check" className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
 
           {/* Icon Choice Grid selection */}
           <div className="space-y-3">
