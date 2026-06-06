@@ -1,4 +1,4 @@
-import SharedHandshakeIcon from "./SharedHandshakeIcon";
+import SharedListIcon from "./SharedListIcon";
 
 interface SharedListCountProps {
   count?: number;
@@ -14,7 +14,7 @@ export default function SharedListCount({ count, className = "" }: SharedListCou
       aria-label={`${count} medlemmar har tillgång till listan`}
       title={`${count} medlemmar`}
     >
-      <SharedHandshakeIcon className="h-4 w-4" aria-hidden="true" />
+      <SharedListIcon className="h-4 w-4" aria-hidden="true" />
       <span className="font-sans text-[11px] font-bold leading-none">{count}</span>
     </span>
   );

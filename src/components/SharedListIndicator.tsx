@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import type { List } from "../types";
-import SharedHandshakeIcon from "./SharedHandshakeIcon";
+import SharedListIcon from "./SharedListIcon";
 
 interface SharedListIndicatorProps {
   membershipRole?: List["membershipRole"];
@@ -27,7 +27,7 @@ export default function SharedListIndicator({
         aria-label="Delad lista"
         title="Delad lista"
       >
-        <SharedHandshakeIcon className="h-5 w-5" />
+        <SharedListIcon className="h-5 w-5" />
       </motion.span>
     );
   }
@@ -36,7 +36,7 @@ export default function SharedListIndicator({
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full border border-primary-fixed-dim/50 bg-primary-fixed/35 px-2 py-0.5 font-sans text-[10px] font-bold leading-none text-on-primary-fixed-variant ${className}`}
     >
-      <SharedHandshakeIcon className="h-3 w-3" />
+      <SharedListIcon className="h-3 w-3" />
       Delad med dig
     </span>
   );
