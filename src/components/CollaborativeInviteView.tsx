@@ -60,6 +60,11 @@ export default function CollaborativeInviteView({
             <button type="button" onClick={onAccept} disabled={status === "loading"} className="min-h-[44px] w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition-[background-color,transform] hover:bg-secondary active:scale-[0.97] disabled:cursor-wait disabled:opacity-60">
               {status === "loading" ? "Går med..." : status === "error" ? "Försök igen" : "Gå med i listan"}
             </button>
+            {status === "error" && (
+              <button type="button" onClick={onDone} className="min-h-[44px] w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-gray-700 transition-[background-color,transform] hover:bg-gray-50 active:scale-[0.97]">
+                Till startsidan
+              </button>
+            )}
           </div>
         )}
       </section>

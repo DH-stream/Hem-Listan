@@ -1070,6 +1070,13 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     return true;
   };
 
+  const clearPendingInvite = () => {
+    localStorage.removeItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
+    if (window.location.pathname.startsWith("/invite/")) {
+      window.history.replaceState({}, document.title, "/");
+    }
+  };
+
   const handleAcceptInvite = async () => {
     if (!inviteToken || inviteStatus === "loading") return;
     setInviteStatus("loading");
@@ -1085,8 +1092,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       return;
     }
 
-    localStorage.removeItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
-    window.history.replaceState({}, document.title, "/");
+    clearPendingInvite();
     setCurrentView("dashboard");
     setInviteStatus("success");
   };
@@ -1231,7 +1237,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
           }}
           onAccept={() => void handleAcceptInvite()}
           onDone={() => {
-            localStorage.removeItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
+            clearPendingInvite();
             setInviteDismissed(true);
           }}
         />
