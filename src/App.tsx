@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { DeletedList, List, Stats, MealType, TaskItem } from "./types";
+import { DeletedList, List, Stats, MealType, TaskItem, UserProfile } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -27,6 +27,11 @@ import {
   restoreList,
   upsertMeal,
   deleteMeal,
+  getInitialProfileDisplayName,
+  loadOrCreateUserProfile,
+  removeUserAvatar,
+  updateUserProfile,
+  uploadUserAvatar,
 } from "./lib/supabase";
 
 const isUuid = (value: string) =>
@@ -161,6 +166,7 @@ function MainApp() {
   const [lists, setLists] = useState<List[]>(loadLocalActiveLists);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<"dashboard" | "create" | "detail">("dashboard");
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -189,6 +195,16 @@ function MainApp() {
     const handleAuthenticatedSession = async (user: User) => {
       setIsLoggedIn(true);
       setSessionUser(user);
+      setUserName(getInitialProfileDisplayName(user));
+      setUserImage("");
+
+      const profile = await loadOrCreateUserProfile(user);
+      if (profile) {
+        setUserProfile(profile);
+        setUserName(profile.displayName);
+        setUserImage(profile.avatarUrl ?? "");
+      }
+
       await migrateLocalToSupabaseIfNeeded(user.id);
       await loadFromSupabase();
       subscribeRealtime();
@@ -221,6 +237,7 @@ function MainApp() {
       console.log("auth_init_no_session", { userId: user?.id });
       setIsLoggedIn(false);
       setSessionUser(null);
+      setUserProfile(null);
     };
 
     initAuth();
@@ -241,6 +258,9 @@ function MainApp() {
         console.log("auth_state_signed_out");
         setIsLoggedIn(false);
         setSessionUser(null);
+        setUserProfile(null);
+        setUserName(localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan");
+        setUserImage(localStorage.getItem("user_profile_image") ?? "");
         unsubscribeRealtime();
         setLists(loadLocalActiveLists());
       }
@@ -443,15 +463,39 @@ function MainApp() {
   };
 
   // ── Handlers ─────────────────────────────────────────────────────
-  const handleUpdateUserName = (name: string) => {
+  const handleUpdateUserName = async (name: string): Promise<boolean> => {
+    const activeUserId = sessionUser?.id ?? getSupabaseAuthSnapshot().userId;
+    if (activeUserId) {
+      const profile = await updateUserProfile(activeUserId, { displayName: name });
+      if (!profile) return false;
+
+      setUserProfile(profile);
+      setUserName(profile.displayName);
+      return true;
+    }
+
     setUserName(name);
     localStorage.setItem("hem-listan-user-name", name);
+    return true;
   };
 
-  const handleUpdateUserImage = (base64: string) => {
+  const handleUpdateUserImage = async (base64: string): Promise<boolean> => {
+    const activeUserId = sessionUser?.id ?? getSupabaseAuthSnapshot().userId;
+    if (activeUserId) {
+      const profile = base64
+        ? await uploadUserAvatar(activeUserId, base64, userProfile?.avatarPath)
+        : await removeUserAvatar(activeUserId, userProfile?.avatarPath);
+      if (!profile) return false;
+
+      setUserProfile(profile);
+      setUserImage(profile.avatarUrl ?? "");
+      return true;
+    }
+
     setUserImage(base64);
     if (base64) localStorage.setItem("user_profile_image", base64);
     else localStorage.removeItem("user_profile_image");
+    return true;
   };
 
   const handleToggleTask = async (listId: string, taskId: string) => {
@@ -1085,6 +1129,7 @@ function MainApp() {
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
                   userImage={userImage}
+                  userName={userName}
                 />
               )}
             </motion.div>

@@ -5,14 +5,15 @@ import type { DeletedList } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
 import { getSupabaseClient } from "../lib/supabase";
+import { getProfileInitials } from "../lib/profile";
 
 interface SettingsModalProps {
   userName: string;
   userImage?: string;
   isLoggedIn: boolean;
   sessionUser: User | null;
-  onUpdateUserName: (name: string) => void;
-  onUpdateUserImage: (base64: string) => void;
+  onUpdateUserName: (name: string) => Promise<boolean>;
+  onUpdateUserImage: (base64: string) => Promise<boolean>;
   onClose: () => void;
   deletedLists: DeletedList[];
   deletedListsLoading: boolean;
@@ -90,8 +91,25 @@ function GoogleIcon() {
 }
 
 // ── Namn ───────────────────────────────────────────────────────────
-const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: string) => void }) => {
+const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: string) => Promise<void> }) => {
   const ref = useRef<HTMLInputElement>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (ref.current) ref.current.value = userName;
+  }, [userName]);
+
+  const save = async () => {
+    const value = ref.current?.value?.trim();
+    if (!value || saving) return;
+
+    setSaving(true);
+    try {
+      await onSave(value);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-2 pt-2.5 border-t border-gray-200">
@@ -108,13 +126,12 @@ const NameForm = memo(({ userName, onSave }: { userName: string; onSave: (name: 
         />
 
         <button
-          onClick={() => {
-            const v = ref.current?.value?.trim();
-            if (v) onSave(v);
-          }}
-          className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg px-4 py-2 font-sans text-xs font-bold transition-all outline-none cursor-pointer shrink-0 min-h-[40px] flex items-center justify-center"
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg px-4 py-2 font-sans text-xs font-bold transition-[background-color,transform] outline-none cursor-pointer shrink-0 min-h-[40px] flex items-center justify-center disabled:cursor-wait disabled:opacity-60"
         >
-          Spara
+          {saving ? "Sparar..." : "Spara"}
         </button>
       </div>
     </div>
@@ -232,6 +249,7 @@ export default function SettingsModal({
   const [error, setError] = useState<string | null>(null);
   const [showSharingInfo, setShowSharingInfo] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [imageSaving, setImageSaving] = useState(false);
   const [deletedListsOpen, setDeletedListsOpen] = useState(false);
   const [restoreConfirmList, setRestoreConfirmList] = useState<DeletedList | null>(null);
   const [restoringListId, setRestoringListId] = useState<string | null>(null);
@@ -261,6 +279,10 @@ export default function SettingsModal({
 
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    setPreview(userImage);
+  }, [userImage]);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -296,29 +318,42 @@ export default function SettingsModal({
     setError(message);
   }, []);
 
-  const saveName = useCallback((name: string) => {
-    onUpdateUserName(name);
-    localStorage.setItem("user_profile_name", name);
-    showSuccess("Namn sparat");
-  }, [onUpdateUserName, showSuccess]);
+  const saveName = useCallback(async (name: string) => {
+    const saved = await onUpdateUserName(name);
+    if (saved) showSuccess("Namn sparat");
+    else showError("Kunde inte spara namnet.");
+  }, [onUpdateUserName, showError, showSuccess]);
 
   const uploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || imageSaving) return;
 
-    const img = await compressImage(file);
-    setPreview(img);
-    onUpdateUserImage(img);
-    localStorage.setItem("user_profile_image", img);
-    showSuccess("Bild sparad");
-    e.target.value = "";
+    setImageSaving(true);
+    try {
+      const image = await compressImage(file);
+      const saved = await onUpdateUserImage(image);
+      if (saved) showSuccess("Bild sparad");
+      else showError("Kunde inte spara bilden.");
+    } catch (uploadError) {
+      console.error("profile_image_prepare_error", uploadError);
+      showError("Kunde inte läsa bilden.");
+    } finally {
+      setImageSaving(false);
+      e.target.value = "";
+    }
   };
 
-  const removeImage = () => {
-    setPreview(undefined);
-    onUpdateUserImage("");
-    localStorage.removeItem("user_profile_image");
-    showSuccess("Bild borttagen");
+  const removeImage = async () => {
+    if (imageSaving) return;
+
+    setImageSaving(true);
+    try {
+      const saved = await onUpdateUserImage("");
+      if (saved) showSuccess("Bild borttagen");
+      else showError("Kunde inte ta bort bilden.");
+    } finally {
+      setImageSaving(false);
+    }
   };
 
   const handleGoogleLogin = useCallback(async () => {
@@ -388,7 +423,8 @@ export default function SettingsModal({
 
   const activeSessionUser = sessionUser ?? fallbackSessionUser;
   const isAuthenticated = isLoggedIn || !!activeSessionUser;
-  const displayName = activeSessionUser?.user_metadata?.display_name || userName || "Användare";
+  const displayName = userName || "Hem-Listan";
+  const profileInitials = getProfileInitials(displayName);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-sm font-sans">
@@ -440,13 +476,14 @@ export default function SettingsModal({
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="w-16 h-16 rounded-full overflow-hidden border-2 border-emerald-600/20 bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-85 transition-opacity"
+                  disabled={imageSaving}
+                  className="w-16 h-16 rounded-full overflow-hidden border-2 border-emerald-600/20 bg-emerald-50 flex items-center justify-center cursor-pointer hover:opacity-85 transition-opacity disabled:cursor-wait disabled:opacity-60"
                   aria-label="Byt profilbild"
                 >
                   {preview ? (
                     <img src={preview} className="h-full w-full object-cover" alt="Profilbild" />
                   ) : (
-                    <LucideIcon name="person" className="h-7 w-7 text-gray-400" />
+                    <span className="text-lg font-bold tracking-wide text-emerald-800">{profileInitials}</span>
                   )}
                 </button>
                 <span className="pointer-events-none absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-white">
@@ -455,15 +492,15 @@ export default function SettingsModal({
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-bold text-gray-900">{userName || "Hem-Listan"}</p>
-                <p className="mt-0.5 truncate text-[10px] text-gray-500">{sessionUser?.email ?? "Lokal profil"}</p>
+                <p className="truncate text-xs font-bold text-gray-900">{displayName}</p>
+                <p className="mt-0.5 truncate text-[10px] text-gray-500">{activeSessionUser?.email ?? "Lokal profil"}</p>
 
                 <div className="mt-2 flex gap-3 text-[10px] font-bold">
-                  <button type="button" onClick={() => fileRef.current?.click()} className="text-[10px] font-bold text-emerald-600 hover:underline cursor-pointer py-1">
-                    {preview ? "Byt bild" : "Lägg till bild"}
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={imageSaving} className="text-[10px] font-bold text-emerald-600 hover:underline cursor-pointer py-1 disabled:cursor-wait disabled:opacity-60">
+                    {imageSaving ? "Sparar..." : preview ? "Byt bild" : "Lägg till bild"}
                   </button>
                   {preview && (
-                    <button type="button" onClick={removeImage} className="py-1 text-gray-500 hover:text-red-600">
+                    <button type="button" onClick={removeImage} disabled={imageSaving} className="py-1 text-gray-500 hover:text-red-600 disabled:cursor-wait disabled:opacity-60">
                       Ta bort
                     </button>
                   )}

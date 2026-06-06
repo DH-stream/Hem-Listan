@@ -44,6 +44,16 @@ export interface DeletedList extends List {
   restoreSource?: "local" | "cloud";
 }
 
+
+export interface UserProfile {
+  userId: string;
+  displayName: string;
+  avatarPath: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Stats {
   listsCount: number;
   itemsLeftCount: number;

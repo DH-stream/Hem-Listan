@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, SyntheticEvent } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -14,6 +14,7 @@ import {
   readListAppearanceMap,
   writeListAppearance,
 } from "../lib/listVisuals";
+import { getProfileInitials } from "../lib/profile";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -48,6 +49,7 @@ export default function DashboardView({
   onDeleteList,
 }: DashboardViewProps) {
   const [logoLoaded, setLogoLoaded] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [pendingActionsList, setPendingActionsList] = useState<List | null>(
     null,
   );
@@ -59,6 +61,10 @@ export default function DashboardView({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
   const pressStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [userImage]);
 
   const clearLongPressTimer = () => {
     if (longPressTimerRef.current) {
@@ -344,20 +350,20 @@ export default function DashboardView({
       {/* Top Bar AppBar */}
       <header className="w-full top-0 sticky z-40 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 mb-2">
         <div className="flex items-center gap-3">
-          {/* Visar endast profilbildscirkeln om userImage faktiskt är satt */}
-          {userImage && (
-            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-white shrink-0">
+          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/10 bg-emerald-50 text-emerald-800 shrink-0 flex items-center justify-center">
+            {userImage && !avatarLoadFailed ? (
               <img
-                alt="Profile"
+                alt={`${userName || "Hem-Listan"} profilbild`}
                 className="w-full h-full object-cover"
                 src={userImage}
-                onError={(e: SyntheticEvent<HTMLImageElement, Event>) => {
-                  // Säkerställer korrekt TS-typ om profilbilden mot förmodan dör
-                  e.currentTarget.style.display = "none";
-                }}
+                onError={() => setAvatarLoadFailed(true)}
               />
-            </div>
-          )}
+            ) : (
+              <span className="text-xs font-bold tracking-wide" aria-hidden="true">
+                {getProfileInitials(userName)}
+              </span>
+            )}
+          </div>
           <div>
             <p className="font-label-sm text-xs text-outline uppercase tracking-widest leading-none mb-1.5">
               Välkommen tillbaka

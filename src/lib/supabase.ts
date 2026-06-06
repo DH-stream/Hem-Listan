@@ -1,5 +1,5 @@
-import { createClient, Session, SupabaseClient } from "@supabase/supabase-js";
-import { DeletedList, List, PublicListShare, TaskItem, MealSlot } from "../types";
+import { createClient, Session, SupabaseClient, User } from "@supabase/supabase-js";
+import { DeletedList, List, PublicListShare, TaskItem, MealSlot, UserProfile } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -136,6 +136,160 @@ export const getLocalCredentials = () => ({
   url: localStorage.getItem("hem_listan_supabase_url") || "",
   anonKey: localStorage.getItem("hem_listan_supabase_anon_key") || ""
 });
+
+type UserProfileRow = {
+  user_id: string;
+  display_name: string | null;
+  avatar_path: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const mapUserProfile = (row: UserProfileRow): UserProfile => ({
+  userId: row.user_id,
+  displayName: row.display_name?.trim() || "Hem-Listan",
+  avatarPath: row.avatar_path,
+  avatarUrl: row.avatar_url,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const getInitialProfileDisplayName = (user: User): string => {
+  const metadata = user.user_metadata ?? {};
+  const metadataName = [metadata.full_name, metadata.name]
+    .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+
+  return metadataName?.trim() || user.email?.split("@")[0]?.trim() || "Hem-Listan";
+};
+
+export const loadOrCreateUserProfile = async (user: User): Promise<UserProfile | null> => {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data: existingProfile, error: selectError } = await client
+    .from("hl_profiles")
+    .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
+    .eq("user_id", user.id)
+    .maybeSingle<UserProfileRow>();
+
+  if (selectError) {
+    console.error("profile_load_error", selectError);
+    return null;
+  }
+
+  if (existingProfile) return mapUserProfile(existingProfile);
+
+  const { data: createdProfile, error: insertError } = await client
+    .from("hl_profiles")
+    .insert({
+      user_id: user.id,
+      display_name: getInitialProfileDisplayName(user),
+    })
+    .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
+    .single<UserProfileRow>();
+
+  if (insertError) {
+    // A parallel auth event may have created the profile after the initial read.
+    const { data: racedProfile } = await client
+      .from("hl_profiles")
+      .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
+      .eq("user_id", user.id)
+      .maybeSingle<UserProfileRow>();
+
+    if (racedProfile) return mapUserProfile(racedProfile);
+    console.error("profile_create_error", insertError);
+    return null;
+  }
+
+  return mapUserProfile(createdProfile);
+};
+
+export const updateUserProfile = async (
+  userId: string,
+  updates: { displayName?: string; avatarPath?: string | null; avatarUrl?: string | null },
+): Promise<UserProfile | null> => {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const payload: Record<string, string | null> = {};
+  if (updates.displayName !== undefined) payload.display_name = updates.displayName.trim();
+  if (updates.avatarPath !== undefined) payload.avatar_path = updates.avatarPath;
+  if (updates.avatarUrl !== undefined) payload.avatar_url = updates.avatarUrl;
+
+  const { data, error } = await client
+    .from("hl_profiles")
+    .update(payload)
+    .eq("user_id", userId)
+    .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
+    .single<UserProfileRow>();
+
+  if (error) {
+    console.error("profile_update_error", error);
+    return null;
+  }
+
+  return mapUserProfile(data);
+};
+
+const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+  const response = await fetch(dataUrl);
+  return response.blob();
+};
+
+export const uploadUserAvatar = async (
+  userId: string,
+  imageDataUrl: string,
+  previousAvatarPath?: string | null,
+): Promise<UserProfile | null> => {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const avatarPath = `${userId}/avatar-${Date.now()}.jpg`;
+  const imageBlob = await dataUrlToBlob(imageDataUrl);
+  const { error: uploadError } = await client.storage
+    .from("hl-avatars")
+    .upload(avatarPath, imageBlob, { contentType: "image/jpeg", upsert: false });
+
+  if (uploadError) {
+    console.error("profile_avatar_upload_error", uploadError);
+    return null;
+  }
+
+  const { data: publicUrlData } = client.storage.from("hl-avatars").getPublicUrl(avatarPath);
+  const updatedProfile = await updateUserProfile(userId, {
+    avatarPath,
+    avatarUrl: publicUrlData.publicUrl,
+  });
+
+  if (!updatedProfile) {
+    await client.storage.from("hl-avatars").remove([avatarPath]);
+    return null;
+  }
+
+  if (previousAvatarPath && previousAvatarPath !== avatarPath) {
+    const { error: cleanupError } = await client.storage.from("hl-avatars").remove([previousAvatarPath]);
+    if (cleanupError) console.warn("profile_avatar_cleanup_error", cleanupError);
+  }
+
+  return updatedProfile;
+};
+
+export const removeUserAvatar = async (
+  userId: string,
+  avatarPath?: string | null,
+): Promise<UserProfile | null> => {
+  const updatedProfile = await updateUserProfile(userId, { avatarPath: null, avatarUrl: null });
+  if (!updatedProfile) return null;
+
+  if (avatarPath) {
+    const client = getSupabaseClient();
+    const { error } = await client?.storage.from("hl-avatars").remove([avatarPath]) ?? { error: null };
+    if (error) console.warn("profile_avatar_remove_error", error);
+  }
+
+  return updatedProfile;
+};
 
 
 
