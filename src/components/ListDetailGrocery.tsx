@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, TaskItem, MealSlot, MealType } from "../types";
 import LucideIcon from "./LucideIcon";
+import SharedListIndicator from "./SharedListIndicator";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 
@@ -286,10 +287,13 @@ export default function ListDetailGrocery({
           <LucideIcon name="arrow_back" className="w-6 h-6" />
         </button>
 
-        <div className="flex flex-col items-center flex-1 pr-4">
-          <h1 className="font-display text-lg font-bold text-text-main line-clamp-1">
-            {list.name}
-          </h1>
+        <div className="flex min-w-0 flex-1 flex-col items-center pr-4">
+          <div className="flex max-w-full items-center gap-2">
+            <h1 className="min-w-0 truncate font-display text-lg font-bold text-text-main">
+              {list.name}
+            </h1>
+            <SharedListIndicator membershipRole={list.membershipRole} />
+          </div>
           {/* Dot Pagination indicators */}
           <div className="flex gap-1.5 mt-1.5">
             <span
