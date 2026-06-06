@@ -536,7 +536,14 @@ export default function DashboardView({
                       <h3 className="min-w-0 truncate font-display text-base font-bold text-text-main transition-colors group-hover:text-secondary">
                         {list.name}
                       </h3>
-                      <SharedListIndicator membershipRole={list.membershipRole} iconOnly />
+                      <SharedListIndicator
+                        membershipRole={list.membershipRole}
+                        isShared={
+                          list.membershipRole === "member"
+                          || (list.membershipRole === "owner" && (list.memberCount ?? 1) >= 2)
+                        }
+                        iconOnly
+                      />
                     </div>
 
                     <div className="flex items-center justify-between font-sans text-xs text-outline mb-1 font-medium">

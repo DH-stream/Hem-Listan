@@ -6,14 +6,16 @@ interface SharedListIndicatorProps {
   membershipRole?: List["membershipRole"];
   className?: string;
   iconOnly?: boolean;
+  isShared?: boolean;
 }
 
 export default function SharedListIndicator({
   membershipRole,
   className = "",
   iconOnly = false,
+  isShared,
 }: SharedListIndicatorProps) {
-  if (membershipRole !== "member") return null;
+  if (!(isShared ?? membershipRole === "member")) return null;
 
   if (iconOnly) {
     return (

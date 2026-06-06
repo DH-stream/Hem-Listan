@@ -990,15 +990,20 @@ export const fetchLists = async (): Promise<List[] | null> => {
 
     const listIds = listsBody.map((row: any) => row.id);
     const inFilter = encodeURIComponent(`(${listIds.join(',')})`);
-    const [tasksResponse, mealsResponse] = await Promise.all([
+    const [tasksResponse, mealsResponse, membersResponse] = await Promise.all([
       fetch(`${baseUrl}/rest/v1/hl_tasks?select=*&list_id=in.${inFilter}&order=sort_order.asc`, { headers, signal: controller.signal }),
       fetch(`${baseUrl}/rest/v1/hl_meals?select=*&list_id=in.${inFilter}`, { headers, signal: controller.signal }),
+      fetch(`${baseUrl}/rest/v1/hl_list_members?select=list_id&list_id=in.${inFilter}`, { headers, signal: controller.signal }),
     ]);
-    const [tasksBody, mealsBody] = await Promise.all([
+    const [tasksBody, mealsBody, membersBody] = await Promise.all([
       parseJsonResponse(tasksResponse),
       parseJsonResponse(mealsResponse),
+      parseJsonResponse(membersResponse),
     ]);
-    if (!tasksResponse.ok || !mealsResponse.ok || !Array.isArray(tasksBody) || !Array.isArray(mealsBody)) return null;
+    if (
+      !tasksResponse.ok || !mealsResponse.ok || !membersResponse.ok
+      || !Array.isArray(tasksBody) || !Array.isArray(mealsBody) || !Array.isArray(membersBody)
+    ) return null;
 
     return listsBody.map((listRow: any) => ({
       id: listRow.id,
@@ -1007,6 +1012,7 @@ export const fetchLists = async (): Promise<List[] | null> => {
       themeColor: listRow.theme_color || '#1a5319',
       category: listRow.category as List["category"],
       membershipRole: listRow.owner_id === userId ? 'owner' : 'member',
+      memberCount: membersBody.filter((memberRow: any) => memberRow.list_id === listRow.id).length,
       tasks: tasksBody
         .filter((taskRow: any) => taskRow.list_id === listRow.id)
         .map((taskRow: any) => ({

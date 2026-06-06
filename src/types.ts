@@ -38,6 +38,7 @@ export interface List {
   deletedAt?: string;
   deleted_at?: string;
   membershipRole?: "owner" | "member";
+  memberCount?: number;
 }
 
 export interface ListMember {
