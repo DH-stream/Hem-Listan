@@ -7,6 +7,21 @@ import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
 
+type RecipeImportPreview = {
+  recipeName: string;
+  mealName?: string;
+  ingredients: { text: string; quantity: string; category: string }[];
+  sourceUrl?: string;
+  sourceDomain?: string;
+  extractionMethod?:
+    | "json_ld"
+    | "dom_fallback"
+    | "site_adapter"
+    | "ai_fallback"
+    | string;
+  confidence?: "high" | "medium" | "low";
+};
+
 interface ListDetailGroceryProps {
   list: List;
   members: ListMember[] | null;
@@ -58,6 +73,8 @@ export default function ListDetailGrocery({
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [recipeImportPreview, setRecipeImportPreview] =
+    useState<RecipeImportPreview | null>(null);
 
   // States for adding item / meals
   const [newItemText, setNewItemText] = useState("");
@@ -88,6 +105,7 @@ export default function ListDetailGrocery({
     setIsImporting(true);
     setImportError(null);
     setImportSuccess(null);
+    setRecipeImportPreview(null);
 
     try {
       const response = await fetch("/api/import-recipe", {
@@ -104,26 +122,53 @@ export default function ListDetailGrocery({
       }
 
       const data = await response.json();
-      if (data && data.ingredients) {
-        // Bulk import ingredients and meal slot dynamically!
-        onBulkAddGroceryDetails(
-          list.id,
-          data.mealName || data.recipeName,
-          data.ingredients,
-        );
-
-        setImportSuccess(
-          `Framgångsrikt importerat: "${data.recipeName}"! Ny middag inlagd och ${data.ingredients.length} varor tillagda i inköpslistan.`,
-        );
-        setRecipeUrl("");
-      } else {
+      if (!Array.isArray(data?.ingredients) || data.ingredients.length === 0) {
         throw new Error("Receptet verkar sakna ingredienser.");
       }
+
+      const sourceUrl = data.sourceUrl || recipeUrl.trim();
+      let sourceDomain = data.sourceDomain;
+      if (!sourceDomain) {
+        try {
+          sourceDomain = new URL(sourceUrl).hostname;
+        } catch {
+          sourceDomain = undefined;
+        }
+      }
+
+      setRecipeImportPreview({
+        recipeName: data.recipeName,
+        mealName: data.mealName,
+        ingredients: data.ingredients,
+        sourceUrl,
+        sourceDomain,
+        extractionMethod: data.extractionMethod,
+        confidence: data.confidence,
+      });
     } catch (err: any) {
       setImportError(err.message || "Ett oväntat fel uppstod.");
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const handleAcceptRecipeImport = () => {
+    if (!recipeImportPreview) return;
+
+    onBulkAddGroceryDetails(
+      list.id,
+      recipeImportPreview.mealName || recipeImportPreview.recipeName,
+      recipeImportPreview.ingredients,
+    );
+    setImportSuccess(
+      `Framgångsrikt importerat: "${recipeImportPreview.recipeName}"! Ny middag inlagd och ${recipeImportPreview.ingredients.length} varor tillagda i inköpslistan.`,
+    );
+    setRecipeImportPreview(null);
+    setRecipeUrl("");
+  };
+
+  const handleRejectRecipeImport = () => {
+    setRecipeImportPreview(null);
   };
 
   // Helper categorization heuristic in Swedish
@@ -369,7 +414,10 @@ export default function ListDetailGrocery({
                   type="url"
                   required
                   value={recipeUrl}
-                  onChange={(e) => setRecipeUrl(e.target.value)}
+                  onChange={(e) => {
+                    setRecipeUrl(e.target.value);
+                    setRecipeImportPreview(null);
+                  }}
                   className="flex-1 bg-surface-container-low border border-surface-container rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-outline/50 outline-none font-sans"
                   placeholder="https://..."
                   disabled={isImporting}
@@ -392,6 +440,50 @@ export default function ListDetailGrocery({
                   )}
                 </button>
               </form>
+
+              {recipeImportPreview && (
+                <div className="mt-4 rounded-xl border border-primary/20 bg-primary-fixed/20 p-4">
+                  <h3 className="font-display text-base font-bold text-text-main">
+                    Ser det här bra ut?
+                  </h3>
+                  <p className="mt-1 font-sans text-sm font-semibold text-primary">
+                    {recipeImportPreview.recipeName}
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {recipeImportPreview.ingredients.map((ingredient, index) => (
+                      <li
+                        key={`${ingredient.text}-${ingredient.quantity}-${index}`}
+                        className="flex items-start justify-between gap-3 border-b border-primary/10 pb-2 text-xs last:border-b-0 last:pb-0"
+                      >
+                        <span className="font-medium text-text-main">
+                          {ingredient.text}
+                        </span>
+                        {ingredient.quantity && (
+                          <span className="shrink-0 text-on-surface-variant">
+                            {ingredient.quantity}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAcceptRecipeImport}
+                      className="rounded-lg bg-primary px-4 py-2 font-display text-xs font-bold text-white transition-transform duration-150 active:scale-[0.97]"
+                    >
+                      Ja, lägg till
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRejectRecipeImport}
+                      className="rounded-lg border border-surface-container-highest bg-surface-container-lowest px-4 py-2 font-display text-xs font-bold text-on-surface-variant transition-transform duration-150 active:scale-[0.97]"
+                    >
+                      Avbryt
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Weekly slots section category */}
