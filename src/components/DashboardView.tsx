@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { List, Stats } from "../types";
 import LucideIcon from "./LucideIcon";
+import SharedListIndicator from "./SharedListIndicator";
 import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListInvite, createListShare } from "../lib/supabase";
@@ -531,10 +532,11 @@ export default function DashboardView({
                     <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
-                    <div className="flex items-center justify-between mb-1.5 gap-2">
-                      <h3 className="font-display text-base font-bold text-text-main group-hover:text-secondary transition-colors truncate">
+                    <div className="flex items-center mb-1.5 gap-2">
+                      <h3 className="min-w-0 truncate font-display text-base font-bold text-text-main transition-colors group-hover:text-secondary">
                         {list.name}
                       </h3>
+                      <SharedListIndicator membershipRole={list.membershipRole} />
                     </div>
 
                     <div className="flex items-center justify-between font-sans text-xs text-outline mb-1 font-medium">

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, TaskItem } from "../types";
 import LucideIcon from "./LucideIcon";
+import SharedListIndicator from "./SharedListIndicator";
 import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
 
@@ -144,19 +145,22 @@ export default function ListDetailRenovation({
     <div className="w-full max-w-[768px] mx-auto px-5 pb-[180px]">
       {/* Back Navigation Top Header */}
       <header className="w-full sticky top-0 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 z-40 mb-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <button
             onClick={onBack}
-            className="p-1.5 hover:bg-surface-container text-primary rounded-full transition-all active:scale-90"
+            className="shrink-0 p-1.5 hover:bg-surface-container text-primary rounded-full transition-all active:scale-90"
             title="Gå tillbaka"
           >
             <LucideIcon name="arrow_back" className="w-6 h-6" />
           </button>
-          <h1 className="font-display text-xl font-bold text-text-main line-clamp-1">
-            {list.name}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 truncate font-display text-xl font-bold text-text-main">
+              {list.name}
+            </h1>
+            <SharedListIndicator membershipRole={list.membershipRole} />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {completedCount > 0 && (
             <button
               onClick={() => onResetList(list.id)}
