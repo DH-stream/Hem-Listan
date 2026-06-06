@@ -5,6 +5,15 @@ import LucideIcon from "./LucideIcon";
 import { QUICK_TEMPLATES } from "../data";
 import ListActionsFlowModal from "./ListActionsFlowModal";
 import { createListShare } from "../lib/supabase";
+import {
+  getAppearanceBackgroundStyle,
+  getAppearanceBadgeStyle,
+  getCustomAppearanceImageUrl,
+  ListAppearance,
+  ListAppearanceBackgroundRef,
+  readListAppearanceMap,
+  writeListAppearance,
+} from "../lib/listVisuals";
 
 // Skapade ett interface för mallarna så slipper vi "any"-fel
 interface QuickTemplate {
@@ -43,6 +52,10 @@ export default function DashboardView({
     null,
   );
   const [pressingListId, setPressingListId] = useState<string | null>(null);
+  const [listAppearance, setListAppearance] = useState(() => readListAppearanceMap());
+  const [customImageUrls, setCustomImageUrls] = useState<Record<string, string>>(
+    {},
+  );
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggeredRef = useRef(false);
   const pressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -150,6 +163,81 @@ export default function DashboardView({
     }
   };
 
+  const handleUpdateListAppearance = (appearance: ListAppearance) => {
+    if (!pendingActionsList) return;
+
+    setListAppearance(writeListAppearance(pendingActionsList.id, appearance));
+  };
+
+
+  useEffect(() => {
+    let isActive = true;
+
+    const customRefs = Object.values(listAppearance).flatMap((appearance) =>
+      [appearance.background, appearance.iconImageOverride].filter(
+        (ref): ref is ListAppearanceBackgroundRef => ref?.type === "custom",
+      ),
+    );
+
+    setCustomImageUrls((currentUrls) => {
+      const activeIds = new Set(customRefs.map((ref) => ref.id));
+      const nextUrls = Object.entries(currentUrls).reduce<Record<string, string>>(
+        (acc, [id, url]) => {
+          if (activeIds.has(id)) {
+            acc[id] = url;
+          } else {
+            URL.revokeObjectURL(url);
+          }
+          return acc;
+        },
+        {},
+      );
+
+      const missingRefs = customRefs.filter((ref) => !nextUrls[ref.id]);
+      if (missingRefs.length > 0) {
+        Promise.all(
+          missingRefs.map(async (ref) => {
+            const url = await getCustomAppearanceImageUrl(ref.id);
+            return { id: ref.id, url };
+          }),
+        )
+          .then((results) => {
+            if (!isActive) {
+              results.forEach((result) => {
+                if (result.url) URL.revokeObjectURL(result.url);
+              });
+              return;
+            }
+
+            const loadedUrls = results.reduce<Record<string, string>>(
+              (acc, result) => {
+                if (result.url) acc[result.id] = result.url;
+                return acc;
+              },
+              {},
+            );
+
+            if (Object.keys(loadedUrls).length > 0) {
+              setCustomImageUrls((latestUrls) => ({
+                ...latestUrls,
+                ...loadedUrls,
+              }));
+            }
+          })
+          .catch((error) => {
+            console.error("load_list_appearance_image_error", { error });
+          });
+      }
+
+      return nextUrls;
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [listAppearance]);
+
+
   const getTodayDateString = () => {
     return new Date().toDateString(); // e.g. "Mon Jun 01 2026"
   };
@@ -229,6 +317,15 @@ export default function DashboardView({
   };
 
   const activeFact = getGreetingAndFact();
+
+
+  const pendingTotalTasks = pendingActionsList?.tasks.length || 0;
+  const pendingCheckedTasks =
+    pendingActionsList?.tasks.filter((task) => task.checked).length || 0;
+  const pendingProgressPercent =
+    pendingTotalTasks > 0
+      ? Math.round((pendingCheckedTasks / pendingTotalTasks) * 100)
+      : 0;
 
   // Pastel backgrounds for list index circular icons
   const getIconBg = (iconName: string) => {
@@ -348,6 +445,23 @@ export default function DashboardView({
               totalTasks > 0
                 ? Math.round((checkedTasks / totalTasks) * 100)
                 : 0;
+            const appearance = listAppearance[list.id] || {};
+            const displayIcon = appearance.icon || list.icon;
+            const background = getAppearanceBackgroundStyle(
+              appearance.background,
+              customImageUrls,
+              list.id,
+            );
+            const badgeBackground = getAppearanceBadgeStyle(
+              appearance.background,
+              customImageUrls,
+              `${list.id}:badge`,
+            );
+            const iconImage = getAppearanceBackgroundStyle(
+              appearance.iconImageOverride,
+              customImageUrls,
+              `${list.id}:icon`,
+            );
 
             return (
               <motion.div
@@ -365,18 +479,54 @@ export default function DashboardView({
                     : { scale: 1, y: 0 }
                 }
                 transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-                className={`bg-surface-container-lowest p-4 rounded-xl border bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-colors duration-300 active:scale-[0.99] ${
+                className={`relative overflow-hidden bg-surface-container-lowest p-4 rounded-xl border bento-glow-primary flex items-center justify-between cursor-pointer group hover:shadow-[0px_8px_30px_rgba(0,59,5,0.06)] hover:border-primary-fixed transition-colors duration-300 active:scale-[0.99] ${
                   pressingListId === list.id
                     ? "border-primary-fixed shadow-[0px_10px_34px_rgba(0,59,5,0.10)]"
                     : "border-surface-container/40"
                 }`}
                 layoutId={`list-card-${list.id}`}
               >
-                <div className="flex items-center gap-4 flex-1">
+                {background && (
+                  <>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-0 bg-cover bg-center"
+                      style={background}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.76)_0%,rgba(255,255,255,0.52)_48%,rgba(255,255,255,0.24)_100%)]"
+                    />
+                  </>
+                )}
+                <div className="relative z-10 flex items-center gap-4 flex-1">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${getIconBg(list.icon)}`}
+                    className={`relative w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden ${getIconBg(displayIcon)}`}
                   >
-                    <LucideIcon name={list.icon} className="w-6 h-6" />
+                    {badgeBackground && (
+                      <>
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-cover bg-center"
+                          style={badgeBackground}
+                        />
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-white/42"
+                        />
+                      </>
+                    )}
+                    {iconImage && (
+                      <>
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-cover bg-center"
+                          style={iconImage}
+                        />
+                        <div aria-hidden="true" className="absolute inset-0 bg-black/10" />
+                      </>
+                    )}
+                    <LucideIcon name={displayIcon} className="relative z-10 w-6 h-6 drop-shadow-[0_1px_2px_rgba(255,255,255,0.75)]" />
                   </div>
                   <div className="flex-grow min-w-0 pr-2">
                     <div className="flex items-center justify-between mb-1.5 gap-2">
@@ -405,7 +555,7 @@ export default function DashboardView({
                 </div>
                 <LucideIcon
                   name="chevron-right"
-                  className="w-5 h-5 text-outline opacity-40 ml-2 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
+                  className="relative z-10 w-5 h-5 text-outline opacity-40 ml-2 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
                 />
               </motion.div>
             );
@@ -430,9 +580,19 @@ export default function DashboardView({
       <ListActionsFlowModal
         isOpen={!!pendingActionsList}
         listName={pendingActionsList?.name}
+        listId={pendingActionsList?.id}
+        listIcon={pendingActionsList?.icon}
+        listThemeColor={pendingActionsList?.themeColor}
+        progressLabel={`${pendingCheckedTasks}/${pendingTotalTasks} klara`}
+        progressPercent={pendingProgressPercent}
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
+        selectedAppearance={
+          pendingActionsList ? listAppearance[pendingActionsList.id] || {} : {}
+        }
+        customImageUrls={customImageUrls}
+        onUpdateAppearance={handleUpdateListAppearance}
         onConfirmDelete={handleConfirmDeleteList}
       />
 

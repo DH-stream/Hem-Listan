@@ -704,8 +704,9 @@ function MainApp() {
     category: "renovation" | "grocery" | "general"
   ) => {
     const tempId = `list-${Date.now()}`;
+    const selectedThemeColor = themeColor || "#003b05";
     const newList: List = {
-      id: tempId, name, icon, themeColor, category,
+      id: tempId, name, icon, themeColor: selectedThemeColor, category,
       tasks: [],
       meals: category === "grocery" ? [] : undefined
     };
