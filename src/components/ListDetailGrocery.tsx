@@ -6,21 +6,9 @@ import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
-
-type RecipeImportPreview = {
-  recipeName: string;
-  mealName?: string;
-  ingredients: { text: string; quantity: string; category: string }[];
-  sourceUrl?: string;
-  sourceDomain?: string;
-  extractionMethod?:
-    | "json_ld"
-    | "dom_fallback"
-    | "site_adapter"
-    | "ai_fallback"
-    | string;
-  confidence?: "high" | "medium" | "low";
-};
+import RecipeImportReviewSheet, {
+  RecipeImportPreview,
+} from "./RecipeImportReviewSheet";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -152,7 +140,7 @@ export default function ListDetailGrocery({
     }
   };
 
-  const handleAcceptRecipeImport = () => {
+  const handleAcceptRecipeImport = useCallback(() => {
     if (!recipeImportPreview) return;
 
     onBulkAddGroceryDetails(
@@ -165,11 +153,11 @@ export default function ListDetailGrocery({
     );
     setRecipeImportPreview(null);
     setRecipeUrl("");
-  };
+  }, [list.id, onBulkAddGroceryDetails, recipeImportPreview]);
 
-  const handleRejectRecipeImport = () => {
+  const handleRejectRecipeImport = useCallback(() => {
     setRecipeImportPreview(null);
-  };
+  }, []);
 
   // Helper categorization heuristic in Swedish
   const predictCategory = (text: string): string => {
@@ -441,49 +429,6 @@ export default function ListDetailGrocery({
                 </button>
               </form>
 
-              {recipeImportPreview && (
-                <div className="mt-4 rounded-xl border border-primary/20 bg-primary-fixed/20 p-4">
-                  <h3 className="font-display text-base font-bold text-text-main">
-                    Ser det här bra ut?
-                  </h3>
-                  <p className="mt-1 font-sans text-sm font-semibold text-primary">
-                    {recipeImportPreview.recipeName}
-                  </p>
-                  <ul className="mt-3 space-y-2">
-                    {recipeImportPreview.ingredients.map((ingredient, index) => (
-                      <li
-                        key={`${ingredient.text}-${ingredient.quantity}-${index}`}
-                        className="flex items-start justify-between gap-3 border-b border-primary/10 pb-2 text-xs last:border-b-0 last:pb-0"
-                      >
-                        <span className="font-medium text-text-main">
-                          {ingredient.text}
-                        </span>
-                        {ingredient.quantity && (
-                          <span className="shrink-0 text-on-surface-variant">
-                            {ingredient.quantity}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleAcceptRecipeImport}
-                      className="rounded-lg bg-primary px-4 py-2 font-display text-xs font-bold text-white transition-transform duration-150 active:scale-[0.97]"
-                    >
-                      Ja, lägg till
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRejectRecipeImport}
-                      className="rounded-lg border border-surface-container-highest bg-surface-container-lowest px-4 py-2 font-display text-xs font-bold text-on-surface-variant transition-transform duration-150 active:scale-[0.97]"
-                    >
-                      Avbryt
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Weekly slots section category */}
@@ -917,6 +862,13 @@ export default function ListDetailGrocery({
           </button>
         </nav>
       </footer>
+      <RecipeImportReviewSheet
+        open={recipeImportPreview !== null}
+        preview={recipeImportPreview}
+        onAccept={handleAcceptRecipeImport}
+        onCancel={handleRejectRecipeImport}
+      />
+
       <MealModal
         isOpen={mealModalOpen}
         onClose={handleMealModalClose}
