@@ -11,7 +11,6 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
   const [listName, setListName] = useState("");
   const [selectedListType, setSelectedListType] = useState<"general" | "grocery">("general");
   const [selectedIcon, setSelectedIcon] = useState("home");
-  const [hasManuallySelectedIcon, setHasManuallySelectedIcon] = useState(false);
   const [selectedColor, setSelectedColor] = useState("#003b05"); // default primary green
 
   // Standard icon library from design layout
@@ -34,19 +33,6 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     { value: "#7C2E00", label: "Eldbrun" },
     { value: "#9ad68e", label: "Ljusgrön" }
   ];
-
-  const handleListTypeChange = (listType: "general" | "grocery") => {
-    setSelectedListType(listType);
-
-    if (!hasManuallySelectedIcon) {
-      setSelectedIcon(listType === "grocery" ? "shopping_cart" : "home");
-    }
-  };
-
-  const handleIconChange = (icon: string) => {
-    setSelectedIcon(icon);
-    setHasManuallySelectedIcon(true);
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,7 +116,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
                     key={listType.value}
                     type="button"
                     aria-pressed={isActive}
-                    onClick={() => handleListTypeChange(listType.value)}
+                    onClick={() => setSelectedListType(listType.value)}
                     className={`relative min-h-28 rounded-2xl border p-4 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.98] ${
                       isActive
                         ? "border-primary bg-primary/5 shadow-[0_0_0_1px_var(--color-primary),0_8px_24px_rgba(0,59,5,0.06)]"
@@ -173,7 +159,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
                   <button
                     key={item.name}
                     type="button"
-                    onClick={() => handleIconChange(item.name)}
+                    onClick={() => setSelectedIcon(item.name)}
                     className={`p-3.5 rounded-xl flex items-center justify-center hover:bg-surface-variant/40 transition-all active:scale-95 cursor-pointer border ${
                       isActive
                         ? "bg-primary text-white border-primary"
