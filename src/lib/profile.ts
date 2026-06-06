@@ -6,9 +6,13 @@ const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
 
 export const readCachedUserProfile = (userId: string): UserProfile | null => {
+  console.log("[HL_PROFILE] cache read start", { userId });
   try {
     const cachedValue = localStorage.getItem(profileCacheKey(userId));
-    if (!cachedValue) return null;
+    if (!cachedValue) {
+      console.log("[HL_PROFILE] cache read empty", { userId });
+      return null;
+    }
 
     const profile = JSON.parse(cachedValue) as Partial<UserProfile>;
     if (
@@ -20,21 +24,33 @@ export const readCachedUserProfile = (userId: string): UserProfile | null => {
       || typeof profile.createdAt !== "string"
       || typeof profile.updatedAt !== "string"
     ) {
+      console.warn("[HL_PROFILE] cache read invalid shape", { userId, profile });
       return null;
     }
 
+    console.log("[HL_PROFILE] cache read valid", {
+      userId,
+      displayName: profile.displayName,
+      hasAvatar: !!profile.avatarUrl,
+    });
     return profile as UserProfile;
   } catch (error) {
-    console.warn("profile_cache_read_error", error);
+    console.warn("[HL_PROFILE] cache read error", { userId, error });
     return null;
   }
 };
 
 export const writeCachedUserProfile = (profile: UserProfile): void => {
+  console.log("[HL_PROFILE] cache write start", {
+    userId: profile.userId,
+    displayName: profile.displayName,
+    hasAvatar: !!profile.avatarUrl,
+  });
   try {
     localStorage.setItem(profileCacheKey(profile.userId), JSON.stringify(profile));
+    console.log("[HL_PROFILE] cache write success", { userId: profile.userId });
   } catch (error) {
-    console.warn("profile_cache_write_error", error);
+    console.warn("[HL_PROFILE] cache write error", { userId: profile.userId, error });
   }
 };
 

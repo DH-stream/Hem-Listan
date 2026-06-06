@@ -164,22 +164,33 @@ export const getInitialProfileDisplayName = (user: User): string => {
 };
 
 export const loadOrCreateUserProfile = async (user: User): Promise<UserProfile | null> => {
+  console.log("[HL_PROFILE] load/create start", { userId: user.id });
   const client = getSupabaseClient();
-  if (!client) return null;
+  if (!client) {
+    console.warn("[HL_PROFILE] load/create skipped without client", { userId: user.id });
+    return null;
+  }
 
+  console.log("[HL_PROFILE] select profile start", { userId: user.id });
   const { data: existingProfile, error: selectError } = await client
     .from("hl_profiles")
     .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
     .eq("user_id", user.id)
     .maybeSingle<UserProfileRow>();
+  console.log("[HL_PROFILE] select profile result", {
+    userId: user.id,
+    hasExistingProfile: !!existingProfile,
+    error: selectError?.message,
+  });
 
   if (selectError) {
-    console.error("profile_load_error", selectError);
+    console.error("[HL_PROFILE] profile load error", { userId: user.id, error: selectError });
     return null;
   }
 
   if (existingProfile) return mapUserProfile(existingProfile);
 
+  console.log("[HL_PROFILE] insert profile start", { userId: user.id });
   const { data: createdProfile, error: insertError } = await client
     .from("hl_profiles")
     .insert({
@@ -188,17 +199,28 @@ export const loadOrCreateUserProfile = async (user: User): Promise<UserProfile |
     })
     .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
     .single<UserProfileRow>();
+  console.log("[HL_PROFILE] insert profile result", {
+    userId: user.id,
+    hasCreatedProfile: !!createdProfile,
+    error: insertError?.message,
+  });
 
   if (insertError) {
     // A parallel auth event may have created the profile after the initial read.
-    const { data: racedProfile } = await client
+    console.log("[HL_PROFILE] raced profile select start", { userId: user.id });
+    const { data: racedProfile, error: racedSelectError } = await client
       .from("hl_profiles")
       .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
       .eq("user_id", user.id)
       .maybeSingle<UserProfileRow>();
+    console.log("[HL_PROFILE] raced profile select result", {
+      userId: user.id,
+      hasProfile: !!racedProfile,
+      error: racedSelectError?.message,
+    });
 
     if (racedProfile) return mapUserProfile(racedProfile);
-    console.error("profile_create_error", insertError);
+    console.error("[HL_PROFILE] profile create error", { userId: user.id, error: insertError });
     return null;
   }
 
@@ -209,23 +231,33 @@ export const updateUserProfile = async (
   userId: string,
   updates: { displayName?: string; avatarPath?: string | null; avatarUrl?: string | null },
 ): Promise<UserProfile | null> => {
+  console.log("[HL_PROFILE] update profile start", { userId, updates });
   const client = getSupabaseClient();
-  if (!client) return null;
+  if (!client) {
+    console.warn("[HL_PROFILE] update profile skipped without client", { userId });
+    return null;
+  }
 
   const payload: Record<string, string | null> = {};
   if (updates.displayName !== undefined) payload.display_name = updates.displayName.trim();
   if (updates.avatarPath !== undefined) payload.avatar_path = updates.avatarPath;
   if (updates.avatarUrl !== undefined) payload.avatar_url = updates.avatarUrl;
 
+  console.log("[HL_PROFILE] update profile request start", { userId });
   const { data, error } = await client
     .from("hl_profiles")
     .update(payload)
     .eq("user_id", userId)
     .select("user_id, display_name, avatar_path, avatar_url, created_at, updated_at")
     .single<UserProfileRow>();
+  console.log("[HL_PROFILE] update profile result", {
+    userId,
+    hasData: !!data,
+    error: error?.message,
+  });
 
   if (error) {
-    console.error("profile_update_error", error);
+    console.error("[HL_PROFILE] profile update error", { userId, error });
     return null;
   }
 
@@ -242,36 +274,81 @@ export const uploadUserAvatar = async (
   imageDataUrl: string,
   previousAvatarPath?: string | null,
 ): Promise<UserProfile | null> => {
+  console.log("[HL_PROFILE] avatar upload start", { userId, previousAvatarPath });
   const client = getSupabaseClient();
-  if (!client) return null;
+  if (!client) {
+    console.warn("[HL_PROFILE] avatar upload skipped without client", { userId });
+    return null;
+  }
 
   const avatarPath = `${userId}/avatar-${Date.now()}.jpg`;
+  console.log("[HL_PROFILE] avatar blob prepare start", { userId });
   const imageBlob = await dataUrlToBlob(imageDataUrl);
+  console.log("[HL_PROFILE] avatar blob prepared", {
+    userId,
+    size: imageBlob.size,
+    type: imageBlob.type,
+  });
+  console.log("[HL_PROFILE] storage upload start", { userId, avatarPath });
   const { error: uploadError } = await client.storage
     .from("hl-avatars")
     .upload(avatarPath, imageBlob, { contentType: "image/jpeg", upsert: false });
+  console.log("[HL_PROFILE] storage upload result", {
+    userId,
+    avatarPath,
+    error: uploadError?.message,
+  });
 
   if (uploadError) {
-    console.error("profile_avatar_upload_error", uploadError);
+    console.error("[HL_PROFILE] avatar upload error", { userId, avatarPath, error: uploadError });
     return null;
   }
 
   const { data: publicUrlData } = client.storage.from("hl-avatars").getPublicUrl(avatarPath);
+  console.log("[HL_PROFILE] avatar profile update after upload start", { userId, avatarPath });
   const updatedProfile = await updateUserProfile(userId, {
     avatarPath,
     avatarUrl: publicUrlData.publicUrl,
   });
+  console.log("[HL_PROFILE] avatar profile update after upload result", {
+    userId,
+    avatarPath,
+    hasProfile: !!updatedProfile,
+  });
 
   if (!updatedProfile) {
-    await client.storage.from("hl-avatars").remove([avatarPath]);
+    console.log("[HL_PROFILE] failed upload cleanup start", { userId, avatarPath });
+    const { error: cleanupError } = await client.storage.from("hl-avatars").remove([avatarPath]);
+    console.log("[HL_PROFILE] failed upload cleanup result", {
+      userId,
+      avatarPath,
+      error: cleanupError?.message,
+    });
     return null;
   }
 
   if (previousAvatarPath && previousAvatarPath !== avatarPath) {
+    console.log("[HL_PROFILE] previous avatar cleanup start", { userId, previousAvatarPath });
     const { error: cleanupError } = await client.storage.from("hl-avatars").remove([previousAvatarPath]);
-    if (cleanupError) console.warn("profile_avatar_cleanup_error", cleanupError);
+    console.log("[HL_PROFILE] previous avatar cleanup result", {
+      userId,
+      previousAvatarPath,
+      error: cleanupError?.message,
+    });
+    if (cleanupError) {
+      console.warn("[HL_PROFILE] previous avatar cleanup error", {
+        userId,
+        previousAvatarPath,
+        error: cleanupError,
+      });
+    }
   }
 
+  console.log("[HL_PROFILE] avatar upload complete", {
+    userId,
+    avatarPath,
+    hasProfile: !!updatedProfile,
+  });
   return updatedProfile;
 };
 
@@ -279,18 +356,39 @@ export const removeUserAvatar = async (
   userId: string,
   avatarPath?: string | null,
 ): Promise<UserProfile | null> => {
+  console.log("[HL_PROFILE] avatar remove start", { userId, avatarPath });
+  console.log("[HL_PROFILE] avatar profile clear start", { userId, avatarPath });
   const updatedProfile = await updateUserProfile(userId, { avatarPath: null, avatarUrl: null });
+  console.log("[HL_PROFILE] avatar profile cleared", {
+    userId,
+    hasProfile: !!updatedProfile,
+  });
   if (!updatedProfile) return null;
 
   if (avatarPath) {
     const client = getSupabaseClient();
-    const { error } = await client?.storage.from("hl-avatars").remove([avatarPath]) ?? { error: null };
-    if (error) console.warn("profile_avatar_remove_error", error);
+    if (!client) {
+      console.warn("[HL_PROFILE] storage avatar remove skipped without client", { userId, avatarPath });
+      return updatedProfile;
+    }
+
+    console.log("[HL_PROFILE] storage avatar remove start", { userId, avatarPath });
+    const { error } = await client.storage.from("hl-avatars").remove([avatarPath]);
+    console.log("[HL_PROFILE] storage avatar remove result", {
+      userId,
+      avatarPath,
+      error: error?.message,
+    });
+    if (error) console.warn("[HL_PROFILE] storage avatar remove error", { userId, avatarPath, error });
   }
 
+  console.log("[HL_PROFILE] avatar remove complete", {
+    userId,
+    avatarPath,
+    hasProfile: !!updatedProfile,
+  });
   return updatedProfile;
 };
-
 
 
 type CreateListShareRpcPayload = {

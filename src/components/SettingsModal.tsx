@@ -319,9 +319,16 @@ export default function SettingsModal({
   }, []);
 
   const saveName = useCallback(async (name: string) => {
-    const saved = await onUpdateUserName(name);
-    if (saved) showSuccess("Namn sparat");
-    else showError("Kunde inte spara namnet.");
+    console.log("[HL_PROFILE] settings save name clicked", { name });
+    try {
+      const saved = await onUpdateUserName(name);
+      console.log("[HL_PROFILE] settings save name resolved", { saved });
+      if (saved) showSuccess("Namn sparat");
+      else showError("Kunde inte spara namnet.");
+    } catch (saveError) {
+      console.error("[HL_PROFILE] settings save name failed", saveError);
+      throw saveError;
+    }
   }, [onUpdateUserName, showError, showSuccess]);
 
   const uploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -330,12 +337,22 @@ export default function SettingsModal({
 
     setImageSaving(true);
     try {
+      console.log("[HL_PROFILE] settings avatar file selected", {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+      console.log("[HL_PROFILE] settings avatar compress start");
       const image = await compressImage(file);
+      console.log("[HL_PROFILE] settings avatar compress done", {
+        dataUrlLength: image.length,
+      });
       const saved = await onUpdateUserImage(image);
+      console.log("[HL_PROFILE] settings avatar save resolved", { saved });
       if (saved) showSuccess("Bild sparad");
       else showError("Kunde inte spara bilden.");
     } catch (uploadError) {
-      console.error("profile_image_prepare_error", uploadError);
+      console.error("[HL_PROFILE] settings avatar upload failed", uploadError);
       showError("Kunde inte läsa bilden.");
     } finally {
       setImageSaving(false);
@@ -348,9 +365,14 @@ export default function SettingsModal({
 
     setImageSaving(true);
     try {
+      console.log("[HL_PROFILE] settings avatar remove clicked");
       const saved = await onUpdateUserImage("");
+      console.log("[HL_PROFILE] settings avatar remove resolved", { saved });
       if (saved) showSuccess("Bild borttagen");
       else showError("Kunde inte ta bort bilden.");
+    } catch (removeError) {
+      console.error("[HL_PROFILE] settings avatar remove failed", removeError);
+      throw removeError;
     } finally {
       setImageSaving(false);
     }
