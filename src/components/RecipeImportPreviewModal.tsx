@@ -16,6 +16,7 @@ export type RecipeImportPreview = {
     | "ai_fallback"
     | string;
   confidence?: "high" | "medium" | "low";
+  qualityWarnings?: string[];
 };
 
 type RecipeImportPreviewModalProps = {
@@ -100,7 +101,9 @@ export default function RecipeImportPreviewModal({
   if (typeof document === "undefined") return null;
 
   const showConfidenceWarning =
-    preview?.confidence === "medium" || preview?.confidence === "low";
+    preview?.confidence === "medium" ||
+    preview?.confidence === "low" ||
+    Boolean(preview?.qualityWarnings?.length);
 
   return createPortal(
     <AnimatePresence>
@@ -165,7 +168,10 @@ export default function RecipeImportPreviewModal({
                     {showConfidenceWarning && (
                       <p className="mt-4 rounded-xl bg-primary-fixed/30 p-3 text-xs font-medium leading-relaxed text-on-surface-variant">
                         Jag är lite osäker på om allt kom med. Kolla gärna
-                        igenom.
+                        igenom
+                        {preview.qualityWarnings?.length
+                          ? `: ${preview.qualityWarnings.join(" ")}`
+                          : "."}
                       </p>
                     )}
 

@@ -132,6 +132,9 @@ export default function ListDetailGrocery({
         sourceDomain,
         extractionMethod: data.extractionMethod,
         confidence: data.confidence,
+        qualityWarnings: Array.isArray(data.qualityWarnings)
+          ? data.qualityWarnings
+          : [],
       });
     } catch (err: any) {
       setImportError(err.message || "Ett oväntat fel uppstod.");
@@ -381,8 +384,8 @@ export default function ListDetailGrocery({
                 </h2>
               </div>
               <p className="font-sans text-xs text-on-surface-variant font-medium mb-3">
-                Klistra in en länk från ICA, Tasteline, Arla m.fl. så hämtar
-                Gemini ingredienser samt rätter direkt.
+                Klistra in en länk från ICA, Arla eller Köket så hämtar vi
+                receptets ingredienser.
               </p>
 
               {importError && (
