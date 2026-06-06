@@ -5,6 +5,7 @@ import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
 import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
+import ListNameEditor from "./ListNameEditor";
 
 interface ListDetailRenovationProps {
   list: List;
@@ -23,6 +24,7 @@ interface ListDetailRenovationProps {
   onDeleteTask: (listId: string, taskId: string) => void;
   onUpdateTask: (listId: string, taskId: string, updates: Partial<TaskItem>) => void;
   onResetList: (listId: string) => void;
+  onRenameList: (listId: string, name: string) => Promise<boolean>;
   userImage?: string;
   userName?: string;
 }
@@ -36,6 +38,7 @@ export default function ListDetailRenovation({
   onDeleteTask,
   onUpdateTask,
   onResetList,
+  onRenameList,
   userImage,
   userName,
 }: ListDetailRenovationProps) {
@@ -156,11 +159,12 @@ export default function ListDetailRenovation({
             <LucideIcon name="arrow_back" className="w-6 h-6" />
           </button>
           <div className="flex min-w-0 flex-col">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 className="min-w-0 truncate font-display text-xl font-bold text-text-main">
-                {list.name}
-              </h1>
-            </div>
+            <ListNameEditor
+              name={list.name}
+              canRename={list.membershipRole !== "member"}
+              onRename={(name) => onRenameList(list.id, name)}
+              headingClassName="min-w-0 truncate font-display text-xl font-bold text-text-main"
+            />
             <SharedListCount count={members?.length ?? list.memberCount} className="mt-1" />
           </div>
         </div>

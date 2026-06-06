@@ -1456,6 +1456,64 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
   }
 };
 
+// Byt namn på lista via raw REST för att undvika SDK-anrop som kan fastna i Safari.
+export const updateListName = async (listId: string, name: string): Promise<boolean> => {
+  const normalizedName = name.trim();
+  const { url, anonKey } = getSupabaseConfig();
+  const authSnapshot = getSupabaseAuthSnapshot();
+  const accessToken = authSnapshot.accessToken;
+  const timeoutMs = 10000;
+
+  if (!normalizedName || !url || !anonKey || !accessToken || !isUuidValue(listId)) {
+    console.error("update_list_name_rest_error", {
+      error: "invalid_request_context",
+      listId,
+      hasName: Boolean(normalizedName),
+      hasUrl: Boolean(url),
+      hasAnonKey: Boolean(anonKey),
+      hasAccessToken: Boolean(accessToken),
+    });
+    return false;
+  }
+
+  const endpoint = `${url.replace(/\/$/, "")}/rest/v1/hl_lists?id=eq.${encodeURIComponent(listId)}&select=id`;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({ name: normalizedName }),
+      signal: controller.signal,
+    });
+    const responseBody = await parseJsonResponse(response);
+    const updated = response.ok && Array.isArray(responseBody) && responseBody.length === 1;
+
+    if (!updated) {
+      console.error("update_list_name_rest_error", {
+        listId,
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody,
+      });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("update_list_name_rest_exception", { error, listId });
+    return false;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 // Uppdatera lista
 export const updateList = async (listId: string, updates: Partial<Pick<List, 'name' | 'icon' | 'themeColor'>>) => {
   const client = getSupabaseClient();

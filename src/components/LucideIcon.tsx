@@ -108,6 +108,9 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
       return <Lucide.Sparkles {...props} />;
     case "check":
       return <Lucide.Check {...props} />;
+    case "edit":
+    case "pencil":
+      return <Lucide.Pencil {...props} />;
     default:
       return <Lucide.ListTodo {...props} />;
   }

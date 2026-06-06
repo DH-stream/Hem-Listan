@@ -5,6 +5,7 @@ import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
+import ListNameEditor from "./ListNameEditor";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -19,6 +20,7 @@ interface ListDetailGroceryProps {
     updates: Partial<TaskItem>,
   ) => void;
   onResetList: (listId: string) => void;
+  onRenameList: (listId: string, name: string) => Promise<boolean>;
   onAddMeal: (
     listId: string,
     day: string,
@@ -42,6 +44,7 @@ export default function ListDetailGrocery({
   onDeleteTask,
   onUpdateTask,
   onResetList,
+  onRenameList,
   onAddMeal,
   onDeleteMeal,
   onBulkAddGroceryDetails,
@@ -290,11 +293,12 @@ export default function ListDetailGrocery({
         </button>
 
         <div className="flex min-w-0 flex-1 flex-col items-center pr-4">
-          <div className="flex max-w-full items-center gap-2">
-            <h1 className="min-w-0 truncate font-display text-lg font-bold text-text-main">
-              {list.name}
-            </h1>
-          </div>
+          <ListNameEditor
+            name={list.name}
+            canRename={list.membershipRole !== "member"}
+            onRename={(name) => onRenameList(list.id, name)}
+            headingClassName="min-w-0 truncate font-display text-lg font-bold text-text-main"
+          />
           <SharedListCount count={members?.length ?? list.memberCount} className="mt-1.5" />
           {/* Dot Pagination indicators */}
           <div className="flex gap-1.5 mt-1.5">

@@ -23,6 +23,7 @@ import {
   fetchListMembers,
   fetchDeletedLists,
   createList,
+  updateListName,
   addTask,
   updateTask,
   deleteTask,
@@ -990,6 +991,30 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     console.error("cloud_soft_delete_list_error", { listId });
   };
 
+  const handleRenameList = async (listId: string, name: string): Promise<boolean> => {
+    const normalizedName = name.trim();
+    const list = lists.find(candidate => candidate.id === listId);
+    if (!list || !normalizedName || list.membershipRole === "member") return false;
+
+    const previousName = list.name;
+    setListsAndSync(currentLists => currentLists.map(candidate =>
+      candidate.id === listId ? { ...candidate, name: normalizedName } : candidate
+    ));
+
+    if (!isUuid(listId)) return true;
+
+    const canSave = await canCloudSave("update_list_name");
+    const saved = canSave && await updateListName(listId, normalizedName);
+    if (saved) return true;
+
+    setListsAndSync(currentLists => currentLists.map(candidate =>
+      candidate.id === listId && candidate.name === normalizedName
+        ? { ...candidate, name: previousName }
+        : candidate
+    ));
+    return false;
+  };
+
   const handleResetLists = () => {
     localStorage.removeItem("hem-listan-lists");
     applyAndSync([]);
@@ -1251,6 +1276,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onDeleteTask={handleDeleteTask}
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
+                  onRenameList={handleRenameList}
                   onAddMeal={handleAddMeal}
                   onDeleteMeal={handleDeleteMeal}
                   onBulkAddGroceryDetails={handleBulkAddGroceryDetails}
@@ -1265,6 +1291,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onDeleteTask={handleDeleteTask}
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
+                  onRenameList={handleRenameList}
                   userImage={userImage}
                   userName={userName}
                 />
