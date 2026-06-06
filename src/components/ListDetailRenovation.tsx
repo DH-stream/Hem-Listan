@@ -2,8 +2,7 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem } from "../types";
 import LucideIcon from "./LucideIcon";
-import SharedListIndicator from "./SharedListIndicator";
-import ListMembers from "./ListMembers";
+import SharedListCount from "./SharedListCount";
 import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
 
@@ -161,9 +160,8 @@ export default function ListDetailRenovation({
               <h1 className="min-w-0 truncate font-display text-xl font-bold text-text-main">
                 {list.name}
               </h1>
-              <SharedListIndicator membershipRole={list.membershipRole} />
             </div>
-            <ListMembers members={members} className="mt-1" />
+            <SharedListCount count={members?.length ?? list.memberCount} className="mt-1" />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">

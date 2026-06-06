@@ -2,8 +2,7 @@ import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType } from "../types";
 import LucideIcon from "./LucideIcon";
-import SharedListIndicator from "./SharedListIndicator";
-import ListMembers from "./ListMembers";
+import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 
@@ -295,9 +294,8 @@ export default function ListDetailGrocery({
             <h1 className="min-w-0 truncate font-display text-lg font-bold text-text-main">
               {list.name}
             </h1>
-            <SharedListIndicator membershipRole={list.membershipRole} />
           </div>
-          <ListMembers members={members} className="mt-1.5" />
+          <SharedListCount count={members?.length ?? list.memberCount} className="mt-1.5" />
           {/* Dot Pagination indicators */}
           <div className="flex gap-1.5 mt-1.5">
             <span
