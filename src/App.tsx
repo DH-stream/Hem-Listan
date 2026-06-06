@@ -150,6 +150,8 @@ const listFingerprint = (list: List) => JSON.stringify({
   meals: (list.meals ?? []).map(mealFingerprint),
 });
 
+const PENDING_INVITE_TOKEN_STORAGE_KEY = "hem-listan-pending-invite-token";
+
 const getInviteTokenFromPath = () => {
   const match = window.location.pathname.match(/^\/invite\/([^/?#]+)/);
   return match ? decodeURIComponent(match[1]) : null;
@@ -167,7 +169,10 @@ export default function App() {
     return <PublicShareView token={publicShareToken} />;
   }
 
-  return <MainApp inviteToken={getInviteTokenFromPath()} />;
+  const inviteToken = getInviteTokenFromPath()
+    ?? localStorage.getItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
+
+  return <MainApp inviteToken={inviteToken} />;
 }
 
 function MainApp({ inviteToken }: { inviteToken: string | null }) {
@@ -1080,6 +1085,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       return;
     }
 
+    localStorage.removeItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
     window.history.replaceState({}, document.title, "/");
     setCurrentView("dashboard");
     setInviteStatus("success");
@@ -1219,9 +1225,15 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
         <CollaborativeInviteView
           isLoggedIn={isLoggedIn}
           status={inviteStatus}
-          onLogin={() => setShowSettings(true)}
+          onLogin={() => {
+            localStorage.setItem(PENDING_INVITE_TOKEN_STORAGE_KEY, inviteToken);
+            setShowSettings(true);
+          }}
           onAccept={() => void handleAcceptInvite()}
-          onDone={() => setInviteDismissed(true)}
+          onDone={() => {
+            localStorage.removeItem(PENDING_INVITE_TOKEN_STORAGE_KEY);
+            setInviteDismissed(true);
+          }}
         />
       )}
 
