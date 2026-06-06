@@ -198,12 +198,16 @@ function MainApp() {
       setUserName(getInitialProfileDisplayName(user));
       setUserImage("");
 
-      const profile = await loadOrCreateUserProfile(user);
-      if (profile) {
-        setUserProfile(profile);
-        setUserName(profile.displayName);
-        setUserImage(profile.avatarUrl ?? "");
-      }
+      void loadOrCreateUserProfile(user)
+        .then((profile) => {
+          if (!profile) return;
+          setUserProfile(profile);
+          setUserName(profile.displayName);
+          setUserImage(profile.avatarUrl ?? "");
+        })
+        .catch((error) => {
+          console.warn("profile_background_load_error", error);
+        });
 
       await migrateLocalToSupabaseIfNeeded(user.id);
       await loadFromSupabase();
