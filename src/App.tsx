@@ -194,13 +194,27 @@ function MainApp() {
     if (!client) return;
 
     const handleAuthenticatedSession = async (user: User) => {
+      console.log("[HL_PROFILE] auth profile init start", {
+        userId: user.id,
+        email: user.email,
+      });
       setIsLoggedIn(true);
       setSessionUser(user);
       setUserProfile(null);
       setUserName(getInitialProfileDisplayName(user));
       setUserImage("");
+      console.log("[HL_PROFILE] fallback profile applied", {
+        userId: user.id,
+        displayName: getInitialProfileDisplayName(user),
+      });
 
       const cachedProfile = readCachedUserProfile(user.id);
+      console.log("[HL_PROFILE] cache read result", {
+        userId: user.id,
+        hasCachedProfile: !!cachedProfile,
+        cachedDisplayName: cachedProfile?.displayName,
+        hasCachedAvatar: !!cachedProfile?.avatarUrl,
+      });
       if (cachedProfile) {
         setUserProfile(cachedProfile);
         setUserName(cachedProfile.displayName);
@@ -209,18 +223,35 @@ function MainApp() {
 
       void loadOrCreateUserProfile(user)
         .then((profile) => {
+          console.log("[HL_PROFILE] background load resolved", {
+            userId: user.id,
+            hasProfile: !!profile,
+            profileUserId: profile?.userId,
+            displayName: profile?.displayName,
+            hasAvatar: !!profile?.avatarUrl,
+          });
           if (!profile) return;
           writeCachedUserProfile(profile);
-          if (getSupabaseAuthSnapshot().userId !== user.id) return;
+          const currentUserId = getSupabaseAuthSnapshot().userId;
+          if (currentUserId !== user.id) {
+            console.warn("[HL_PROFILE] skip applying stale profile", {
+              loadedForUserId: user.id,
+              currentUserId,
+            });
+            return;
+          }
 
           setUserProfile(profile);
           setUserName(profile.displayName);
           setUserImage(profile.avatarUrl ?? "");
         })
         .catch((error) => {
-          console.warn("profile_background_load_error", error);
+          console.warn("[HL_PROFILE] background load failed", error);
         });
 
+      console.log("[HL_PROFILE] continuing list sync after starting profile load", {
+        userId: user.id,
+      });
       await migrateLocalToSupabaseIfNeeded(user.id);
       await loadFromSupabase();
       subscribeRealtime();
