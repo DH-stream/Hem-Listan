@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  importRecipeFromUrl,
-  RecipeImportError,
-  type RecipeImportErrorCode,
-} from "./_lib/recipeImporter";
 
 type ApiRequest = IncomingMessage & { body?: { url?: unknown } };
 type ApiResponse = ServerResponse & {
@@ -12,7 +7,7 @@ type ApiResponse = ServerResponse & {
   json(body: unknown): ApiResponse;
 };
 
-const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
+const importErrorStatuses: Partial<Record<string, number>> = {
   invalid_url: 400,
   unsafe_redirect: 400,
   unsupported_content_type: 422,
@@ -53,7 +48,22 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  logImport("info", "importer_loaded", requestId);
+  let importer: typeof import("./_lib/recipeImporter");
+  try {
+    importer = await import("./_lib/recipeImporter");
+    logImport("info", "importer_loaded", requestId);
+  } catch (error) {
+    logImport("error", "route_module_load_failed", requestId, {
+      errorName: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack?.split("\n")[0] : undefined,
+    });
+    return res.status(500).json({
+      error: "Receptimporten kunde inte startas.",
+      code: "route_module_load_failed",
+      requestId,
+    });
+  }
 
   try {
     let hostname: string | undefined;
@@ -67,7 +77,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     }
     logImport("info", "import_start", requestId, { hostname });
 
-    const recipe = await importRecipeFromUrl(req.body?.url, { requestId });
+    const recipe = await importer.importRecipeFromUrl(req.body?.url, {
+      requestId,
+    });
     logImport("info", "import_success", requestId, {
       recipeName: recipe.recipeName,
       ingredientCount: recipe.ingredients.length,
@@ -80,9 +92,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return res.status(200).json(recipe);
   } catch (error) {
     const importError =
-      error instanceof RecipeImportError
+      error instanceof importer.RecipeImportError
         ? error
-        : new RecipeImportError(
+        : new importer.RecipeImportError(
             "fetch_failed",
             "Receptet kunde inte importeras.",
           );
