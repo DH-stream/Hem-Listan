@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import {
-  importRecipeFromUrl,
-  RecipeImportError,
-  type RecipeImportErrorCode,
-} from "../recipeImporter";
+import type { RecipeImportErrorCode } from "../recipeImporter";
 
 type ApiRequest = IncomingMessage & { body?: { url?: unknown } };
 type ApiResponse = ServerResponse & {
@@ -52,6 +48,25 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  let importerModule: typeof import("../recipeImporter");
+  try {
+    importerModule = await import("../recipeImporter");
+    logImport("info", "importer_loaded", requestId);
+  } catch (error) {
+    logImport("error", "route_module_load_failed", requestId, {
+      errorName: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : undefined,
+      stack: error instanceof Error ? error.stack?.split("\n")[0] : undefined,
+    });
+    return res.status(500).json({
+      error: "Receptimporten kunde inte startas.",
+      code: "route_module_load_failed",
+      requestId,
+    });
+  }
+
+  const { importRecipeFromUrl, RecipeImportError } = importerModule;
 
   try {
     let hostname: string | undefined;
