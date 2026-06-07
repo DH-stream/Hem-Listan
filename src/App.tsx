@@ -814,41 +814,43 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const handleBulkAddGroceryDetails = async (
     listId: string,
     mealName: string,
+    day: string,
+    mealType: MealType,
     ingredients: { text: string; quantity: string; category: string }[]
   ) => {
-    const updated = lists.map(l => {
-      if (l.id !== listId) return l;
-      const currentMeals = [...(l.meals ?? [])];
-      const targetedDays = ["Tisdag", "Onsdag", "Torsdag", "Fredag", "Måndag", "Lördag", "Söndag"];
-      let slottedDay = "Onsdag";
-      for (const day of targetedDays) {
-        if (!currentMeals.some(m => m.day === day && m.type === "middag")) { slottedDay = day; break; }
-      }
-      const newMeal = { id: `meal-${Date.now()}-imported`, day: slottedDay, type: "middag" as MealType, name: mealName };
-      currentMeals.push(newMeal);
-      const newTasks = ingredients.map((ing, idx) => ({
-        id: `task-imported-${Date.now()}-${idx}`,
-        text: `${ing.text} (${ing.quantity})`,
-        checked: false,
-        notes: ing.category
-      }));
-      return { ...l, meals: currentMeals, tasks: [...newTasks, ...l.tasks] };
-    });
+    const importId = Date.now();
+    const newMeal = {
+      id: `meal-${importId}-imported`,
+      day,
+      type: mealType,
+      name: mealName,
+    };
+    const newTasks = ingredients.map((ingredient, index) => ({
+      id: `task-imported-${importId}-${index}`,
+      text: ingredient.quantity
+        ? `${ingredient.text} (${ingredient.quantity})`
+        : ingredient.text,
+      checked: false,
+      notes: ingredient.category,
+    }));
+    const updated = lists.map(list =>
+      list.id === listId
+        ? {
+            ...list,
+            meals: [...(list.meals ?? []), newMeal],
+            tasks: [...newTasks, ...list.tasks],
+          }
+        : list
+    );
     applyAndSync(updated);
 
     if (await canCloudSave("bulk_add_grocery_details")) {
-      const list = updated.find(l => l.id === listId);
-      if (list) {
-        for (const task of list.tasks.filter(t => t.id.includes('imported'))) {
-          const dbId = await addTask(listId, task);
-          if (!dbId) console.error("cloud_add_task_error", { listId, taskId: task.id });
-        }
-        const newMeal = list.meals?.find(m => m.id.includes('imported'));
-        if (newMeal) {
-          const dbId = await upsertMeal(listId, newMeal);
-          if (!dbId) console.error("cloud_add_meal_error", { listId, mealId: newMeal.id });
-        }
+      for (const task of newTasks) {
+        const dbId = await addTask(listId, task);
+        if (!dbId) console.error("cloud_add_task_error", { listId, taskId: task.id });
       }
+      const dbId = await upsertMeal(listId, newMeal);
+      if (!dbId) console.error("cloud_add_meal_error", { listId, mealId: newMeal.id });
     }
   };
 

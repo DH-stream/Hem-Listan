@@ -8,6 +8,7 @@ import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
 import RecipeImportPreviewModal, {
   RecipeImportPreview,
+  RecipeImportSelection,
 } from "./RecipeImportPreviewModal";
 
 interface ListDetailGroceryProps {
@@ -34,6 +35,8 @@ interface ListDetailGroceryProps {
   onBulkAddGroceryDetails: (
     listId: string,
     mealName: string,
+    day: string,
+    mealType: MealType,
     ingredients: { text: string; quantity: string; category: string }[],
   ) => void;
 }
@@ -82,9 +85,10 @@ export default function ListDetailGrocery({
     "Onsdag",
     "Torsdag",
     "Fredag",
-    "LÖrdag",
+    "Lördag",
     "Söndag",
   ];
+  const currentDay = defaultDays[(new Date().getDay() + 6) % 7];
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,16 +224,18 @@ export default function ListDetailGrocery({
     }
   };
 
-  const handleAcceptRecipeImport = useCallback(() => {
+  const handleAcceptRecipeImport = useCallback((selection: RecipeImportSelection) => {
     if (!recipeImportPreview) return;
 
     onBulkAddGroceryDetails(
       list.id,
       recipeImportPreview.mealName || recipeImportPreview.recipeName,
-      recipeImportPreview.ingredients,
+      selection.day,
+      selection.mealType,
+      selection.ingredients,
     );
     setImportSuccess(
-      `Framgångsrikt importerat: "${recipeImportPreview.recipeName}"! Ny middag inlagd och ${recipeImportPreview.ingredients.length} varor tillagda i inköpslistan.`,
+      `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
     );
     setRecipeImportPreview(null);
     setRecipeUrl("");
@@ -945,6 +951,9 @@ export default function ListDetailGrocery({
       <RecipeImportPreviewModal
         open={recipeImportPreview !== null}
         preview={recipeImportPreview}
+        days={defaultDays}
+        initialDay={pendingMeal?.day ?? currentDay}
+        initialMealType={pendingMeal?.type ?? "middag"}
         onAccept={handleAcceptRecipeImport}
         onCancel={handleRejectRecipeImport}
       />

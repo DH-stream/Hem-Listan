@@ -1,12 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
+import type { MealType } from "../types";
 import LucideIcon from "./LucideIcon";
+
+export type RecipeImportIngredient = {
+  text: string;
+  quantity: string;
+  category: string;
+};
 
 export type RecipeImportPreview = {
   recipeName: string;
   mealName?: string;
-  ingredients: { text: string; quantity: string; category: string }[];
+  ingredients: RecipeImportIngredient[];
   instructions?: string[];
   sourceUrl?: string;
   sourceDomain?: string;
@@ -20,27 +27,66 @@ export type RecipeImportPreview = {
   qualityWarnings?: string[];
 };
 
+export type RecipeImportSelection = {
+  day: string;
+  mealType: MealType;
+  ingredients: RecipeImportIngredient[];
+};
+
 type RecipeImportPreviewModalProps = {
   open: boolean;
   preview: RecipeImportPreview | null;
-  onAccept: () => void;
+  days: string[];
+  initialDay: string;
+  initialMealType: MealType;
+  onAccept: (selection: RecipeImportSelection) => void;
   onCancel: () => void;
 };
 
 type ConfirmationPhase = "review" | "confirming" | "check";
 
+const MEAL_TYPES: { value: MealType; label: string }[] = [
+  { value: "frukost", label: "Frukost" },
+  { value: "lunch", label: "Lunch" },
+  { value: "middag", label: "Middag" },
+];
 const easing = [0.23, 1, 0.32, 1] as const;
 const backdropTransition = { duration: 0.16, ease: easing } as const;
 const cardTransition = { duration: 0.18, ease: easing } as const;
 const contentTransition = { duration: 0.16, ease: easing } as const;
+const sectionClassName =
+  "rounded-2xl border border-surface-container/40 bg-surface-container-low p-4 shadow-[0_8px_24px_rgba(34,50,35,0.05)]";
+
+function splitIngredientNote(text: string) {
+  const noteIndex = text.search(/(?:^|\s)(?:obs!|tips:)/i);
+  if (noteIndex <= 0) return { name: text, note: "" };
+  return {
+    name: text.slice(0, noteIndex).trim().replace(/[,.]$/, ""),
+    note: text.slice(noteIndex).trim(),
+  };
+}
+
+function shouldShowCategory(category: string) {
+  const normalized = category.trim().toLowerCase();
+  return Boolean(normalized && normalized !== "övrigt" && normalized.length <= 24);
+}
 
 export default function RecipeImportPreviewModal({
   open,
   preview,
+  days,
+  initialDay,
+  initialMealType,
   onAccept,
   onCancel,
 }: RecipeImportPreviewModalProps) {
   const [phase, setPhase] = useState<ConfirmationPhase>("review");
+  const [selectedDay, setSelectedDay] = useState(initialDay);
+  const [selectedMealType, setSelectedMealType] =
+    useState<MealType>(initialMealType);
+  const [selectedIngredientIndexes, setSelectedIngredientIndexes] = useState<
+    Set<number>
+  >(new Set());
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const confirmTimersRef = useRef<number[]>([]);
   const hasConfirmedRef = useRef(false);
@@ -49,6 +95,15 @@ export default function RecipeImportPreviewModal({
     confirmTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     confirmTimersRef.current = [];
   }, []);
+
+  useEffect(() => {
+    if (!open || !preview) return;
+    setSelectedDay(initialDay);
+    setSelectedMealType(initialMealType);
+    setSelectedIngredientIndexes(
+      new Set(preview.ingredients.map((_, index) => index)),
+    );
+  }, [initialDay, initialMealType, open, preview]);
 
   useEffect(() => {
     if (!open) {
@@ -88,16 +143,40 @@ export default function RecipeImportPreviewModal({
     onCancel();
   }, [onCancel, phase]);
 
+  const toggleIngredient = useCallback((index: number) => {
+    setSelectedIngredientIndexes((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
   const handleConfirm = useCallback(() => {
-    if (phase !== "review" || hasConfirmedRef.current) return;
+    if (phase !== "review" || hasConfirmedRef.current || !preview) return;
+
+    const selection: RecipeImportSelection = {
+      day: selectedDay,
+      mealType: selectedMealType,
+      ingredients: preview.ingredients.filter((_, index) =>
+        selectedIngredientIndexes.has(index),
+      ),
+    };
 
     hasConfirmedRef.current = true;
     setPhase("confirming");
     confirmTimersRef.current = [
       window.setTimeout(() => setPhase("check"), 350),
-      window.setTimeout(() => onAccept(), 950),
+      window.setTimeout(() => onAccept(selection), 950),
     ];
-  }, [onAccept, phase]);
+  }, [
+    onAccept,
+    phase,
+    preview,
+    selectedDay,
+    selectedIngredientIndexes,
+    selectedMealType,
+  ]);
 
   if (typeof document === "undefined") return null;
 
@@ -105,6 +184,8 @@ export default function RecipeImportPreviewModal({
     preview?.confidence === "medium" ||
     preview?.confidence === "low" ||
     Boolean(preview?.qualityWarnings?.length);
+  const selectedCount = selectedIngredientIndexes.size;
+  const totalCount = preview?.ingredients.length ?? 0;
 
   return createPortal(
     <AnimatePresence>
@@ -115,7 +196,7 @@ export default function RecipeImportPreviewModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={backdropTransition}
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-4 backdrop-blur-[2px] font-sans"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/40 p-3 backdrop-blur-[2px] font-sans sm:p-4"
           onClick={handleCancel}
         >
           <motion.div
@@ -123,12 +204,12 @@ export default function RecipeImportPreviewModal({
             layoutDependency={phase}
             role="dialog"
             aria-modal="true"
-            aria-label="Förhandsgranska receptimport"
+            aria-labelledby="recipe-import-preview-title"
             initial={{ opacity: 0, scale: 0.98, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.98, y: 4 }}
             transition={cardTransition}
-            className="relative my-4 flex max-h-[calc(100dvh-2rem)] w-full max-w-md transform-gpu flex-col overflow-hidden rounded-2xl border border-surface-container/30 bg-surface-container-lowest shadow-2xl will-change-transform"
+            className="relative my-3 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md transform-gpu flex-col overflow-hidden rounded-3xl border border-surface-container/40 bg-surface-container-lowest shadow-2xl will-change-transform sm:my-4 sm:max-h-[calc(100dvh-2rem)]"
             onClick={(event) => event.stopPropagation()}
           >
             {phase === "review" && (
@@ -137,7 +218,7 @@ export default function RecipeImportPreviewModal({
                 type="button"
                 onClick={handleCancel}
                 aria-label="Avbryt receptimport"
-                className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-[color,transform] hover:text-text-main active:scale-[0.94]"
+                className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-[color,transform] duration-150 hover:text-text-main active:scale-[0.96]"
               >
                 <LucideIcon name="close" className="h-5 w-5" />
               </button>
@@ -151,80 +232,212 @@ export default function RecipeImportPreviewModal({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                   transition={contentTransition}
-                  className="flex min-h-0 flex-col"
+                  className="flex min-h-0 flex-1 flex-col"
                 >
-                  <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4 [-webkit-overflow-scrolling:touch]">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 pb-3 [-webkit-overflow-scrolling:touch] sm:p-6 sm:pb-4">
                     <div className="pr-10">
                       <h2
                         id="recipe-import-preview-title"
-                        className="font-display text-lg font-bold text-text-main"
+                        className="font-display text-xl font-bold text-text-main"
                       >
-                        Ser det här bra ut?
+                        Granska och planera
                       </h2>
-                      <p className="mt-1 font-sans text-sm font-semibold text-primary">
-                        {preview.recipeName}
+                      <p className="mt-1 text-xs font-medium text-on-surface-variant">
+                        Välj måltid och det som ska läggas i inköpslistan.
                       </p>
                     </div>
 
-                    {showConfidenceWarning && (
-                      <p className="mt-4 rounded-xl bg-primary-fixed/30 p-3 text-xs font-medium leading-relaxed text-on-surface-variant">
-                        Jag är lite osäker på om allt kom med. Kolla gärna
-                        igenom
-                        {preview.qualityWarnings?.length
-                          ? `: ${preview.qualityWarnings.join(" ")}`
-                          : "."}
+                    <section className={sectionClassName}>
+                      <p className="font-display text-[11px] font-bold uppercase tracking-wider text-accent-rust">
+                        Recept
                       </p>
-                    )}
-
-                    <ul className="mt-4 space-y-2">
-                      {preview.ingredients.map((ingredient, index) => (
-                        <li
-                          key={`${ingredient.text}-${ingredient.quantity}-${index}`}
-                          className="flex items-start justify-between gap-3 border-b border-primary/10 pb-2 text-sm last:border-b-0 last:pb-0"
-                        >
-                          <span className="font-medium text-text-main">
-                            {ingredient.text}
+                      <h3 className="mt-1.5 font-display text-base font-bold leading-snug text-text-main">
+                        {preview.recipeName}
+                      </h3>
+                      {preview.sourceDomain && (
+                        <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-on-surface-variant">
+                          <LucideIcon name="link" className="h-3.5 w-3.5" />
+                          {preview.sourceDomain.replace(/^www\./, "")}
+                        </p>
+                      )}
+                      {showConfidenceWarning && (
+                        <div className="mt-3 flex gap-2 rounded-xl border border-amber-500/20 bg-amber-50 p-3 text-xs font-medium leading-relaxed text-amber-900">
+                          <LucideIcon
+                            name="info"
+                            className="mt-0.5 h-4 w-4 shrink-0"
+                          />
+                          <span>
+                            Kontrollera gärna receptet en extra gång.
+                            {preview.qualityWarnings?.length
+                              ? ` ${preview.qualityWarnings.join(" ")}`
+                              : ""}
                           </span>
-                          {ingredient.quantity && (
-                            <span className="shrink-0 text-on-surface-variant">
-                              {ingredient.quantity}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                        </div>
+                      )}
+                    </section>
+
+                    <section className={sectionClassName}>
+                      <p className="font-display text-[11px] font-bold uppercase tracking-wider text-accent-rust">
+                        Planera
+                      </p>
+                      <div className="mt-3">
+                        <p className="mb-2 text-xs font-bold text-text-main">Dag</p>
+                        <div
+                          className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                          role="group"
+                          aria-label="Välj dag"
+                        >
+                          {days.map((day) => {
+                            const selected = selectedDay === day;
+                            return (
+                              <button
+                                key={day}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => setSelectedDay(day)}
+                                className={`shrink-0 rounded-full border px-3 py-2 text-xs font-bold transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] ${
+                                  selected
+                                    ? "border-primary bg-primary text-white shadow-sm"
+                                    : "border-surface-container-highest bg-surface-container-lowest text-on-surface-variant"
+                                }`}
+                              >
+                                {day}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <p className="mb-2 text-xs font-bold text-text-main">
+                          Måltid
+                        </p>
+                        <div
+                          className="grid grid-cols-3 gap-2"
+                          role="group"
+                          aria-label="Välj måltid"
+                        >
+                          {MEAL_TYPES.map(({ value, label }) => {
+                            const selected = selectedMealType === value;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => setSelectedMealType(value)}
+                                className={`rounded-xl border px-2 py-2.5 text-xs font-bold transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] ${
+                                  selected
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-surface-container-highest bg-surface-container-lowest text-on-surface-variant"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className={sectionClassName}>
+                      <div className="flex items-end justify-between gap-3">
+                        <div>
+                          <p className="font-display text-[11px] font-bold uppercase tracking-wider text-accent-rust">
+                            Ingredienser
+                          </p>
+                          <p className="mt-1 text-xs font-medium text-on-surface-variant">
+                            Avmarkera sådant du redan har hemma.
+                          </p>
+                        </div>
+                        <p className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary" aria-live="polite">
+                          {selectedCount} av {totalCount}
+                        </p>
+                      </div>
+                      <ul className="mt-3 divide-y divide-surface-container/60">
+                        {preview.ingredients.map((ingredient, index) => {
+                          const selected = selectedIngredientIndexes.has(index);
+                          const { name, note } = splitIngredientNote(
+                            ingredient.text,
+                          );
+                          return (
+                            <li key={`${ingredient.text}-${ingredient.quantity}-${index}`}>
+                              <label className="flex cursor-pointer items-start gap-3 py-3 first:pt-1 last:pb-0">
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleIngredient(index)}
+                                  className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-surface-container-highest accent-primary"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className={`block text-sm font-semibold leading-snug ${selected ? "text-text-main" : "text-on-surface-variant line-through opacity-60"}`}>
+                                    {name}
+                                  </span>
+                                  {note && (
+                                    <span className="mt-1 block text-[11px] leading-relaxed text-on-surface-variant">
+                                      {note}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="flex max-w-[38%] shrink-0 flex-col items-end gap-1.5 text-right">
+                                  {ingredient.quantity && (
+                                    <span className="text-xs font-semibold text-on-surface-variant">
+                                      {ingredient.quantity}
+                                    </span>
+                                  )}
+                                  {shouldShowCategory(ingredient.category) && (
+                                    <span className="max-w-full truncate rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-bold text-on-surface-variant">
+                                      {ingredient.category}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
 
                     {preview.instructions?.length ? (
-                      <section className="mt-5 border-t border-primary/10 pt-4">
-                        <h3 className="font-display text-sm font-bold text-text-main">
-                          Gör så här
-                        </h3>
-                        <ol className="mt-2 space-y-2 pl-5 text-xs leading-relaxed text-on-surface-variant [list-style:decimal]">
+                      <details className={sectionClassName}>
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                          <span className="font-display text-[11px] font-bold uppercase tracking-wider text-accent-rust">
+                            Gör så här
+                          </span>
+                          <LucideIcon
+                            name="expand_more"
+                            className="h-4 w-4 text-on-surface-variant"
+                          />
+                        </summary>
+                        <ol className="mt-3 space-y-2.5 pl-5 text-xs leading-relaxed text-on-surface-variant [list-style:decimal]">
                           {preview.instructions.map((instruction, index) => (
                             <li key={`${instruction}-${index}`} className="pl-1">
                               {instruction}
                             </li>
                           ))}
                         </ol>
-                      </section>
+                      </details>
                     ) : null}
                   </div>
 
-                  <div className="flex gap-2 border-t border-surface-container/40 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4">
-                    <button
-                      type="button"
-                      onClick={handleConfirm}
-                      className="flex-1 rounded-lg bg-primary px-4 py-3 font-display text-xs font-bold text-white transition-transform duration-150 active:scale-[0.97]"
-                    >
-                      Ja, lägg till
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCancel}
-                      className="flex-1 rounded-lg border border-surface-container-highest bg-surface-container-lowest px-4 py-3 font-display text-xs font-bold text-on-surface-variant transition-transform duration-150 active:scale-[0.97]"
-                    >
-                      Avbryt
-                    </button>
+                  <div className="border-t border-surface-container/40 bg-surface-container-lowest px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pt-4">
+                    <p className="mb-2 text-center text-[11px] font-semibold text-on-surface-variant">
+                      {selectedCount} av {totalCount} läggs till i inköpslistan
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleConfirm}
+                        className="flex-1 rounded-xl bg-primary px-4 py-3 font-display text-xs font-bold text-white shadow-sm transition-transform duration-150 active:scale-[0.97]"
+                      >
+                        Lägg till måltid
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancel}
+                        className="rounded-xl border border-surface-container-highest bg-surface-container-lowest px-4 py-3 font-display text-xs font-bold text-on-surface-variant transition-transform duration-150 active:scale-[0.97]"
+                      >
+                        Avbryt
+                      </button>
+                    </div>
                   </div>
                 </motion.div>
               ) : (
