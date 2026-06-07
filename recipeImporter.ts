@@ -27,6 +27,8 @@ type RecipeCandidate = {
 const SUPPORTED_SITES = ["ica.se", "arla.se", "koket.se"];
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_HTML_LENGTH = 2_000_000;
+const MAX_REDIRECTS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 const htmlEntities: Record<string, string> = {
   amp: "&",
@@ -445,25 +447,43 @@ export function extractRecipeFromHtml(
 }
 
 export async function importRecipeFromUrl(value: unknown): Promise<ExtractedRecipe> {
-  const url = validateRecipeUrl(value);
-  let response: Response;
+  let currentUrl = validateRecipeUrl(value);
+  let response: Response | null = null;
 
-  try {
-    response = await fetch(url, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "User-Agent": "Hem-Listan Recipe Importer/1.0",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.name === "TimeoutError" || error.name === "AbortError")
-    ) {
-      throw new Error("Receptsidan tog för lång tid att hämta.");
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    try {
+      response = await fetch(currentUrl, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "User-Agent": "Hem-Listan Recipe Importer/1.0",
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        throw new Error("Receptsidan tog för lång tid att hämta.");
+      }
+      throw new Error("Receptsidan kunde inte hämtas.");
     }
+
+    if (!REDIRECT_STATUSES.has(response.status)) break;
+    if (redirectCount === MAX_REDIRECTS) {
+      throw new Error("Receptsidan skickade vidare för många gånger.");
+    }
+
+    const location = response.headers.get("location");
+    if (!location) {
+      throw new Error("Receptsidan skickade vidare utan en giltig adress.");
+    }
+
+    currentUrl = validateRecipeUrl(new URL(location, currentUrl).toString());
+  }
+
+  if (!response) {
     throw new Error("Receptsidan kunde inte hämtas.");
   }
 
@@ -490,7 +510,7 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
     throw new Error("Receptsidan är för stor för att importera.");
   }
 
-  const recipe = extractRecipeFromHtml(html, url);
+  const recipe = extractRecipeFromHtml(html, currentUrl);
   if (!recipe) {
     throw new Error("Inga ingredienser hittades på receptsidan.");
   }

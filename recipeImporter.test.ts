@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   extractRecipeFromHtml,
+  importRecipeFromUrl,
   validateRecipeUrl,
 } from "./recipeImporter";
 
@@ -113,4 +114,102 @@ test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
   assert.equal(result.extractionMethod, "dom_fallback");
   assert.equal(result.confidence, "high");
   assert.equal(result.ingredients.length, 3);
+});
+
+const recipeHtml = `
+  <script type="application/ld+json">
+    {"@type":"Recipe","name":"Redirect-recept","recipeIngredient":[
+      "1 st tomat", "2 st ägg", "3 dl mjölk"
+    ]}
+  </script>
+`;
+
+test("rejects a redirect to localhost before fetching the target", async (t) => {
+  const fetchedUrls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = input.toString();
+    fetchedUrls.push(url);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "http://localhost/internal" },
+    });
+  });
+
+  await assert.rejects(
+    importRecipeFromUrl("https://public.example/recipe"),
+    /kan inte hämtas/,
+  );
+  assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
+});
+
+test("rejects a redirect to private IPv4 before fetching the target", async (t) => {
+  const fetchedUrls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = input.toString();
+    fetchedUrls.push(url);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "http://127.0.0.1:3000/internal" },
+    });
+  });
+
+  await assert.rejects(
+    importRecipeFromUrl("https://public.example/recipe"),
+    /kan inte hämtas/,
+  );
+  assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
+});
+
+test("follows a validated public redirect and uses the final source URL", async (t) => {
+  const fetchedUrls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input, init) => {
+    const url = input.toString();
+    fetchedUrls.push(url);
+    assert.equal(init?.redirect, "manual");
+
+    if (url === "https://public.example/recipe") {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "https://recipes.example/final" },
+      });
+    }
+
+    return new Response(recipeHtml, {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    });
+  });
+
+  const result = await importRecipeFromUrl("https://public.example/recipe");
+
+  assert.deepEqual(fetchedUrls, [
+    "https://public.example/recipe",
+    "https://recipes.example/final",
+  ]);
+  assert.equal(result.sourceUrl, "https://recipes.example/final");
+  assert.equal(result.sourceDomain, "recipes.example");
+});
+
+test("fails after three redirects without fetching a fourth target", async (t) => {
+  const fetchedUrls: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = input.toString();
+    fetchedUrls.push(url);
+    const redirectNumber = fetchedUrls.length;
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `/redirect-${redirectNumber}` },
+    });
+  });
+
+  await assert.rejects(
+    importRecipeFromUrl("https://public.example/recipe"),
+    /för många gånger/,
+  );
+  assert.deepEqual(fetchedUrls, [
+    "https://public.example/recipe",
+    "https://public.example/redirect-1",
+    "https://public.example/redirect-2",
+    "https://public.example/redirect-3",
+  ]);
 });
