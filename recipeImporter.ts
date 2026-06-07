@@ -97,7 +97,18 @@ function cleanText(value: unknown): string {
 }
 
 function getHostname(url: URL): string {
-  return url.hostname.toLowerCase().replace(/^www\./, "");
+  return url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .replace(/^www\./, "");
+}
+
+function isPrivateIpv6(hostname: string): boolean {
+  return (
+    hostname === "::1" ||
+    /^f[cd][0-9a-f]{2}:/.test(hostname) ||
+    /^fe[89ab][0-9a-f]:/.test(hostname)
+  );
 }
 
 function isSupportedSite(hostname: string): boolean {
@@ -137,7 +148,7 @@ export function validateRecipeUrl(
     hostname.endsWith(".local") ||
     /^(127\.|10\.|192\.168\.|169\.254\.)/.test(hostname) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-    hostname === "::1"
+    isPrivateIpv6(hostname)
   ) {
     return invalidUrl("Den receptlänken kan inte hämtas.");
   }

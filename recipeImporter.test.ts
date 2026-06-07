@@ -105,6 +105,10 @@ test("rejects invalid and local URLs", () => {
       error instanceof RecipeImportError && error.code === "invalid_url",
   );
   assert.throws(() => validateRecipeUrl("http://localhost/recipe"), /kan inte hämtas/);
+  assert.throws(() => validateRecipeUrl("http://[::1]/recipe"), /kan inte hämtas/);
+  assert.throws(() => validateRecipeUrl("http://[fc00::1]/recipe"), /kan inte hämtas/);
+  assert.throws(() => validateRecipeUrl("http://[fd00::1]/recipe"), /kan inte hämtas/);
+  assert.throws(() => validateRecipeUrl("http://[fe80::1]/recipe"), /kan inte hämtas/);
   assert.throws(() => validateRecipeUrl("file:///tmp/recipe"), /http- eller https/);
 });
 
@@ -176,6 +180,31 @@ test("rejects a redirect to private IPv4 before fetching the target", async (t) 
       error instanceof RecipeImportError && error.code === "unsafe_redirect",
   );
   assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
+});
+
+test("rejects internal IPv6 redirects before fetching the target", async (t) => {
+  for (const location of [
+    "http://[::1]/internal",
+    "http://[fd00::1]/internal",
+    "http://[fe80::1]/internal",
+  ]) {
+    const fetchedUrls: string[] = [];
+    t.mock.method(globalThis, "fetch", async (input) => {
+      fetchedUrls.push(input.toString());
+      return new Response(null, {
+        status: 302,
+        headers: { Location: location },
+      });
+    });
+
+    await assert.rejects(
+      importRecipeFromUrl("https://public.example/recipe"),
+      (error) =>
+        error instanceof RecipeImportError && error.code === "unsafe_redirect",
+    );
+    assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
+    t.mock.restoreAll();
+  }
 });
 
 test("follows a validated public redirect and uses the final source URL", async (t) => {
