@@ -8,9 +8,10 @@ interface MealModalProps {
   onConfirm: (name: string) => void;
   day?: string;
   mealType?: MealType;
+  onChooseSavedRecipe?: () => void;
 }
 
-const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }: MealModalProps) => {
+const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost", onChooseSavedRecipe }: MealModalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<'idle' | 'open' | 'confirming' | 'check' | 'closing'>('idle');
 
@@ -26,6 +27,11 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
     setPhase('closing');
     setTimeout(() => { setPhase('idle'); onClose(); }, 300);
   }, [onClose]);
+
+  const handleChooseSavedRecipe = useCallback(() => {
+    setPhase('idle');
+    onChooseSavedRecipe?.();
+  }, [onChooseSavedRecipe]);
 
   const handleConfirm = useCallback(() => {
     const value = inputRef.current?.value ?? '';
@@ -132,6 +138,20 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
           <p style={{ fontSize: '0.875rem', color: '#4b5563', marginBottom: 24 }}>
             Skriv in en maträtt eller en länk.
           </p>
+
+          {onChooseSavedRecipe && (
+            <button
+              type="button"
+              onClick={handleChooseSavedRecipe}
+              style={{
+                width: '100%', marginBottom: 16, padding: '12px 14px', borderRadius: 14,
+                border: '1px solid #d9e8d7', background: '#f3f8f1', color: '#1a6b20',
+                fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer',
+              }}
+            >
+              Vill du använda ett sparat recept?
+            </button>
+          )}
 
           <input
             ref={inputRef}

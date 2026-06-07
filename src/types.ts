@@ -22,6 +22,24 @@ export interface RecipeIngredient {
   note?: string;
 }
 
+export type RecipeRating = "liked" | "disliked";
+
+export interface SavedRecipe {
+  id: string;
+  ownerId: string;
+  title: string;
+  mealName?: string | null;
+  sourceUrl?: string | null;
+  sourceDomain?: string | null;
+  imageUrl?: string | null;
+  ingredients: RecipeIngredient[];
+  instructions?: string[] | null;
+  userRating?: RecipeRating | null;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string | null;
+}
+
 export interface MealSlot {
   id: string;
   day: string; // "Måndag", "Tisdag" etc.

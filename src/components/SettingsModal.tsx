@@ -4,6 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import type { DeletedList } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import LucideIcon from "./LucideIcon";
+import SavedRecipesSection from "./SavedRecipesSection";
 import { getSupabaseClient } from "../lib/supabase";
 import { getProfileInitials } from "../lib/profile";
 
@@ -624,6 +625,11 @@ export default function SettingsModal({
                 <AuthForm onSuccess={showSuccess} onError={showError} />
               </div>
             )}
+          </div>
+
+          <div className="space-y-2 border-t border-[#EDEADF] pt-2">
+            <h3 className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Recept</h3>
+            <SavedRecipesSection isLoggedIn={isAuthenticated} />
           </div>
 
           {/* RESET */}

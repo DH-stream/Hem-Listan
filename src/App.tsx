@@ -1316,6 +1316,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
               {activeList.category === "grocery" ? (
                 <ListDetailGrocery
                   list={activeList}
+                  isLoggedIn={isLoggedIn}
                   members={listMembers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
