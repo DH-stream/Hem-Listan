@@ -11,7 +11,6 @@ import RecipeImportPreviewModal, {
   RecipeImportPreview,
   RecipeImportSelection,
 } from "./RecipeImportPreviewModal";
-import SavedRecipePicker from "./SavedRecipePicker";
 import { getRecipeUrlFeedback, touchSavedRecipeLastUsed, upsertSavedRecipeFromImport } from "../lib/supabase";
 
 interface ListDetailGroceryProps {
@@ -87,7 +86,6 @@ export default function ListDetailGrocery({
   const [recipeImportPreview, setRecipeImportPreview] =
     useState<RecipeImportPreview | null>(null);
   const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
-  const [savedRecipePickerOpen, setSavedRecipePickerOpen] = useState(false);
   const [selectedSavedRecipeId, setSelectedSavedRecipeId] = useState<string | null>(null);
   const [dislikedUrlWarning, setDislikedUrlWarning] = useState<string | null>(null);
 
@@ -324,7 +322,6 @@ export default function ListDetailGrocery({
   }, []);
 
   const handleSelectSavedRecipe = useCallback((recipe: SavedRecipe) => {
-    setSavedRecipePickerOpen(false);
     setMealModalOpen(false);
     setSelectedSavedRecipeId(recipe.id);
     setRecipeImportPreview({
@@ -1101,13 +1098,6 @@ export default function ListDetailGrocery({
         onClose={() => setSelectedRecipeMeal(null)}
       />
 
-      <SavedRecipePicker
-        open={savedRecipePickerOpen}
-        isLoggedIn={isLoggedIn}
-        onClose={() => { setSavedRecipePickerOpen(false); if (pendingMeal) setMealModalOpen(true); }}
-        onSelect={handleSelectSavedRecipe}
-      />
-
       <AnimatePresence>
         {dislikedUrlWarning && (
           <motion.div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1129,7 +1119,8 @@ export default function ListDetailGrocery({
         onConfirm={handleMealModalConfirm}
         day={pendingMeal?.day ?? ""}
         mealType={pendingMeal?.type ?? "middag"}
-        onChooseSavedRecipe={() => { setMealModalOpen(false); setSavedRecipePickerOpen(true); }}
+        isLoggedIn={isLoggedIn}
+        onSelectSavedRecipe={handleSelectSavedRecipe}
       />
     </div>
   );
