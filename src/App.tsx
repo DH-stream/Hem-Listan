@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { DeletedList, List, ListMember, Stats, MealType, TaskItem, UserProfile } from "./types";
+import { DeletedList, List, ListMember, Stats, MealSlot, MealType, RecipeIngredient, TaskItem, UserProfile } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -816,7 +816,15 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     mealName: string,
     day: string,
     mealType: MealType,
-    ingredients: { text: string; quantity: string; category: string }[]
+    ingredients: RecipeIngredient[],
+    recipe: Pick<
+      MealSlot,
+      | "recipeSourceUrl"
+      | "recipeSourceDomain"
+      | "recipeIngredients"
+      | "recipeInstructions"
+      | "recipeImageUrl"
+    >,
   ) => {
     const importId = Date.now();
     const newMeal = {
@@ -824,6 +832,9 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       day,
       type: mealType,
       name: mealName,
+      source: "recipe_import" as const,
+      ...recipe,
+      importedAt: new Date().toISOString(),
     };
     const newTasks = ingredients.map((ingredient, index) => ({
       id: `task-imported-${importId}-${index}`,
