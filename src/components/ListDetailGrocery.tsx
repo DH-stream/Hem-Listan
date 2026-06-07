@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { List, ListMember, TaskItem, MealSlot, MealType } from "../types";
+import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
+import RecipeDetailModal from "./RecipeDetailModal";
 import RecipeImportPreviewModal, {
   RecipeImportPreview,
   RecipeImportSelection,
@@ -37,7 +38,15 @@ interface ListDetailGroceryProps {
     mealName: string,
     day: string,
     mealType: MealType,
-    ingredients: { text: string; quantity: string; category: string }[],
+    ingredients: RecipeIngredient[],
+    recipe: Pick<
+      MealSlot,
+      | "recipeSourceUrl"
+      | "recipeSourceDomain"
+      | "recipeIngredients"
+      | "recipeInstructions"
+      | "recipeImageUrl"
+    >,
   ) => void;
 }
 
@@ -66,6 +75,7 @@ export default function ListDetailGrocery({
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [recipeImportPreview, setRecipeImportPreview] =
     useState<RecipeImportPreview | null>(null);
+  const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
 
   // States for adding item / meals
   const [newItemText, setNewItemText] = useState("");
@@ -89,6 +99,16 @@ export default function ListDetailGrocery({
     "Söndag",
   ];
   const currentDay = defaultDays[(new Date().getDay() + 6) % 7];
+
+  const hasRecipeDetails = (meal: MealSlot) =>
+    meal.source === "recipe_import" ||
+    Boolean(meal.recipeIngredients?.length || meal.recipeInstructions?.length);
+
+  const handleMealKeyDown = (event: React.KeyboardEvent, meal: MealSlot) => {
+    if (!hasRecipeDetails(meal) || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    setSelectedRecipeMeal(meal);
+  };
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,6 +223,7 @@ export default function ListDetailGrocery({
           : undefined,
         sourceUrl,
         sourceDomain,
+        imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : undefined,
         extractionMethod: data.extractionMethod,
         confidence: data.confidence,
         qualityWarnings: Array.isArray(data.qualityWarnings)
@@ -233,6 +254,13 @@ export default function ListDetailGrocery({
       selection.day,
       selection.mealType,
       selection.ingredients,
+      {
+        recipeSourceUrl: recipeImportPreview.sourceUrl,
+        recipeSourceDomain: recipeImportPreview.sourceDomain,
+        recipeIngredients: recipeImportPreview.ingredients,
+        recipeInstructions: recipeImportPreview.instructions,
+        recipeImageUrl: recipeImportPreview.imageUrl,
+      },
     );
     setImportSuccess(
       `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
@@ -548,7 +576,13 @@ export default function ListDetailGrocery({
                       <div className="space-y-2.5">
                         {/* Frukost Slot */}
                         {breakfast ? (
-                          <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
+                          <div
+                            onClick={() => hasRecipeDetails(breakfast) && setSelectedRecipeMeal(breakfast)}
+                            onKeyDown={(event) => handleMealKeyDown(event, breakfast)}
+                            role={hasRecipeDetails(breakfast) ? "button" : undefined}
+                            tabIndex={hasRecipeDetails(breakfast) ? 0 : undefined}
+                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(breakfast) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                          >
                             <div className="flex items-center gap-3">
                               <LucideIcon
                                 name="sunny"
@@ -558,15 +592,20 @@ export default function ListDetailGrocery({
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Frukost
                                 </p>
-                                <p className="font-sans text-xs font-semibold text-text-main">
-                                  {breakfast.name}
+                                <p className="flex items-center gap-1.5 font-sans text-xs font-semibold text-text-main">
+                                  <span>{breakfast.name}</span>
+                                  {hasRecipeDetails(breakfast) ? (
+                                    <LucideIcon name="article" className="h-3.5 w-3.5 shrink-0 text-accent-rust/70" />
+                                  ) : null}
                                 </p>
                               </div>
                             </div>
                             <button
-                              onClick={() =>
-                                onDeleteMeal(list.id, breakfast.id)
-                              }
+                              aria-label="Ta bort frukost"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteMeal(list.id, breakfast.id);
+                              }}
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
                               <LucideIcon
@@ -595,7 +634,13 @@ export default function ListDetailGrocery({
 
                         {/* Lunch Slot */}
                         {lunch ? (
-                          <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
+                          <div
+                            onClick={() => hasRecipeDetails(lunch) && setSelectedRecipeMeal(lunch)}
+                            onKeyDown={(event) => handleMealKeyDown(event, lunch)}
+                            role={hasRecipeDetails(lunch) ? "button" : undefined}
+                            tabIndex={hasRecipeDetails(lunch) ? 0 : undefined}
+                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(lunch) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                          >
                             <div className="flex items-center gap-3">
                               <LucideIcon
                                 name="partly_sunny"
@@ -605,13 +650,20 @@ export default function ListDetailGrocery({
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Lunch
                                 </p>
-                                <p className="font-sans text-xs font-semibold text-text-main">
-                                  {lunch.name}
+                                <p className="flex items-center gap-1.5 font-sans text-xs font-semibold text-text-main">
+                                  <span>{lunch.name}</span>
+                                  {hasRecipeDetails(lunch) ? (
+                                    <LucideIcon name="article" className="h-3.5 w-3.5 shrink-0 text-accent-rust/70" />
+                                  ) : null}
                                 </p>
                               </div>
                             </div>
                             <button
-                              onClick={() => onDeleteMeal(list.id, lunch.id)}
+                              aria-label="Ta bort lunch"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteMeal(list.id, lunch.id);
+                              }}
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
                               <LucideIcon
@@ -640,7 +692,13 @@ export default function ListDetailGrocery({
 
                         {/* Middag Slot */}
                         {dinner ? (
-                          <div className="bg-surface-container p-3 rounded-xl flex items-center justify-between">
+                          <div
+                            onClick={() => hasRecipeDetails(dinner) && setSelectedRecipeMeal(dinner)}
+                            onKeyDown={(event) => handleMealKeyDown(event, dinner)}
+                            role={hasRecipeDetails(dinner) ? "button" : undefined}
+                            tabIndex={hasRecipeDetails(dinner) ? 0 : undefined}
+                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(dinner) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                          >
                             <div className="flex items-center gap-3">
                               <LucideIcon
                                 name="bedtime"
@@ -650,13 +708,20 @@ export default function ListDetailGrocery({
                                 <p className="text-[9px] uppercase font-bold text-outline tracking-wider leading-none mb-0.5">
                                   Middag
                                 </p>
-                                <p className="font-sans text-xs font-semibold text-text-main line-clamp-1">
-                                  {dinner.name}
+                                <p className="flex items-center gap-1.5 font-sans text-xs font-semibold text-text-main">
+                                  <span className="line-clamp-1">{dinner.name}</span>
+                                  {hasRecipeDetails(dinner) ? (
+                                    <LucideIcon name="article" className="h-3.5 w-3.5 shrink-0 text-accent-rust/70" />
+                                  ) : null}
                                 </p>
                               </div>
                             </div>
                             <button
-                              onClick={() => onDeleteMeal(list.id, dinner.id)}
+                              aria-label="Ta bort middag"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteMeal(list.id, dinner.id);
+                              }}
                               className="text-on-surface-variant/60 hover:text-error hover:bg-surface-container rounded-full p-1"
                             >
                               <LucideIcon
@@ -956,6 +1021,11 @@ export default function ListDetailGrocery({
         initialMealType={pendingMeal?.type ?? "middag"}
         onAccept={handleAcceptRecipeImport}
         onCancel={handleRejectRecipeImport}
+      />
+
+      <RecipeDetailModal
+        meal={selectedRecipeMeal}
+        onClose={() => setSelectedRecipeMeal(null)}
       />
 
       <MealModal

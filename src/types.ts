@@ -14,11 +14,26 @@ export interface TaskItem {
 
 export type MealType = "frukost" | "lunch" | "middag";
 
+export interface RecipeIngredient {
+  rawText?: string;
+  text: string;
+  quantity: string;
+  category: string;
+  note?: string;
+}
+
 export interface MealSlot {
   id: string;
   day: string; // "Måndag", "Tisdag" etc.
   type: MealType;
   name: string;
+  source?: "manual" | "recipe_import";
+  recipeSourceUrl?: string;
+  recipeSourceDomain?: string;
+  recipeIngredients?: RecipeIngredient[];
+  recipeInstructions?: string[];
+  recipeImageUrl?: string;
+  importedAt?: string;
 }
 
 export interface ListTheme {

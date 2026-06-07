@@ -4,6 +4,7 @@ import {
   extractRecipeFromHtml,
   importRecipeFromUrl,
   RecipeImportError,
+  separateIngredientNote,
   validateRecipeUrl,
 } from "./api/_lib/recipeImporter";
 
@@ -41,6 +42,7 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
   assert.equal(result.usedFallback, false);
   assert.equal(result.canRetryWithAi, false);
   assert.deepEqual(result.ingredients[0], {
+    rawText: "500 g laxfilé",
     text: "laxfilé",
     quantity: "500 g",
     category: "Kött & Fisk",
@@ -321,4 +323,70 @@ test("returns retry metadata for a page with no recipe", async (t) => {
       return true;
     },
   );
+});
+
+test("separates conservative preparation notes from purchasable ingredient names", () => {
+  assert.deepEqual(separateIngredientNote("hallon i ljummet vatten"), {
+    text: "hallon",
+    note: "i ljummet vatten",
+  });
+  assert.deepEqual(separateIngredientNote("vitlöksklyftor, finhackade"), {
+    text: "vitlöksklyftor",
+    note: "finhackade",
+  });
+  assert.deepEqual(separateIngredientNote("citron, rivet skal och saft"), {
+    text: "citron",
+    note: "rivet skal och saft",
+  });
+  assert.deepEqual(separateIngredientNote("riven parmesanost"), {
+    text: "riven parmesanost",
+  });
+  assert.deepEqual(
+    separateIngredientNote("färska eller tinade frysta hallon (Obs! se tips vid frysta hallon)"),
+    {
+      text: "hallon",
+      note: "Färska eller frysta. Obs! se tips vid frysta hallon",
+    },
+  );
+  const thawedBlueberries = separateIngredientNote("tinade frysta blåbär");
+  assert.equal(thawedBlueberries.text, "frysta blåbär");
+  assert.doesNotMatch(thawedBlueberries.text, /tinade/i);
+});
+
+test("keeps raw ingredient text and extracts recipe image metadata", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Hallondessert",
+        "image": {"url": "/images/hallon.jpg"},
+        "recipeIngredient": [
+          "100 g hallon i ljummet vatten",
+          "2 vitlöksklyftor, finhackade",
+          "1 citron, rivet skal och saft",
+          "225 g färska eller tinade frysta hallon (Obs! se tips vid frysta hallon)"
+        ]
+      }
+    </script>
+  `;
+
+  const result = extractRecipeFromHtml(html, new URL("https://recept.example/hallon"));
+
+  assert.ok(result);
+  assert.equal(result.imageUrl, "https://recept.example/images/hallon.jpg");
+  assert.deepEqual(result.ingredients[0], {
+    rawText: "100 g hallon i ljummet vatten",
+    text: "hallon",
+    quantity: "100 g",
+    category: "Övrigt",
+    note: "i ljummet vatten",
+  });
+  assert.equal(result.ingredients[1].text, "vitlöksklyftor");
+  assert.equal(result.ingredients[1].note, "finhackade");
+  assert.equal(result.ingredients[2].text, "citron");
+  assert.equal(result.ingredients[2].note, "rivet skal och saft");
+  assert.equal(result.ingredients[3].text, "hallon");
+  assert.equal(result.ingredients[3].quantity, "225 g");
+  assert.match(result.ingredients[3].note ?? "", /Färska eller frysta/);
+  assert.match(result.ingredients[3].note ?? "", /Obs! se tips vid frysta hallon/);
 });

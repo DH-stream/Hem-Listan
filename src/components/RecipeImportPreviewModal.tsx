@@ -1,22 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
-import type { MealType } from "../types";
+import type { MealType, RecipeIngredient } from "../types";
+import { formatIngredientName } from "../lib/ingredientDisplay";
 import LucideIcon from "./LucideIcon";
-
-export type RecipeImportIngredient = {
-  text: string;
-  quantity: string;
-  category: string;
-};
 
 export type RecipeImportPreview = {
   recipeName: string;
   mealName?: string;
-  ingredients: RecipeImportIngredient[];
+  ingredients: RecipeIngredient[];
   instructions?: string[];
   sourceUrl?: string;
   sourceDomain?: string;
+  imageUrl?: string;
   extractionMethod?:
     | "json_ld"
     | "dom_fallback"
@@ -30,7 +26,7 @@ export type RecipeImportPreview = {
 export type RecipeImportSelection = {
   day: string;
   mealType: MealType;
-  ingredients: RecipeImportIngredient[];
+  ingredients: RecipeIngredient[];
 };
 
 type RecipeImportPreviewModalProps = {
@@ -375,9 +371,13 @@ export default function RecipeImportPreviewModal({
                       <ul className="mt-4 space-y-2.5">
                         {preview.ingredients.map((ingredient, index) => {
                           const selected = selectedIngredientIndexes.has(index);
-                          const { name, note } = splitIngredientNote(
-                            ingredient.text,
+                          const fallbackDisplay = splitIngredientNote(ingredient.text);
+                          const name = formatIngredientName(
+                            ingredient.note
+                              ? ingredient.text
+                              : fallbackDisplay.name,
                           );
+                          const note = ingredient.note ?? fallbackDisplay.note;
                           const showCategory = shouldShowCategory(
                             ingredient.category,
                           );

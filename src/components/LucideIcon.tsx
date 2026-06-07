@@ -23,6 +23,8 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
       return <Lucide.Heart {...props} />;
     case "book":
     case "bookopen":
+    case "menu_book":
+    case "article":
       return <Lucide.BookOpen {...props} />;
     case "restaurant":
     case "utensils":

@@ -1039,6 +1039,9 @@ export const fetchLists = async (): Promise<List[] | null> => {
           day: mealRow.day,
           type: mealRow.type as MealSlot["type"],
           name: mealRow.name,
+          ...(mealRow.recipe_meta && typeof mealRow.recipe_meta === "object"
+            ? mealRow.recipe_meta
+            : {}),
         })),
     }));
   } catch (error) {
@@ -2449,7 +2452,7 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
 };
 
 // Lägg till/uppdatera måltid
-export const upsertMeal = async (listId: string, meal: { id?: string; day: string; type: string; name: string }): Promise<string | null> => {
+export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string | null> => {
   const client = getSupabaseClient();
   if (!client) return null;
 
@@ -2465,8 +2468,20 @@ export const upsertMeal = async (listId: string, meal: { id?: string; day: strin
     list_id: listId,
     day: meal.day,
     type: meal.type,
-    name: meal.name
+    name: meal.name,
   };
+
+  if (meal.source === "recipe_import") {
+    insertData.recipe_meta = {
+      source: meal.source,
+      recipeSourceUrl: meal.recipeSourceUrl,
+      recipeSourceDomain: meal.recipeSourceDomain,
+      recipeIngredients: meal.recipeIngredients,
+      recipeInstructions: meal.recipeInstructions,
+      recipeImageUrl: meal.recipeImageUrl,
+      importedAt: meal.importedAt,
+    };
+  }
 
   if (isUuid && meal.id) {
     insertData.id = meal.id;

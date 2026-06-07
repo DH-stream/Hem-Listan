@@ -1,7 +1,9 @@
 export type RecipeIngredient = {
+  rawText?: string;
   text: string;
   quantity: string;
   category: string;
+  note?: string;
 };
 
 export type ExtractionMethod = "json_ld" | "dom_fallback" | "site_adapter";
@@ -36,6 +38,7 @@ export type ExtractedRecipe = {
   mealName: string;
   ingredients: RecipeIngredient[];
   instructions?: string[];
+  imageUrl?: string;
   sourceUrl: string;
   sourceDomain: string;
   extractionMethod: ExtractionMethod;
@@ -55,6 +58,7 @@ type RecipeCandidate = {
   recipeName?: string;
   ingredients: unknown[];
   instructions?: string[];
+  imageUrl?: string;
   extractionMethod: ExtractionMethod;
 };
 
@@ -246,6 +250,32 @@ function normalizeInstructionStep(value: unknown): string[] {
   return instruction && instruction.length <= 2_000 ? [instruction] : [];
 }
 
+function extractImageUrl(value: unknown): string {
+  if (typeof value === "string") return cleanText(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = extractImageUrl(item);
+      if (url) return url;
+    }
+    return "";
+  }
+  if (!value || typeof value !== "object") return "";
+  const object = value as Record<string, unknown>;
+  return extractImageUrl(object.url ?? object.contentUrl);
+}
+
+function resolveImageUrl(value: string | undefined, sourceUrl: URL): string | undefined {
+  if (!value) return undefined;
+  try {
+    const imageUrl = new URL(value, sourceUrl);
+    return ["http:", "https:"].includes(imageUrl.protocol)
+      ? imageUrl.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function extractJsonLd(html: string): RecipeCandidate | null {
   const documents = parseJsonScriptContents(
     html,
@@ -267,6 +297,7 @@ function extractJsonLd(html: string): RecipeCandidate | null {
         recipeName: cleanText(recipe.name ?? recipe.headline),
         ingredients,
         instructions: normalizeInstructionStep(recipe.recipeInstructions),
+        imageUrl: extractImageUrl(recipe.image),
         extractionMethod: "json_ld",
       };
     }
@@ -383,6 +414,7 @@ function extractSiteFallback(html: string, hostname: string): RecipeCandidate | 
   return {
     recipeName: extractPageTitle(html),
     ingredients,
+    imageUrl: extractMetaContent(html, "og:image"),
     extractionMethod: isSupportedSite(hostname) ? "site_adapter" : "dom_fallback",
   };
 }
@@ -394,9 +426,46 @@ function simplifyMealName(recipeName: string): string {
     .trim();
 }
 
+export function separateIngredientNote(value: string): { text: string; note?: string } {
+  let text = cleanText(value);
+  const notes: string[] = [];
+
+  const parenthetical = text.match(/\s*(\((?:obs!|se tips)[^)]*\))\s*$/i);
+  if (parenthetical) {
+    notes.unshift(parenthetical[1].replace(/^\((.*)\)$/, "$1"));
+    text = text.slice(0, parenthetical.index).trim();
+  }
+
+  const commaPrep = text.match(/,\s*((?:(?:fin)?hackad(?:e)?|skivad(?:e)?|riven|rivet|rivna|skalad(?:e)?|tinad(?:e)?|kokt(?:a)?)(?:\s+.*)?)$/i);
+  if (commaPrep) {
+    notes.unshift(commaPrep[1].trim());
+    text = text.slice(0, commaPrep.index).trim();
+  }
+
+  const trailingPhrase = text.match(/\s+(i (?:ljummet|kallt|varmt) vatten|till servering|efter smak|(?:valfritt|gärna)(?:\s+.*)?)\s*$/i);
+  if (trailingPhrase) {
+    notes.unshift(trailingPhrase[1].trim());
+    text = text.slice(0, trailingPhrase.index).trim();
+  }
+
+  const freshOrFrozenPrefix = text.match(/^färska eller (?:tinade )?frysta\s+(.+)$/i);
+  if (freshOrFrozenPrefix) {
+    notes.unshift("Färska eller frysta.");
+    text = freshOrFrozenPrefix[1].trim();
+  }
+
+  const thawedFrozenPrefix = text.match(/^tinad(?:e)?\s+((?:fryst|frysta)\s+.+)$/i);
+  if (thawedFrozenPrefix) {
+    notes.unshift("Tinade.");
+    text = thawedFrozenPrefix[1].trim();
+  }
+
+  return { text, ...(notes.length ? { note: notes.join(" ") } : {}) };
+}
+
 function splitIngredient(
   value: unknown,
-): { text: string; quantity: string } | null {
+): Omit<RecipeIngredient, "category"> | null {
   const raw =
     typeof value === "string"
       ? cleanText(value)
@@ -415,14 +484,15 @@ function splitIngredient(
   const quantity = quantityMatch
     ? quantityMatch[1].replace(/\s+/g, " ").trim()
     : "";
-  const text = cleanText(
+  const ingredientText = cleanText(
     quantityMatch ? normalized.slice(quantityMatch[0].length) : normalized,
   )
     .replace(/^av\s+/i, "")
     .trim();
+  const { text, note } = separateIngredientNote(ingredientText);
 
   if (!text || text.length > 180) return null;
-  return { text, quantity };
+  return { rawText: raw, text, quantity, ...(note ? { note } : {}) };
 }
 
 function categorizeIngredient(text: string): string {
@@ -484,7 +554,7 @@ function normalizeCandidate(
   const ingredients = candidate.ingredients
     .map(splitIngredient)
     .filter(
-      (ingredient): ingredient is { text: string; quantity: string } =>
+      (ingredient): ingredient is Omit<RecipeIngredient, "category"> =>
         Boolean(ingredient),
     )
     .map((ingredient) => ({
@@ -524,6 +594,7 @@ function normalizeCandidate(
     instructions: candidate.instructions?.length
       ? candidate.instructions
       : undefined,
+    imageUrl: resolveImageUrl(candidate.imageUrl, sourceUrl),
     sourceUrl: sourceUrl.toString(),
     sourceDomain: getHostname(sourceUrl),
     extractionMethod: candidate.extractionMethod,
