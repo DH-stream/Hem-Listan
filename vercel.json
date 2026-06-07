@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/import-recipe.ts": {
+      "includeFiles": "api/_lib/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",
