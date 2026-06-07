@@ -348,47 +348,65 @@ export default function RecipeImportPreviewModal({
                             Avmarkera sådant du redan har hemma.
                           </p>
                         </div>
-                        <p className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary" aria-live="polite">
-                          {selectedCount} av {totalCount}
+                        <p
+                          className="shrink-0 rounded-lg border border-primary/10 bg-primary/5 px-2.5 py-1 text-[11px] font-bold tabular-nums text-primary"
+                          aria-live="polite"
+                        >
+                          {selectedCount} av {totalCount} valda
                         </p>
                       </div>
-                      <ul className="mt-3 divide-y divide-surface-container/60">
+                      <ul className="mt-3 space-y-2">
                         {preview.ingredients.map((ingredient, index) => {
                           const selected = selectedIngredientIndexes.has(index);
                           const { name, note } = splitIngredientNote(
                             ingredient.text,
                           );
                           return (
-                            <li key={`${ingredient.text}-${ingredient.quantity}-${index}`}>
-                              <label className="flex cursor-pointer items-start gap-3 py-3 first:pt-1 last:pb-0">
+                            <li
+                              key={`${ingredient.text}-${ingredient.quantity}-${index}`}
+                              className={`rounded-xl border transition-[background-color,border-color] duration-150 ${
+                                selected
+                                  ? "border-surface-container/50 bg-surface-container-lowest"
+                                  : "border-surface-container/30 bg-surface-container-lowest/55"
+                              }`}
+                            >
+                              <label className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 px-3.5 py-3">
                                 <input
                                   type="checkbox"
                                   checked={selected}
                                   onChange={() => toggleIngredient(index)}
                                   className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-surface-container-highest accent-primary"
                                 />
-                                <span className="min-w-0 flex-1">
-                                  <span className={`block text-sm font-semibold leading-snug ${selected ? "text-text-main" : "text-on-surface-variant line-through opacity-60"}`}>
+                                <span className="min-w-0">
+                                  <span
+                                    className={`block text-sm font-semibold leading-snug ${
+                                      selected
+                                        ? "text-text-main"
+                                        : "text-on-surface-variant line-through opacity-60"
+                                    }`}
+                                  >
                                     {name}
                                   </span>
-                                  {note && (
-                                    <span className="mt-1 block text-[11px] leading-relaxed text-on-surface-variant">
-                                      {note}
+                                  {(shouldShowCategory(ingredient.category) || note) && (
+                                    <span className="mt-1.5 block space-y-1">
+                                      {shouldShowCategory(ingredient.category) && (
+                                        <span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface-variant/65">
+                                          {ingredient.category}
+                                        </span>
+                                      )}
+                                      {note && (
+                                        <span className="block text-[11px] leading-relaxed text-on-surface-variant/80">
+                                          {note}
+                                        </span>
+                                      )}
                                     </span>
                                   )}
                                 </span>
-                                <span className="flex max-w-[38%] shrink-0 flex-col items-end gap-1.5 text-right">
-                                  {ingredient.quantity && (
-                                    <span className="text-xs font-semibold text-on-surface-variant">
-                                      {ingredient.quantity}
-                                    </span>
-                                  )}
-                                  {shouldShowCategory(ingredient.category) && (
-                                    <span className="max-w-full truncate rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-bold text-on-surface-variant">
-                                      {ingredient.category}
-                                    </span>
-                                  )}
-                                </span>
+                                {ingredient.quantity && (
+                                  <span className="max-w-24 pl-1 text-right text-xs font-medium leading-snug text-on-surface-variant">
+                                    {ingredient.quantity}
+                                  </span>
+                                )}
                               </label>
                             </li>
                           );
