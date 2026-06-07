@@ -432,7 +432,7 @@ export function separateIngredientNote(value: string): { text: string; note?: st
 
   const parenthetical = text.match(/\s*(\((?:obs!|se tips)[^)]*\))\s*$/i);
   if (parenthetical) {
-    notes.unshift(parenthetical[1]);
+    notes.unshift(parenthetical[1].replace(/^\((.*)\)$/, "$1"));
     text = text.slice(0, parenthetical.index).trim();
   }
 
@@ -446,6 +446,18 @@ export function separateIngredientNote(value: string): { text: string; note?: st
   if (trailingPhrase) {
     notes.unshift(trailingPhrase[1].trim());
     text = text.slice(0, trailingPhrase.index).trim();
+  }
+
+  const freshOrFrozenPrefix = text.match(/^färska eller (?:tinade )?frysta\s+(.+)$/i);
+  if (freshOrFrozenPrefix) {
+    notes.unshift("Färska eller frysta.");
+    text = freshOrFrozenPrefix[1].trim();
+  }
+
+  const thawedFrozenPrefix = text.match(/^tinad(?:e)?\s+((?:fryst|frysta)\s+.+)$/i);
+  if (thawedFrozenPrefix) {
+    notes.unshift("Tinade.");
+    text = thawedFrozenPrefix[1].trim();
   }
 
   return { text, ...(notes.length ? { note: notes.join(" ") } : {}) };

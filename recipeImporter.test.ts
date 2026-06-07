@@ -341,6 +341,16 @@ test("separates conservative preparation notes from purchasable ingredient names
   assert.deepEqual(separateIngredientNote("riven parmesanost"), {
     text: "riven parmesanost",
   });
+  assert.deepEqual(
+    separateIngredientNote("färska eller tinade frysta hallon (Obs! se tips vid frysta hallon)"),
+    {
+      text: "hallon",
+      note: "Färska eller frysta. Obs! se tips vid frysta hallon",
+    },
+  );
+  const thawedBlueberries = separateIngredientNote("tinade frysta blåbär");
+  assert.equal(thawedBlueberries.text, "frysta blåbär");
+  assert.doesNotMatch(thawedBlueberries.text, /tinade/i);
 });
 
 test("keeps raw ingredient text and extracts recipe image metadata", () => {
@@ -353,7 +363,8 @@ test("keeps raw ingredient text and extracts recipe image metadata", () => {
         "recipeIngredient": [
           "100 g hallon i ljummet vatten",
           "2 vitlöksklyftor, finhackade",
-          "1 citron, rivet skal och saft"
+          "1 citron, rivet skal och saft",
+          "225 g färska eller tinade frysta hallon (Obs! se tips vid frysta hallon)"
         ]
       }
     </script>
@@ -374,4 +385,8 @@ test("keeps raw ingredient text and extracts recipe image metadata", () => {
   assert.equal(result.ingredients[1].note, "finhackade");
   assert.equal(result.ingredients[2].text, "citron");
   assert.equal(result.ingredients[2].note, "rivet skal och saft");
+  assert.equal(result.ingredients[3].text, "hallon");
+  assert.equal(result.ingredients[3].quantity, "225 g");
+  assert.match(result.ingredients[3].note ?? "", /Färska eller frysta/);
+  assert.match(result.ingredients[3].note ?? "", /Obs! se tips vid frysta hallon/);
 });

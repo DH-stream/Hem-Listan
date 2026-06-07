@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import type { MealSlot } from "../types";
@@ -9,11 +9,148 @@ type RecipeDetailModalProps = {
   onClose: () => void;
 };
 
+type ScreenWakeLockSentinel = {
+  released: boolean;
+  release: () => Promise<void>;
+  addEventListener: (type: "release", listener: () => void) => void;
+  removeEventListener: (type: "release", listener: () => void) => void;
+};
+
+type NavigatorWithWakeLock = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<ScreenWakeLockSentinel>;
+  };
+};
+
 const easing = [0.23, 1, 0.32, 1] as const;
 const sectionClassName =
   "rounded-2xl border border-surface-container/40 bg-surface-container-low p-4 shadow-[0_8px_24px_rgba(34,50,35,0.05)]";
 
 export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalProps) {
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => new Set());
+  const [wakeLockSupported, setWakeLockSupported] = useState(false);
+  const [wantsWakeLock, setWantsWakeLock] = useState(false);
+  const [isWakeLocked, setIsWakeLocked] = useState(false);
+  const wakeLockRef = useRef<ScreenWakeLockSentinel | null>(null);
+  const wakeLockReleaseHandlerRef = useRef<(() => void) | null>(null);
+  const wantsWakeLockRef = useRef(false);
+  const modalOpenRef = useRef(false);
+
+  const releaseWakeLock = useCallback(async () => {
+    const wakeLock = wakeLockRef.current;
+    const releaseHandler = wakeLockReleaseHandlerRef.current;
+    wakeLockRef.current = null;
+    wakeLockReleaseHandlerRef.current = null;
+    setIsWakeLocked(false);
+
+    if (wakeLock && releaseHandler) {
+      wakeLock.removeEventListener("release", releaseHandler);
+    }
+    if (!wakeLock || wakeLock.released) return;
+
+    try {
+      await wakeLock.release();
+    } catch {
+      // Wake lock release can fail when the browser already released it.
+    }
+  }, []);
+
+  const requestWakeLock = useCallback(async () => {
+    const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
+    if (!wakeLock) return;
+
+    try {
+      const sentinel = await wakeLock.request("screen");
+      if (!wantsWakeLockRef.current || !modalOpenRef.current) {
+        await sentinel.release();
+        return;
+      }
+
+      wakeLockRef.current = sentinel;
+      setIsWakeLocked(true);
+
+      const handleRelease = () => {
+        sentinel.removeEventListener("release", handleRelease);
+        if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+        if (wakeLockReleaseHandlerRef.current === handleRelease) {
+          wakeLockReleaseHandlerRef.current = null;
+        }
+        setIsWakeLocked(false);
+      };
+      wakeLockReleaseHandlerRef.current = handleRelease;
+      sentinel.addEventListener("release", handleRelease);
+    } catch {
+      wantsWakeLockRef.current = false;
+      setWantsWakeLock(false);
+      setIsWakeLocked(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setWakeLockSupported(
+      typeof navigator !== "undefined" &&
+        "wakeLock" in navigator &&
+        typeof (navigator as NavigatorWithWakeLock).wakeLock?.request === "function",
+    );
+  }, []);
+
+  useEffect(() => {
+    modalOpenRef.current = Boolean(meal);
+    wantsWakeLockRef.current = false;
+    setCompletedSteps(new Set());
+    setWantsWakeLock(false);
+    void releaseWakeLock();
+  }, [meal?.id, releaseWakeLock]);
+
+  useEffect(() => {
+    if (!meal) return undefined;
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        wantsWakeLock &&
+        !wakeLockRef.current
+      ) {
+        void requestWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [meal, requestWakeLock, wantsWakeLock]);
+
+  useEffect(() => {
+    return () => {
+      modalOpenRef.current = false;
+      wantsWakeLockRef.current = false;
+      void releaseWakeLock();
+    };
+  }, [releaseWakeLock]);
+
+  const toggleWakeLock = () => {
+    if (wantsWakeLock || isWakeLocked) {
+      wantsWakeLockRef.current = false;
+      setWantsWakeLock(false);
+      void releaseWakeLock();
+      return;
+    }
+
+    wantsWakeLockRef.current = true;
+    setWantsWakeLock(true);
+    void requestWakeLock();
+  };
+
+  const toggleStep = (index: number) => {
+    setCompletedSteps((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!meal) return;
     const previousOverflow = document.body.style.overflow;
@@ -65,6 +202,23 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
                   <p className="mt-1.5 text-xs font-medium text-on-surface-variant">
                     {meal.recipeSourceDomain}
                   </p>
+                ) : null}
+                {wakeLockSupported ? (
+                  <button
+                    type="button"
+                    onClick={toggleWakeLock}
+                    aria-pressed={isWakeLocked}
+                    className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-bold transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] ${
+                      isWakeLocked
+                        ? "border-primary/20 bg-primary-fixed text-primary"
+                        : "border-surface-container/60 bg-surface-container-low text-on-surface-variant hover:bg-surface-container"
+                    }`}
+                  >
+                    <LucideIcon name="sunny" className="h-3.5 w-3.5" />
+                    {isWakeLocked
+                      ? "Skärmen hålls vaken"
+                      : "Håll skärmen vaken"}
+                  </button>
                 ) : null}
               </div>
               <button
@@ -130,13 +284,56 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
 
                 {meal.recipeInstructions?.length ? (
                   <section className={sectionClassName}>
-                    <h3 className="font-display text-sm font-bold text-text-main">Gör så här</h3>
-                    <ol className="mt-3 space-y-3 pl-5 text-sm leading-relaxed text-on-surface-variant [list-style:decimal]">
-                      {meal.recipeInstructions.map((instruction, index) => (
-                        <li key={`${instruction}-${index}`} className="pl-1">
-                          {instruction}
-                        </li>
-                      ))}
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-display text-sm font-bold text-text-main">Gör så här</h3>
+                      {completedSteps.size > 0 ? (
+                        <p className="shrink-0 text-[11px] font-bold text-on-surface-variant/70">
+                          {completedSteps.size} av {meal.recipeInstructions.length} steg klara
+                        </p>
+                      ) : null}
+                    </div>
+                    <ol className="mt-4 space-y-3">
+                      {meal.recipeInstructions.map((instruction, index) => {
+                        const completed = completedSteps.has(index);
+
+                        return (
+                          <li key={`${instruction}-${index}`}>
+                            <button
+                              type="button"
+                              aria-pressed={completed}
+                              onClick={() => toggleStep(index)}
+                              className={`flex w-full gap-3 rounded-2xl border p-4 text-left transition-[background-color,border-color,transform] duration-150 active:scale-[0.99] ${
+                                completed
+                                  ? "border-surface-container/60 bg-surface-container-lowest/80"
+                                  : "border-transparent bg-surface-container-lowest hover:border-surface-container/60"
+                              }`}
+                            >
+                              <span
+                                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-display text-sm font-bold tabular-nums transition-colors duration-150 ${
+                                  completed
+                                    ? "border-primary/25 bg-primary-fixed text-primary"
+                                    : "border-surface-container-highest bg-surface-container-low text-text-main"
+                                }`}
+                              >
+                                {completed ? (
+                                  <LucideIcon name="check" className="h-4 w-4 stroke-[3]" />
+                                ) : (
+                                  index + 1
+                                )}
+                              </span>
+                              <span
+                                className={`min-w-0 text-base leading-relaxed transition-colors duration-150 sm:text-[1.05rem] ${
+                                  completed
+                                    ? "text-on-surface-variant/70"
+                                    : "text-text-main"
+                                }`}
+                              >
+                                {instruction}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ol>
                   </section>
                 ) : null}
