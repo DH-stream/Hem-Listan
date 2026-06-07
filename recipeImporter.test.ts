@@ -5,7 +5,7 @@ import {
   importRecipeFromUrl,
   RecipeImportError,
   validateRecipeUrl,
-} from "./recipeImporter";
+} from "./api/_lib/recipeImporter";
 
 test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
   const html = `
