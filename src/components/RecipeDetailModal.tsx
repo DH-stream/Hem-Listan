@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import type { MealSlot } from "../types";
+import { formatIngredientName } from "../lib/ingredientDisplay";
 import LucideIcon from "./LucideIcon";
 
 type RecipeDetailModalProps = {
@@ -261,7 +262,7 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
                         <li key={`${ingredient.rawText ?? ingredient.text}-${index}`} className="flex gap-3 py-3 first:pt-0 last:pb-0">
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold leading-snug text-text-main">
-                              {ingredient.text}
+                              {formatIngredientName(ingredient.text)}
                             </span>
                             {ingredient.note ? (
                               <span className="mt-1 block text-xs leading-relaxed text-on-surface-variant/75">

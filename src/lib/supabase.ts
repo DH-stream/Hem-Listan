@@ -2469,18 +2469,19 @@ export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string
     day: meal.day,
     type: meal.type,
     name: meal.name,
-    recipe_meta: meal.source === "recipe_import"
-      ? {
-          source: meal.source,
-          recipeSourceUrl: meal.recipeSourceUrl,
-          recipeSourceDomain: meal.recipeSourceDomain,
-          recipeIngredients: meal.recipeIngredients,
-          recipeInstructions: meal.recipeInstructions,
-          recipeImageUrl: meal.recipeImageUrl,
-          importedAt: meal.importedAt,
-        }
-      : null,
   };
+
+  if (meal.source === "recipe_import") {
+    insertData.recipe_meta = {
+      source: meal.source,
+      recipeSourceUrl: meal.recipeSourceUrl,
+      recipeSourceDomain: meal.recipeSourceDomain,
+      recipeIngredients: meal.recipeIngredients,
+      recipeInstructions: meal.recipeInstructions,
+      recipeImageUrl: meal.recipeImageUrl,
+      importedAt: meal.importedAt,
+    };
+  }
 
   if (isUuid && meal.id) {
     insertData.id = meal.id;

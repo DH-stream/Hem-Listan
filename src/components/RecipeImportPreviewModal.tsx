@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import type { MealType, RecipeIngredient } from "../types";
+import { formatIngredientName } from "../lib/ingredientDisplay";
 import LucideIcon from "./LucideIcon";
 
 export type RecipeImportPreview = {
@@ -371,9 +372,11 @@ export default function RecipeImportPreviewModal({
                         {preview.ingredients.map((ingredient, index) => {
                           const selected = selectedIngredientIndexes.has(index);
                           const fallbackDisplay = splitIngredientNote(ingredient.text);
-                          const name = ingredient.note
-                            ? ingredient.text
-                            : fallbackDisplay.name;
+                          const name = formatIngredientName(
+                            ingredient.note
+                              ? ingredient.text
+                              : fallbackDisplay.name,
+                          );
                           const note = ingredient.note ?? fallbackDisplay.note;
                           const showCategory = shouldShowCategory(
                             ingredient.category,
