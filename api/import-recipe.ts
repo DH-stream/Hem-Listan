@@ -48,9 +48,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  let importer: typeof import("./_lib/recipeImporter");
+  let importer: typeof import("./_lib/recipeImporter.js");
   try {
-    importer = await import("./_lib/recipeImporter");
+    // Vercel compiles this route to JS and runs it as native Node ESM.
+    // The explicit .js specifier is required at runtime; TypeScript resolves it
+    // to the sibling .ts source during tests/build.
+    importer = await import("./_lib/recipeImporter.js");
     logImport("info", "importer_loaded", requestId);
   } catch (error) {
     logImport("error", "route_module_load_failed", requestId, {
