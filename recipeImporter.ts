@@ -64,6 +64,16 @@ const MAX_HTML_LENGTH = 2_000_000;
 const MAX_REDIRECTS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+type RecipeImportOptions = { requestId?: string };
+
+function logRecipeImport(
+  event: string,
+  requestId: string | undefined,
+  details: Record<string, unknown> = {},
+) {
+  console.info("[HL_RECIPE_IMPORT_API]", { event, requestId, ...details });
+}
+
 const htmlEntities: Record<string, string> = {
   amp: "&",
   apos: "'",
@@ -580,11 +590,28 @@ export function extractRecipeFromHtml(
   return attemptRecipeExtraction(html, sourceUrl).recipe;
 }
 
-export async function importRecipeFromUrl(value: unknown): Promise<ExtractedRecipe> {
+export async function importRecipeFromUrl(
+  value: unknown,
+  options: RecipeImportOptions = {},
+): Promise<ExtractedRecipe> {
+  const { requestId } = options;
+  logRecipeImport("validate_url_start", requestId);
   let currentUrl = validateRecipeUrl(value);
+  logRecipeImport("validate_url_success", requestId, {
+    hostname: getHostname(currentUrl),
+  });
   let response: Response | null = null;
 
-  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+  for (
+    let redirectCount = 0;
+    redirectCount <= MAX_REDIRECTS;
+    redirectCount += 1
+  ) {
+    logRecipeImport("fetch_start", requestId, {
+      hostname: getHostname(currentUrl),
+      redirectCount,
+    });
+
     try {
       response = await fetch(currentUrl, {
         headers: {
@@ -610,32 +637,75 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
       );
     }
 
+    logRecipeImport("fetch_response", requestId, {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      contentLength: response.headers.get("content-length"),
+      finalUrlHostname: getHostname(currentUrl),
+    });
+
     if (!REDIRECT_STATUSES.has(response.status)) break;
+
+    const fromHostname = getHostname(currentUrl);
+    const location = response.headers.get("location");
+    let redirectUrl: URL | null = null;
+    if (location) {
+      try {
+        redirectUrl = new URL(location, currentUrl);
+      } catch {
+        redirectUrl = null;
+      }
+    }
+    logRecipeImport("redirect_seen", requestId, {
+      status: response.status,
+      fromHostname,
+      toHostname: redirectUrl ? getHostname(redirectUrl) : undefined,
+    });
+
     if (redirectCount === MAX_REDIRECTS) {
+      logRecipeImport("redirect_blocked", requestId, {
+        reason: "maximum redirect count reached",
+        errorCode: "too_many_redirects",
+      });
       throw new RecipeImportError(
         "too_many_redirects",
         "Receptsidan skickade vidare för många gånger.",
       );
     }
 
-    const location = response.headers.get("location");
     if (!location) {
+      logRecipeImport("redirect_blocked", requestId, {
+        reason: "missing location header",
+        errorCode: "unsafe_redirect",
+      });
       throw new RecipeImportError(
         "unsafe_redirect",
         "Receptsidan skickade vidare utan en giltig adress.",
       );
     }
 
-    let redirectUrl: URL;
-    try {
-      redirectUrl = new URL(location, currentUrl);
-    } catch {
+    if (!redirectUrl) {
+      logRecipeImport("redirect_blocked", requestId, {
+        reason: "invalid redirect URL",
+        errorCode: "unsafe_redirect",
+      });
       throw new RecipeImportError(
         "unsafe_redirect",
         "Receptsidan skickade vidare till en ogiltig adress.",
       );
     }
-    currentUrl = validateRecipeUrl(redirectUrl.toString(), "unsafe_redirect");
+
+    try {
+      currentUrl = validateRecipeUrl(redirectUrl.toString(), "unsafe_redirect");
+    } catch (error) {
+      logRecipeImport("redirect_blocked", requestId, {
+        reason:
+          error instanceof Error ? error.message : "redirect validation failed",
+        errorCode:
+          error instanceof RecipeImportError ? error.code : "unsafe_redirect",
+      });
+      throw error;
+    }
   }
 
   if (!response) {
@@ -673,6 +743,7 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
   }
 
   const html = await response.text();
+  logRecipeImport("html_loaded", requestId, { length: html.length });
   if (html.length > MAX_HTML_LENGTH) {
     throw new RecipeImportError(
       "page_too_large",
@@ -680,8 +751,12 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
     );
   }
 
+  logRecipeImport("extraction_start", requestId);
   const extraction = attemptRecipeExtraction(html, currentUrl);
   if (!extraction.recipe) {
+    logRecipeImport("extraction_none", requestId, {
+      attemptedMethods: extraction.attemptedMethods,
+    });
     throw new RecipeImportError(
       "no_recipe_found",
       "Inga ingredienser hittades på receptsidan.",
@@ -689,5 +764,14 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
     );
   }
 
+  logRecipeImport("extraction_result", requestId, {
+    attemptedMethods: extraction.attemptedMethods,
+    selectedMethod: extraction.recipe.extractionMethod,
+    recipeName: extraction.recipe.recipeName,
+    ingredientCount: extraction.recipe.ingredients.length,
+    instructionCount: extraction.recipe.instructions?.length ?? 0,
+    confidence: extraction.recipe.confidence,
+    qualityWarnings: extraction.recipe.qualityWarnings,
+  });
   return extraction.recipe;
 }
