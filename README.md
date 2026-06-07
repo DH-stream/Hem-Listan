@@ -4,27 +4,25 @@ Smarta listor för hemmet – mathandling, renovering, presenter m.m.
 
 ## Stack
 
-- **React 18** + Vite
+- **React 19** + TypeScript + Vite
+- **Supabase** för autentisering, profiler och delade listor
 - **PWA** via `vite-plugin-pwa` (offline-kapabel, installerbar)
-- Ingen CSS-ramverk – all styling inline med design tokens (`src/data/tokens.js`)
-- Datalagring i React state (inga externa beroenden i v0.1)
+- **Express/Vercel API routes** för serverfunktioner som receptimport
+- **Tailwind CSS** och komponentnära styling
 
 ## Projektstruktur
 
 ```
 src/
-├── data/
-│   ├── tokens.js        ← Design tokens (Organic Vitality)
-│   └── constants.js     ← Listtyper, kategorier, dagar, hjälpfunktioner
-├── components/
-│   └── ui.jsx           ← Delade komponenter (Card, Sheet, Checkbox, Btn …)
-├── screens/
-│   ├── HubScreen.jsx    ← Startsida – lista med alla listor + ny lista
-│   ├── GroceryScreen.jsx← Mathandling: veckoschema ↔ inköpslista (swipe)
-│   ├── GenericScreen.jsx← Generisk checklista (renovering, presenter m.m.)
-│   └── SettingsScreen.jsx
-├── App.jsx              ← Router
-└── main.jsx             ← Entry point
+├── components/           ← Vyer, modaler och delade UI-komponenter
+├── lib/                  ← Supabase, profil-, versions- och listlogik
+├── App.tsx               ← Applikationsflöde och state
+├── data.ts               ← Startdata och mallar
+├── index.css             ← Globala stilar och designtokens
+├── main.tsx              ← Entry point
+└── types.ts              ← Delade domäntyper
+api/                      ← Vercel API routes och receptimport
+supabase/migrations/      ← Databasfunktioner och schemaändringar
 ```
 
 ## Kom igång
