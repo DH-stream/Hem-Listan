@@ -33,6 +33,12 @@ interface ListDetailGroceryProps {
     name: string,
   ) => void;
   onDeleteMeal: (listId: string, mealId: string) => void;
+  onMoveMeal: (
+    listId: string,
+    mealId: string,
+    day: string,
+    type: MealType,
+  ) => Promise<boolean>;
   onBulkAddGroceryDetails: (
     listId: string,
     mealName: string,
@@ -62,6 +68,7 @@ export default function ListDetailGrocery({
   onRenameList,
   onAddMeal,
   onDeleteMeal,
+  onMoveMeal,
   onBulkAddGroceryDetails,
 }: ListDetailGroceryProps) {
   // Navigation within list: 0 = "Schema" view, 1 = "Lista" view
@@ -1025,6 +1032,13 @@ export default function ListDetailGrocery({
 
       <RecipeDetailModal
         meal={selectedRecipeMeal}
+        meals={list.meals ?? []}
+        days={defaultDays}
+        onMove={async (mealId, day, type) => {
+          const moved = await onMoveMeal(list.id, mealId, day, type);
+          if (moved) setSelectedRecipeMeal(null);
+          return moved;
+        }}
         onClose={() => setSelectedRecipeMeal(null)}
       />
 

@@ -2500,6 +2500,57 @@ export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string
   return data.id;
 };
 
+// Flytta en befintlig måltid utan att ändra receptdata eller skapa en ny rad.
+export const moveMeal = async (
+  listId: string,
+  meal: MealSlot,
+  day: string,
+  type: MealSlot["type"],
+): Promise<boolean> => {
+  const client = getSupabaseClient();
+  if (!client) return false;
+  if (meal.day === day && meal.type === type) return true;
+
+  const { data: existingMeal, error: findError } = await client
+    .from('hl_meals')
+    .select('id')
+    .eq('list_id', listId)
+    .eq('day', meal.day)
+    .eq('type', meal.type)
+    .maybeSingle();
+
+  if (findError || !existingMeal) {
+    console.error("Error finding meal to move:", findError);
+    return false;
+  }
+
+  const { error: deleteError } = await client
+    .from('hl_meals')
+    .delete()
+    .eq('list_id', listId)
+    .eq('day', day)
+    .eq('type', type);
+
+  if (deleteError) {
+    console.error("Error clearing target meal slot:", deleteError);
+    return false;
+  }
+
+  const { data, error: updateError } = await client
+    .from('hl_meals')
+    .update({ day, type })
+    .eq('id', existingMeal.id)
+    .select('id')
+    .maybeSingle();
+
+  if (updateError || !data) {
+    console.error("Error moving meal:", updateError);
+    return false;
+  }
+
+  return true;
+};
+
 // Ta bort måltid
 export const deleteMeal = async (mealId: string) => {
   const client = getSupabaseClient();
