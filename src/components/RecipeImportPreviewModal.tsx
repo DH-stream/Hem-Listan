@@ -7,6 +7,7 @@ export type RecipeImportPreview = {
   recipeName: string;
   mealName?: string;
   ingredients: { text: string; quantity: string; category: string }[];
+  instructions?: string[];
   sourceUrl?: string;
   sourceDomain?: string;
   extractionMethod?:
@@ -16,6 +17,7 @@ export type RecipeImportPreview = {
     | "ai_fallback"
     | string;
   confidence?: "high" | "medium" | "low";
+  qualityWarnings?: string[];
 };
 
 type RecipeImportPreviewModalProps = {
@@ -100,7 +102,9 @@ export default function RecipeImportPreviewModal({
   if (typeof document === "undefined") return null;
 
   const showConfidenceWarning =
-    preview?.confidence === "medium" || preview?.confidence === "low";
+    preview?.confidence === "medium" ||
+    preview?.confidence === "low" ||
+    Boolean(preview?.qualityWarnings?.length);
 
   return createPortal(
     <AnimatePresence>
@@ -165,7 +169,10 @@ export default function RecipeImportPreviewModal({
                     {showConfidenceWarning && (
                       <p className="mt-4 rounded-xl bg-primary-fixed/30 p-3 text-xs font-medium leading-relaxed text-on-surface-variant">
                         Jag är lite osäker på om allt kom med. Kolla gärna
-                        igenom.
+                        igenom
+                        {preview.qualityWarnings?.length
+                          ? `: ${preview.qualityWarnings.join(" ")}`
+                          : "."}
                       </p>
                     )}
 
@@ -186,6 +193,21 @@ export default function RecipeImportPreviewModal({
                         </li>
                       ))}
                     </ul>
+
+                    {preview.instructions?.length ? (
+                      <section className="mt-5 border-t border-primary/10 pt-4">
+                        <h3 className="font-display text-sm font-bold text-text-main">
+                          Gör så här
+                        </h3>
+                        <ol className="mt-2 space-y-2 pl-5 text-xs leading-relaxed text-on-surface-variant [list-style:decimal]">
+                          {preview.instructions.map((instruction, index) => (
+                            <li key={`${instruction}-${index}`} className="pl-1">
+                              {instruction}
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    ) : null}
                   </div>
 
                   <div className="flex gap-2 border-t border-surface-container/40 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4">
