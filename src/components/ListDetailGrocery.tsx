@@ -88,7 +88,19 @@ export default function ListDetailGrocery({
 
   const handleImportRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recipeUrl.trim()) return;
+    const url = recipeUrl.trim();
+    if (!url) return;
+
+    const requestId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    console.info("[HL_RECIPE_IMPORT]", {
+      event: "import_start",
+      requestId,
+      url,
+    });
 
     setIsImporting(true);
     setImportError(null);
@@ -98,14 +110,55 @@ export default function ListDetailGrocery({
     try {
       const response = await fetch("/api/import-recipe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: recipeUrl.trim() }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-hl-request-id": requestId,
+        },
+        body: JSON.stringify({ url }),
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+
+      console.info("[HL_RECIPE_IMPORT]", {
+        event: "import_response",
+        requestId,
+        status: response.status,
+        ok: response.ok,
+        contentType,
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
+        const bodyText = await response.text();
+        let errorBody: Record<string, unknown> | null = null;
+
+        try {
+          const parsedBody: unknown = JSON.parse(bodyText);
+          errorBody =
+            parsedBody !== null &&
+            typeof parsedBody === "object" &&
+            !Array.isArray(parsedBody)
+              ? (parsedBody as Record<string, unknown>)
+              : null;
+        } catch {
+          errorBody = null;
+        }
+
+        console.error("[HL_RECIPE_IMPORT]", {
+          event: "import_error_body",
+          requestId,
+          ...(errorBody
+            ? {
+                code: errorBody.code,
+                error: errorBody.error,
+                attemptedMethods: errorBody.attemptedMethods,
+                canRetryWithAi: errorBody.canRetryWithAi,
+              }
+            : { bodyPreview: bodyText.slice(0, 300) }),
+        });
+
         throw new Error(
-          errData.error || "Gick inte att hämta eller tolka receptet.",
+          typeof errorBody?.error === "string"
+            ? errorBody.error
+            : "Gick inte att hämta eller tolka receptet.",
         );
       }
 
@@ -114,7 +167,20 @@ export default function ListDetailGrocery({
         throw new Error("Receptet verkar sakna ingredienser.");
       }
 
-      const sourceUrl = data.sourceUrl || recipeUrl.trim();
+      console.info("[HL_RECIPE_IMPORT]", {
+        event: "import_success",
+        requestId,
+        recipeName: data.recipeName,
+        ingredientCount: data.ingredients.length,
+        instructionCount: Array.isArray(data.instructions)
+          ? data.instructions.length
+          : 0,
+        extractionMethod: data.extractionMethod,
+        confidence: data.confidence,
+        qualityWarnings: data.qualityWarnings,
+      });
+
+      const sourceUrl = data.sourceUrl || url;
       let sourceDomain = data.sourceDomain;
       if (!sourceDomain) {
         try {
@@ -139,8 +205,16 @@ export default function ListDetailGrocery({
           ? data.qualityWarnings
           : [],
       });
-    } catch (err: any) {
-      setImportError(err.message || "Ett oväntat fel uppstod.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Ett oväntat fel uppstod.";
+      console.error("[HL_RECIPE_IMPORT]", {
+        event: "import_failed",
+        requestId,
+        message,
+        error,
+      });
+      setImportError(message);
     } finally {
       setIsImporting(false);
     }
