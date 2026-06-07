@@ -35,6 +35,7 @@ export type ExtractedRecipe = {
   recipeName: string;
   mealName: string;
   ingredients: RecipeIngredient[];
+  instructions?: string[];
   sourceUrl: string;
   sourceDomain: string;
   extractionMethod: ExtractionMethod;
@@ -53,6 +54,7 @@ type ExtractionAttempt = {
 type RecipeCandidate = {
   recipeName?: string;
   ingredients: unknown[];
+  instructions?: string[];
   extractionMethod: ExtractionMethod;
 };
 
@@ -207,6 +209,33 @@ function parseJsonScriptContents(html: string, typePattern: RegExp): unknown[] {
   return values;
 }
 
+function normalizeInstructionStep(value: unknown): string[] {
+  if (typeof value === "string") {
+    const text = cleanText(value);
+    return text && text.length <= 2_000 ? [text] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(normalizeInstructionStep);
+  }
+
+  if (!value || typeof value !== "object") return [];
+
+  const object = value as Record<string, unknown>;
+  if (Array.isArray(object.itemListElement)) {
+    return object.itemListElement.flatMap(normalizeInstructionStep);
+  }
+
+  const text = cleanText(object.text);
+  const name = cleanText(object.name);
+  const instruction =
+    name && text && name.toLocaleLowerCase("sv") !== text.toLocaleLowerCase("sv")
+      ? `${name}: ${text}`
+      : text || name;
+
+  return instruction && instruction.length <= 2_000 ? [instruction] : [];
+}
+
 function extractJsonLd(html: string): RecipeCandidate | null {
   const documents = parseJsonScriptContents(
     html,
@@ -227,6 +256,7 @@ function extractJsonLd(html: string): RecipeCandidate | null {
       return {
         recipeName: cleanText(recipe.name ?? recipe.headline),
         ingredients,
+        instructions: normalizeInstructionStep(recipe.recipeInstructions),
         extractionMethod: "json_ld",
       };
     }
@@ -481,6 +511,9 @@ function normalizeCandidate(
     recipeName,
     mealName: simplifyMealName(recipeName) || recipeName,
     ingredients: filteredIngredients,
+    instructions: candidate.instructions?.length
+      ? candidate.instructions
+      : undefined,
     sourceUrl: sourceUrl.toString(),
     sourceDomain: getHostname(sourceUrl),
     extractionMethod: candidate.extractionMethod,

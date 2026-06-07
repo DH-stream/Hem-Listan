@@ -7,6 +7,7 @@ export type RecipeImportPreview = {
   recipeName: string;
   mealName?: string;
   ingredients: { text: string; quantity: string; category: string }[];
+  instructions?: string[];
   sourceUrl?: string;
   sourceDomain?: string;
   extractionMethod?:
@@ -192,6 +193,21 @@ export default function RecipeImportPreviewModal({
                         </li>
                       ))}
                     </ul>
+
+                    {preview.instructions?.length ? (
+                      <section className="mt-5 border-t border-primary/10 pt-4">
+                        <h3 className="font-display text-sm font-bold text-text-main">
+                          Gör så här
+                        </h3>
+                        <ol className="mt-2 space-y-2 pl-5 text-xs leading-relaxed text-on-surface-variant [list-style:decimal]">
+                          {preview.instructions.map((instruction, index) => (
+                            <li key={`${instruction}-${index}`} className="pl-1">
+                              {instruction}
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    ) : null}
                   </div>
 
                   <div className="flex gap-2 border-t border-surface-container/40 px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-4">

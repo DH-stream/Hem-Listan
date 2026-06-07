@@ -128,6 +128,9 @@ export default function ListDetailGrocery({
         recipeName: data.recipeName,
         mealName: data.mealName,
         ingredients: data.ingredients,
+        instructions: Array.isArray(data.instructions)
+          ? data.instructions
+          : undefined,
         sourceUrl,
         sourceDomain,
         extractionMethod: data.extractionMethod,

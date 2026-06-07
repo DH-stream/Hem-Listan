@@ -19,6 +19,10 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
           "2½ dl grädde",
           "1/2 st citron",
           "salt och peppar"
+        ],
+        "recipeInstructions": [
+          {"@type":"HowToStep","text":"<p>Blanda &amp; vispa.</p>"},
+          {"@type":"HowToStep","name":"Grädda","text":"Ställ in i ugnen."}
         ]
       }
     </script>
@@ -43,6 +47,42 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
   });
   assert.equal(result.ingredients[1].quantity, "2½ dl");
   assert.equal(result.ingredients[2].quantity, "1/2 st");
+  assert.deepEqual(result.instructions, [
+    "Blanda & vispa.",
+    "Grädda: Ställ in i ugnen.",
+  ]);
+});
+
+test("flattens JSON-LD HowToSection instructions in order", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Bröd",
+        "recipeIngredient": ["5 dl mjöl", "2 dl vatten", "1 tsk salt"],
+        "recipeInstructions": [
+          {
+            "@type": "HowToSection",
+            "name": "Deg",
+            "itemListElement": [
+              {"@type":"HowToStep","text":"Blanda degen."},
+              {"@type":"HowToStep","text":"Låt jäsa."}
+            ]
+          },
+          {"@type":"HowToStep","text":"Grädda brödet."}
+        ]
+      }
+    </script>
+  `;
+
+  const result = extractRecipeFromHtml(html, new URL("https://recept.example/brod"));
+
+  assert.ok(result);
+  assert.deepEqual(result.instructions, [
+    "Blanda degen.",
+    "Låt jäsa.",
+    "Grädda brödet.",
+  ]);
 });
 
 test("uses a supported-site embedded data fallback when JSON-LD is absent", () => {
