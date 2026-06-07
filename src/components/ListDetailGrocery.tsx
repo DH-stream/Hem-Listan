@@ -268,7 +268,7 @@ export default function ListDetailGrocery({
     }
   };
 
-  const handleAcceptRecipeImport = useCallback(async (selection: RecipeImportSelection) => {
+  const handleAcceptRecipeImport = useCallback((selection: RecipeImportSelection) => {
     if (!recipeImportPreview) return;
 
     onBulkAddGroceryDetails(
@@ -285,10 +285,22 @@ export default function ListDetailGrocery({
         recipeImageUrl: recipeImportPreview.imageUrl,
       },
     );
+    setImportSuccess(
+      `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
+    );
+    setRecipeImportPreview(null);
+    setSelectedSavedRecipeId(null);
+    setRecipeUrl("");
+
     if (selectedSavedRecipeId) {
-      await touchSavedRecipeLastUsed(selectedSavedRecipeId);
+      void touchSavedRecipeLastUsed(selectedSavedRecipeId).catch((error) => {
+        console.error("saved_recipe_touch_failed", {
+          recipeId: selectedSavedRecipeId,
+          error,
+        });
+      });
     } else {
-      await upsertSavedRecipeFromImport({
+      void upsertSavedRecipeFromImport({
         title: recipeImportPreview.recipeName,
         mealName: recipeImportPreview.mealName,
         sourceUrl: recipeImportPreview.sourceUrl,
@@ -297,14 +309,13 @@ export default function ListDetailGrocery({
         ingredients: recipeImportPreview.ingredients,
         instructions: recipeImportPreview.instructions,
         markUsed: true,
+      }).catch((error) => {
+        console.error("saved_recipe_upsert_failed", {
+          sourceUrl: recipeImportPreview.sourceUrl,
+          error,
+        });
       });
     }
-    setImportSuccess(
-      `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
-    );
-    setRecipeImportPreview(null);
-    setSelectedSavedRecipeId(null);
-    setRecipeUrl("");
   }, [list.id, onBulkAddGroceryDetails, recipeImportPreview, selectedSavedRecipeId]);
 
   const handleRejectRecipeImport = useCallback(() => {
