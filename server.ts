@@ -5,7 +5,7 @@ import {
   importRecipeFromUrl,
   RecipeImportError,
   type RecipeImportErrorCode,
-} from "./recipeImporter";
+} from "./api/_lib/recipeImporter";
 
 const app = express();
 const PORT = 3000;
