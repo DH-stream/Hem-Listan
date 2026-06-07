@@ -30,6 +30,7 @@ import {
   softDeleteList,
   restoreList,
   upsertMeal,
+  moveMeal,
   deleteMeal,
   getInitialProfileDisplayName,
   loadOrCreateUserProfile,
@@ -811,6 +812,39 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     if (await canCloudSave("delete_meal")) await deleteMeal(mealId);
   };
 
+  const handleMoveMeal = async (
+    listId: string,
+    mealId: string,
+    day: string,
+    type: MealType,
+  ): Promise<boolean> => {
+    const list = lists.find(item => item.id === listId);
+    const meal = list?.meals?.find(item => item.id === mealId);
+    if (!meal) return false;
+    if (meal.day === day && meal.type === type) return true;
+
+    const movedMeal = { ...meal, day, type };
+    const updated = lists.map(item => item.id !== listId ? item : {
+      ...item,
+      meals: [
+        ...(item.meals ?? []).filter(existing =>
+          existing.id !== mealId && (existing.day !== day || existing.type !== type)
+        ),
+        movedMeal,
+      ],
+    });
+    applyAndSync(updated);
+
+    if (await canCloudSave("move_meal")) {
+      const movedInCloud = await moveMeal(listId, meal, day, type);
+      if (!movedInCloud) {
+        console.error("cloud_move_meal_error", { listId, mealId, day, type });
+      }
+    }
+
+    return true;
+  };
+
   const handleBulkAddGroceryDetails = async (
     listId: string,
     mealName: string,
@@ -1292,6 +1326,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onRenameList={handleRenameList}
                   onAddMeal={handleAddMeal}
                   onDeleteMeal={handleDeleteMeal}
+                  onMoveMeal={handleMoveMeal}
                   onBulkAddGroceryDetails={handleBulkAddGroceryDetails}
                 />
               ) : (

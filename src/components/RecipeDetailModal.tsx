@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
-import type { MealSlot } from "../types";
+import type { MealSlot, MealType } from "../types";
 import { formatIngredientName } from "../lib/ingredientDisplay";
 import LucideIcon from "./LucideIcon";
 
 type RecipeDetailModalProps = {
   meal: MealSlot | null;
+  meals: MealSlot[];
+  days: string[];
+  onMove: (mealId: string, day: string, type: MealType) => Promise<boolean>;
   onClose: () => void;
 };
 
@@ -27,8 +30,19 @@ const easing = [0.23, 1, 0.32, 1] as const;
 const sectionClassName =
   "rounded-2xl border border-surface-container/40 bg-surface-container-low p-4 shadow-[0_8px_24px_rgba(34,50,35,0.05)]";
 
-export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalProps) {
+export default function RecipeDetailModal({
+  meal,
+  meals,
+  days,
+  onMove,
+  onClose,
+}: RecipeDetailModalProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(() => new Set());
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [selectedDay, setSelectedDay] = useState("");
+  const [selectedMealType, setSelectedMealType] = useState<MealType>("middag");
+  const [isMoving, setIsMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
   const [wakeLockSupported, setWakeLockSupported] = useState(false);
   const [wantsWakeLock, setWantsWakeLock] = useState(false);
   const [isWakeLocked, setIsWakeLocked] = useState(false);
@@ -99,6 +113,11 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
     modalOpenRef.current = Boolean(meal);
     wantsWakeLockRef.current = false;
     setCompletedSteps(new Set());
+    setIsEditingPlan(false);
+    setSelectedDay(meal?.day ?? "");
+    setSelectedMealType(meal?.type ?? "middag");
+    setIsMoving(false);
+    setMoveError(null);
     setWantsWakeLock(false);
     void releaseWakeLock();
   }, [meal?.id, releaseWakeLock]);
@@ -152,6 +171,17 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
     });
   };
 
+  const handleMove = async () => {
+    if (!meal || isMoving) return;
+    setIsMoving(true);
+    setMoveError(null);
+    const moved = await onMove(meal.id, selectedDay, selectedMealType);
+    if (!moved) {
+      setMoveError("Måltiden kunde inte flyttas. Försök igen.");
+      setIsMoving(false);
+    }
+  };
+
   useEffect(() => {
     if (!meal) return;
     const previousOverflow = document.body.style.overflow;
@@ -167,6 +197,20 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
   }, [meal, onClose]);
 
   if (typeof document === "undefined") return null;
+
+  const targetMeal = meal
+    ? meals.find((candidate) =>
+        candidate.id !== meal.id &&
+        candidate.day === selectedDay &&
+        candidate.type === selectedMealType
+      )
+    : undefined;
+  const hasChangedSlot = Boolean(
+    meal && (meal.day !== selectedDay || meal.type !== selectedMealType),
+  );
+  const mealTypeLabel = meal
+    ? meal.type.charAt(0).toUpperCase() + meal.type.slice(1)
+    : "";
 
   return createPortal(
     <AnimatePresence>
@@ -204,6 +248,24 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
                     {meal.recipeSourceDomain}
                   </p>
                 ) : null}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-container-low px-3 py-2 text-[11px] font-bold text-on-surface-variant">
+                    <LucideIcon name="calendar" className="h-3.5 w-3.5" />
+                    {meal.day} · {mealTypeLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingPlan((current) => !current);
+                      setMoveError(null);
+                    }}
+                    aria-expanded={isEditingPlan}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-surface-container/60 bg-surface-container-lowest px-3 py-2 text-[11px] font-bold text-primary transition-[background-color,transform] duration-150 hover:bg-primary-fixed/40 active:scale-[0.97]"
+                  >
+                    <LucideIcon name="edit" className="h-3.5 w-3.5" />
+                    Ändra planering
+                  </button>
+                </div>
                 {wakeLockSupported ? (
                   <button
                     type="button"
@@ -233,6 +295,66 @@ export default function RecipeDetailModal({ meal, onClose }: RecipeDetailModalPr
             </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pb-6">
+              {isEditingPlan ? (
+                <section className="mb-5 rounded-2xl border border-primary/15 bg-primary-fixed/25 p-4">
+                  <h3 className="font-display text-sm font-bold text-text-main">Flytta måltiden</h3>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="text-[11px] font-bold text-on-surface-variant">
+                      Dag
+                      <select
+                        value={selectedDay}
+                        onChange={(event) => setSelectedDay(event.target.value)}
+                        className="mt-1.5 w-full rounded-xl border border-surface-container-highest bg-surface-container-lowest px-3 py-2.5 text-sm font-semibold text-text-main outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      >
+                        {days.map((day) => <option key={day} value={day}>{day}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-[11px] font-bold text-on-surface-variant">
+                      Måltid
+                      <select
+                        value={selectedMealType}
+                        onChange={(event) => setSelectedMealType(event.target.value as MealType)}
+                        className="mt-1.5 w-full rounded-xl border border-surface-container-highest bg-surface-container-lowest px-3 py-2.5 text-sm font-semibold text-text-main outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                      >
+                        <option value="frukost">Frukost</option>
+                        <option value="lunch">Lunch</option>
+                        <option value="middag">Middag</option>
+                      </select>
+                    </label>
+                  </div>
+                  {targetMeal ? (
+                    <p className="mt-3 rounded-xl bg-accent-rust/10 px-3 py-2.5 text-xs font-medium leading-relaxed text-text-main">
+                      {selectedDay} · {selectedMealType} innehåller redan “{targetMeal.name}”. Den måltiden ersätts när du flyttar receptet.
+                    </p>
+                  ) : null}
+                  {moveError ? (
+                    <p role="alert" className="mt-3 text-xs font-bold text-error">{moveError}</p>
+                  ) : null}
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingPlan(false);
+                        setSelectedDay(meal.day);
+                        setSelectedMealType(meal.type);
+                        setMoveError(null);
+                      }}
+                      className="rounded-xl px-3 py-2.5 text-xs font-bold text-on-surface-variant transition-[background-color,transform] duration-150 hover:bg-surface-container/60 active:scale-[0.97]"
+                    >
+                      Avbryt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleMove}
+                      disabled={!hasChangedSlot || isMoving}
+                      className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white transition-[filter,transform] duration-150 hover:brightness-105 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100"
+                    >
+                      {isMoving ? "Flyttar…" : targetMeal ? "Ersätt och flytta" : "Flytta måltid"}
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
               {meal.recipeImageUrl ? (
                 <img
                   src={meal.recipeImageUrl}
