@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   extractRecipeFromHtml,
   importRecipeFromUrl,
+  RecipeImportError,
   validateRecipeUrl,
 } from "./recipeImporter";
 
@@ -32,6 +33,9 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
   assert.equal(result.sourceDomain, "ica.se");
   assert.equal(result.confidence, "high");
   assert.deepEqual(result.qualityWarnings, []);
+  assert.deepEqual(result.attemptedMethods, ["json_ld"]);
+  assert.equal(result.usedFallback, false);
+  assert.equal(result.canRetryWithAi, false);
   assert.deepEqual(result.ingredients[0], {
     text: "laxfilé",
     quantity: "500 g",
@@ -63,6 +67,9 @@ test("uses a supported-site embedded data fallback when JSON-LD is absent", () =
   assert.equal(result.extractionMethod, "site_adapter");
   assert.equal(result.confidence, "high");
   assert.equal(result.ingredients.length, 3);
+  assert.deepEqual(result.attemptedMethods, ["json_ld", "site_adapter"]);
+  assert.equal(result.usedFallback, true);
+  assert.equal(result.canRetryWithAi, false);
 });
 
 test("marks a one-ingredient import as low confidence", () => {
@@ -77,6 +84,9 @@ test("marks a one-ingredient import as low confidence", () => {
   assert.ok(result);
   assert.equal(result.confidence, "low");
   assert.match(result.qualityWarnings.join(" "), /Färre än tre/);
+  assert.deepEqual(result.attemptedMethods, ["json_ld", "site_adapter"]);
+  assert.equal(result.usedFallback, false);
+  assert.equal(result.canRetryWithAi, true);
 });
 
 test("returns null when no ingredients can be found", () => {
@@ -89,7 +99,11 @@ test("returns null when no ingredients can be found", () => {
 });
 
 test("rejects invalid and local URLs", () => {
-  assert.throws(() => validateRecipeUrl("not a url"), /giltig receptlänk/);
+  assert.throws(
+    () => validateRecipeUrl("not a url"),
+    (error) =>
+      error instanceof RecipeImportError && error.code === "invalid_url",
+  );
   assert.throws(() => validateRecipeUrl("http://localhost/recipe"), /kan inte hämtas/);
   assert.throws(() => validateRecipeUrl("file:///tmp/recipe"), /http- eller https/);
 });
@@ -114,6 +128,8 @@ test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
   assert.equal(result.extractionMethod, "dom_fallback");
   assert.equal(result.confidence, "high");
   assert.equal(result.ingredients.length, 3);
+  assert.deepEqual(result.attemptedMethods, ["json_ld", "dom_fallback"]);
+  assert.equal(result.usedFallback, true);
 });
 
 const recipeHtml = `
@@ -137,7 +153,8 @@ test("rejects a redirect to localhost before fetching the target", async (t) => 
 
   await assert.rejects(
     importRecipeFromUrl("https://public.example/recipe"),
-    /kan inte hämtas/,
+    (error) =>
+      error instanceof RecipeImportError && error.code === "unsafe_redirect",
   );
   assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
 });
@@ -155,7 +172,8 @@ test("rejects a redirect to private IPv4 before fetching the target", async (t) 
 
   await assert.rejects(
     importRecipeFromUrl("https://public.example/recipe"),
-    /kan inte hämtas/,
+    (error) =>
+      error instanceof RecipeImportError && error.code === "unsafe_redirect",
   );
   assert.deepEqual(fetchedUrls, ["https://public.example/recipe"]);
 });
@@ -204,7 +222,9 @@ test("fails after three redirects without fetching a fourth target", async (t) =
 
   await assert.rejects(
     importRecipeFromUrl("https://public.example/recipe"),
-    /för många gånger/,
+    (error) =>
+      error instanceof RecipeImportError &&
+      error.code === "too_many_redirects",
   );
   assert.deepEqual(fetchedUrls, [
     "https://public.example/recipe",
@@ -212,4 +232,24 @@ test("fails after three redirects without fetching a fourth target", async (t) =
     "https://public.example/redirect-2",
     "https://public.example/redirect-3",
   ]);
+});
+
+test("returns retry metadata for a page with no recipe", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    new Response("<html><body>Ingen receptdata</body></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    }),
+  );
+
+  await assert.rejects(
+    importRecipeFromUrl("https://public.example/not-a-recipe"),
+    (error) => {
+      assert.ok(error instanceof RecipeImportError);
+      assert.equal(error.code, "no_recipe_found");
+      assert.equal(error.canRetryWithAi, true);
+      assert.deepEqual(error.attemptedMethods, ["json_ld", "dom_fallback"]);
+      return true;
+    },
+  );
 });

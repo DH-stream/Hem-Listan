@@ -1,35 +1,46 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { importRecipeFromUrl, validateRecipeUrl } from "./recipeImporter";
+import {
+  importRecipeFromUrl,
+  RecipeImportError,
+  type RecipeImportErrorCode,
+} from "./recipeImporter";
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
 
+const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
+  invalid_url: 400,
+  unsafe_redirect: 400,
+  unsupported_content_type: 422,
+  no_recipe_found: 422,
+};
+
 app.post(
   "/api/import-recipe",
   async (req: express.Request, res: express.Response) => {
     try {
-      validateRecipeUrl(req.body?.url);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Ange en giltig receptlänk.";
-      return res.status(400).json({ error: message });
-    }
-
-    try {
-      const recipe = await importRecipeFromUrl(req.body.url);
+      const recipe = await importRecipeFromUrl(req.body?.url);
       return res.json(recipe);
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Receptet kunde inte importeras.";
-      const status = message.includes("Inga ingredienser") ? 422 : 502;
+      const importError =
+        error instanceof RecipeImportError
+          ? error
+          : new RecipeImportError(
+              "fetch_failed",
+              "Receptet kunde inte importeras.",
+            );
+      const status = importErrorStatuses[importError.code] ?? 502;
       console.error("Failed in /api/import-recipe:", error);
-      return res.status(status).json({ error: message });
+      return res.status(status).json({
+        error: importError.message,
+        code: importError.code,
+        attemptedMethods: importError.attemptedMethods,
+        canRetryWithAi: importError.canRetryWithAi,
+      });
     }
   },
 );

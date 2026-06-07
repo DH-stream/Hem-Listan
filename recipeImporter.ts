@@ -6,6 +6,30 @@ export type RecipeIngredient = {
 
 export type ExtractionMethod = "json_ld" | "dom_fallback" | "site_adapter";
 export type ImportConfidence = "high" | "medium" | "low";
+export type RecipeImportErrorCode =
+  | "invalid_url"
+  | "fetch_failed"
+  | "fetch_timeout"
+  | "too_many_redirects"
+  | "unsafe_redirect"
+  | "unsupported_content_type"
+  | "page_too_large"
+  | "no_recipe_found";
+
+export class RecipeImportError extends Error {
+  constructor(
+    public readonly code: RecipeImportErrorCode,
+    message: string,
+    public readonly attemptedMethods: ExtractionMethod[] = [],
+  ) {
+    super(message);
+    this.name = "RecipeImportError";
+  }
+
+  get canRetryWithAi(): boolean {
+    return this.code === "no_recipe_found";
+  }
+}
 
 export type ExtractedRecipe = {
   recipeName: string;
@@ -16,6 +40,14 @@ export type ExtractedRecipe = {
   extractionMethod: ExtractionMethod;
   confidence: ImportConfidence;
   qualityWarnings: string[];
+  attemptedMethods: ExtractionMethod[];
+  usedFallback: boolean;
+  canRetryWithAi: boolean;
+};
+
+type ExtractionAttempt = {
+  recipe: ExtractedRecipe | null;
+  attemptedMethods: ExtractionMethod[];
 };
 
 type RecipeCandidate = {
@@ -74,20 +106,29 @@ function isSupportedSite(hostname: string): boolean {
   );
 }
 
-export function validateRecipeUrl(value: unknown): URL {
+export function validateRecipeUrl(
+  value: unknown,
+  errorCode: "invalid_url" | "unsafe_redirect" = "invalid_url",
+): URL {
+  const invalidUrl = (message: string): never => {
+    throw new RecipeImportError(errorCode, message);
+  };
+
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error("Ange en giltig receptlänk.");
+    return invalidUrl("Ange en giltig receptlänk.");
   }
 
   let url: URL;
   try {
     url = new URL(value.trim());
   } catch {
-    throw new Error("Ange en giltig receptlänk.");
+    return invalidUrl("Ange en giltig receptlänk.");
   }
 
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
-    throw new Error("Receptlänken måste vara en vanlig http- eller https-länk.");
+    return invalidUrl(
+      "Receptlänken måste vara en vanlig http- eller https-länk.",
+    );
   }
 
   const hostname = getHostname(url);
@@ -98,7 +139,7 @@ export function validateRecipeUrl(value: unknown): URL {
     /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
     hostname === "::1"
   ) {
-    throw new Error("Den receptlänken kan inte hämtas.");
+    return invalidUrl("Den receptlänken kan inte hämtas.");
   }
 
   return url;
@@ -360,6 +401,30 @@ function isCredibleIngredient(ingredient: RecipeIngredient): boolean {
   );
 }
 
+function assessRecipeQuality(
+  hasRecipeName: boolean,
+  ingredients: RecipeIngredient[],
+): { confidence: ImportConfidence; qualityWarnings: string[] } {
+  const credibleCount = ingredients.filter(isCredibleIngredient).length;
+  const qualityWarnings: string[] = [];
+
+  if (!hasRecipeName) {
+    qualityWarnings.push("Receptnamnet kunde inte identifieras säkert.");
+  }
+  if (credibleCount < 3) {
+    qualityWarnings.push("Färre än tre tydliga ingredienser hittades.");
+  }
+  if (credibleCount < ingredients.length) {
+    qualityWarnings.push("Någon rad ser inte ut som en vanlig ingrediens.");
+  }
+
+  let confidence: ImportConfidence = "low";
+  if (hasRecipeName && credibleCount >= 3) confidence = "high";
+  else if (credibleCount >= 2) confidence = "medium";
+
+  return { confidence, qualityWarnings };
+}
+
 function normalizeCandidate(
   candidate: RecipeCandidate,
   sourceUrl: URL,
@@ -396,21 +461,10 @@ function normalizeCandidate(
   });
   if (filteredIngredients.length === 0) return null;
 
-  const credibleCount = filteredIngredients.filter(isCredibleIngredient).length;
-  const qualityWarnings: string[] = [];
-  if (!cleanText(candidate.recipeName)) {
-    qualityWarnings.push("Receptnamnet kunde inte identifieras säkert.");
-  }
-  if (credibleCount < 3) {
-    qualityWarnings.push("Färre än tre tydliga ingredienser hittades.");
-  }
-  if (credibleCount < filteredIngredients.length) {
-    qualityWarnings.push("Någon rad ser inte ut som en vanlig ingrediens.");
-  }
-
-  let confidence: ImportConfidence = "low";
-  if (cleanText(candidate.recipeName) && credibleCount >= 3) confidence = "high";
-  else if (credibleCount >= 2) confidence = "medium";
+  const { confidence, qualityWarnings } = assessRecipeQuality(
+    Boolean(cleanText(candidate.recipeName)),
+    filteredIngredients,
+  );
 
   return {
     recipeName,
@@ -421,14 +475,30 @@ function normalizeCandidate(
     extractionMethod: candidate.extractionMethod,
     confidence,
     qualityWarnings,
+    attemptedMethods: [candidate.extractionMethod],
+    usedFallback: candidate.extractionMethod !== "json_ld",
+    canRetryWithAi: confidence === "low",
   };
 }
 
-export function extractRecipeFromHtml(
+function withExtractionMetadata(
+  recipe: ExtractedRecipe,
+  attemptedMethods: ExtractionMethod[],
+): ExtractedRecipe {
+  return {
+    ...recipe,
+    attemptedMethods,
+    usedFallback: recipe.extractionMethod !== "json_ld",
+    canRetryWithAi: recipe.confidence === "low",
+  };
+}
+
+function attemptRecipeExtraction(
   html: string,
   sourceUrl: URL,
-): ExtractedRecipe | null {
+): ExtractionAttempt {
   const hostname = getHostname(sourceUrl);
+  const attemptedMethods: ExtractionMethod[] = ["json_ld"];
   const jsonLdCandidate = extractJsonLd(html);
   const normalizedJsonLd = jsonLdCandidate
     ? normalizeCandidate(jsonLdCandidate, sourceUrl)
@@ -436,14 +506,34 @@ export function extractRecipeFromHtml(
 
   const credibleJsonLdCount =
     normalizedJsonLd?.ingredients.filter(isCredibleIngredient).length ?? 0;
-  if (normalizedJsonLd && credibleJsonLdCount >= 2) return normalizedJsonLd;
+  if (normalizedJsonLd && credibleJsonLdCount >= 2) {
+    return {
+      recipe: withExtractionMetadata(normalizedJsonLd, attemptedMethods),
+      attemptedMethods,
+    };
+  }
 
+  const fallbackMethod: ExtractionMethod = isSupportedSite(hostname)
+    ? "site_adapter"
+    : "dom_fallback";
+  attemptedMethods.push(fallbackMethod);
   const fallbackCandidate = extractSiteFallback(html, hostname);
   const normalizedFallback = fallbackCandidate
     ? normalizeCandidate(fallbackCandidate, sourceUrl)
     : null;
+  const recipe = normalizedFallback ?? normalizedJsonLd;
 
-  return normalizedFallback ?? normalizedJsonLd;
+  return {
+    recipe: recipe ? withExtractionMetadata(recipe, attemptedMethods) : null,
+    attemptedMethods,
+  };
+}
+
+export function extractRecipeFromHtml(
+  html: string,
+  sourceUrl: URL,
+): ExtractedRecipe | null {
+  return attemptRecipeExtraction(html, sourceUrl).recipe;
 }
 
 export async function importRecipeFromUrl(value: unknown): Promise<ExtractedRecipe> {
@@ -465,30 +555,57 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
         error instanceof Error &&
         (error.name === "TimeoutError" || error.name === "AbortError")
       ) {
-        throw new Error("Receptsidan tog för lång tid att hämta.");
+        throw new RecipeImportError(
+          "fetch_timeout",
+          "Receptsidan tog för lång tid att hämta.",
+        );
       }
-      throw new Error("Receptsidan kunde inte hämtas.");
+      throw new RecipeImportError(
+        "fetch_failed",
+        "Receptsidan kunde inte hämtas.",
+      );
     }
 
     if (!REDIRECT_STATUSES.has(response.status)) break;
     if (redirectCount === MAX_REDIRECTS) {
-      throw new Error("Receptsidan skickade vidare för många gånger.");
+      throw new RecipeImportError(
+        "too_many_redirects",
+        "Receptsidan skickade vidare för många gånger.",
+      );
     }
 
     const location = response.headers.get("location");
     if (!location) {
-      throw new Error("Receptsidan skickade vidare utan en giltig adress.");
+      throw new RecipeImportError(
+        "unsafe_redirect",
+        "Receptsidan skickade vidare utan en giltig adress.",
+      );
     }
 
-    currentUrl = validateRecipeUrl(new URL(location, currentUrl).toString());
+    let redirectUrl: URL;
+    try {
+      redirectUrl = new URL(location, currentUrl);
+    } catch {
+      throw new RecipeImportError(
+        "unsafe_redirect",
+        "Receptsidan skickade vidare till en ogiltig adress.",
+      );
+    }
+    currentUrl = validateRecipeUrl(redirectUrl.toString(), "unsafe_redirect");
   }
 
   if (!response) {
-    throw new Error("Receptsidan kunde inte hämtas.");
+    throw new RecipeImportError(
+      "fetch_failed",
+      "Receptsidan kunde inte hämtas.",
+    );
   }
 
   if (!response.ok) {
-    throw new Error(`Receptsidan svarade med status ${response.status}.`);
+    throw new RecipeImportError(
+      "fetch_failed",
+      `Receptsidan svarade med status ${response.status}.`,
+    );
   }
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -497,23 +614,36 @@ export async function importRecipeFromUrl(value: unknown): Promise<ExtractedReci
     !contentType.includes("text/html") &&
     !contentType.includes("application/xhtml+xml")
   ) {
-    throw new Error("Länken verkar inte gå till en receptsida.");
+    throw new RecipeImportError(
+      "unsupported_content_type",
+      "Länken verkar inte gå till en receptsida.",
+    );
   }
 
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_HTML_LENGTH) {
-    throw new Error("Receptsidan är för stor för att importera.");
+    throw new RecipeImportError(
+      "page_too_large",
+      "Receptsidan är för stor för att importera.",
+    );
   }
 
   const html = await response.text();
   if (html.length > MAX_HTML_LENGTH) {
-    throw new Error("Receptsidan är för stor för att importera.");
+    throw new RecipeImportError(
+      "page_too_large",
+      "Receptsidan är för stor för att importera.",
+    );
   }
 
-  const recipe = extractRecipeFromHtml(html, currentUrl);
-  if (!recipe) {
-    throw new Error("Inga ingredienser hittades på receptsidan.");
+  const extraction = attemptRecipeExtraction(html, currentUrl);
+  if (!extraction.recipe) {
+    throw new RecipeImportError(
+      "no_recipe_found",
+      "Inga ingredienser hittades på receptsidan.",
+      extraction.attemptedMethods,
+    );
   }
 
-  return recipe;
+  return extraction.recipe;
 }
