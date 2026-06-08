@@ -97,6 +97,7 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
   const rememberRating = async (recipe: SavedRecipe, rating: "liked" | "disliked") => {
     const saved = await updateSavedRecipeRating(recipe.id, rating);
     if (!saved) return false;
+    setRecipes((current) => current.map((item) => item.id === recipe.id ? { ...item, userRating: rating } : item));
     if (recipe.sourceUrl) {
       await upsertRecipeUrlFeedback({
         sourceUrl: recipe.sourceUrl,
@@ -105,7 +106,6 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
         rating,
       });
     }
-    setRecipes((current) => current.map((item) => item.id === recipe.id ? { ...item, userRating: rating } : item));
     return true;
   };
 
