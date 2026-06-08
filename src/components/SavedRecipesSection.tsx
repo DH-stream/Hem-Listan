@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { ImageOff, ThumbsDown, ThumbsUp } from "lucide-react";
 import type { SavedRecipe } from "../types";
@@ -10,11 +11,76 @@ import {
 } from "../lib/supabase";
 import LucideIcon from "./LucideIcon";
 
+interface SavedRecipeDeleteConfirmDialogProps {
+  isOpen: boolean;
+  onCancel: () => void;
+  onKeep: () => void;
+  onRemove: () => void;
+}
+
+function SavedRecipeDeleteConfirmDialog({ isOpen, onCancel, onKeep, onRemove }: SavedRecipeDeleteConfirmDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previouslyFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    cancelButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocusedElement?.focus();
+    };
+  }, [isOpen, onCancel]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4 font-sans backdrop-blur-[2px]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onCancel}
+        >
+          <motion.div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="dislike-recipe-title"
+            aria-describedby="dislike-recipe-description"
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 8 }}
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="dislike-recipe-title" className="text-lg font-bold text-gray-900">Vill du ta bort sparade receptet?</h2>
+            <p id="dislike-recipe-description" className="mt-2 text-sm font-medium leading-relaxed text-gray-600">Vi kommer ihåg att den inte var en favorit om du importerar länken igen.</p>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button ref={cancelButtonRef} type="button" onClick={onKeep} className="min-h-[44px] rounded-xl bg-gray-100 px-4 py-3 text-sm font-bold text-gray-700 active:scale-[0.97]">Behåll sparat</button>
+              <button type="button" onClick={onRemove} className="min-h-[44px] rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white active:scale-[0.97]">Ta bort</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
 export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [open, setOpen] = useState(false);
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingDislike, setPendingDislike] = useState<SavedRecipe | null>(null);
+  const closeDislikeDialog = useCallback(() => setPendingDislike(null), []);
 
   const loadRecipes = useCallback(async () => {
     if (!isLoggedIn) return;
@@ -132,20 +198,12 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>
-        {pendingDislike && (
-          <motion.div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPendingDislike(null)}>
-            <motion.div role="alertdialog" aria-modal="true" aria-labelledby="dislike-recipe-title" initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-              <h2 id="dislike-recipe-title" className="text-lg font-bold text-gray-900">Vill du ta bort sparade receptet?</h2>
-              <p className="mt-2 text-sm font-medium leading-relaxed text-gray-600">Vi kommer ihåg att den inte var en favorit om du importerar länken igen.</p>
-              <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <button type="button" onClick={() => void keepDisliked()} className="min-h-[44px] rounded-xl bg-gray-100 px-4 py-3 text-sm font-bold text-gray-700 active:scale-[0.97]">Behåll sparat</button>
-                <button type="button" onClick={() => void removeDisliked()} className="min-h-[44px] rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white active:scale-[0.97]">Ta bort</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <SavedRecipeDeleteConfirmDialog
+        isOpen={pendingDislike !== null}
+        onCancel={closeDislikeDialog}
+        onKeep={() => void keepDisliked()}
+        onRemove={() => void removeDisliked()}
+      />
     </>
   );
 }
