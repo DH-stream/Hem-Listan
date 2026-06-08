@@ -98,15 +98,20 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
     const saved = await updateSavedRecipeRating(recipe.id, rating);
     if (!saved) return false;
     if (recipe.sourceUrl) {
-      await upsertRecipeUrlFeedback({
+      const remembered = await upsertRecipeUrlFeedback({
         sourceUrl: recipe.sourceUrl,
         sourceDomain: recipe.sourceDomain,
         recipeTitle: recipe.title,
         rating,
       });
+      if (!remembered) return false;
     }
     setRecipes((current) => current.map((item) => item.id === recipe.id ? { ...item, userRating: rating } : item));
     return true;
+  };
+
+  const markLiked = async (recipe: SavedRecipe) => {
+    await rememberRating(recipe, "liked");
   };
 
   const keepDisliked = async () => {
@@ -176,7 +181,7 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
                       <div className="mt-2 flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => void rememberRating(recipe, "liked")}
+                          onClick={() => void markLiked(recipe)}
                           aria-label={`Markera ${recipe.title} som favorit`}
                           aria-pressed={recipe.userRating === "liked"}
                           className={`flex h-8 w-8 items-center justify-center rounded-full transition-[background-color,color,transform] active:scale-[0.95] ${recipe.userRating === "liked" ? "bg-emerald-100 text-emerald-700" : "bg-[#FAF9F5] text-gray-400 hover:text-emerald-700"}`}
