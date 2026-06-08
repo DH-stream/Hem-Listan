@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { MealType } from '../types';
+import { AnimatePresence, motion } from 'motion/react';
+import type { MealType, SavedRecipe } from '../types';
+import SavedRecipePicker from './SavedRecipePicker';
 
 interface MealModalProps {
   isOpen: boolean;
@@ -8,16 +10,27 @@ interface MealModalProps {
   onConfirm: (name: string) => void;
   day?: string;
   mealType?: MealType;
+  isLoggedIn: boolean;
+  onSelectSavedRecipe: (recipe: SavedRecipe) => void;
 }
 
-const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost" }: MealModalProps) => {
+type MealModalMode = 'manual' | 'savedRecipePicker';
+type MealModalPhase = 'idle' | 'open' | 'confirming' | 'check' | 'closing';
+
+const easing = [0.23, 1, 0.32, 1] as const;
+const backdropTransition = { duration: 0.16, ease: easing } as const;
+const cardTransition = { duration: 0.16, ease: easing } as const;
+const contentTransition = { duration: 0.14, ease: easing } as const;
+
+const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType = "frukost", isLoggedIn, onSelectSavedRecipe }: MealModalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [phase, setPhase] = useState<'idle' | 'open' | 'confirming' | 'check' | 'closing'>('idle');
+  const [phase, setPhase] = useState<MealModalPhase>('idle');
+  const [mode, setMode] = useState<MealModalMode>('manual');
 
   useEffect(() => {
     if (isOpen) {
+      setMode('manual');
       setPhase('open');
-      // Rensa input utan controlled state
       if (inputRef.current) inputRef.current.value = '';
     }
   }, [isOpen]);
@@ -26,6 +39,11 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
     setPhase('closing');
     setTimeout(() => { setPhase('idle'); onClose(); }, 300);
   }, [onClose]);
+
+  const handleSavedRecipeSelect = useCallback((recipe: SavedRecipe) => {
+    setPhase('idle');
+    onSelectSavedRecipe(recipe);
+  }, [onSelectSavedRecipe]);
 
   const handleConfirm = useCallback(() => {
     const value = inputRef.current?.value ?? '';
@@ -38,148 +56,132 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
     }, 1200);
   }, [onConfirm, onClose]);
 
-  if (phase === 'idle') return null;
-
-  const isConfirming = phase === 'confirming' || phase === 'check';
-  const isVisible = phase === 'open';
-  const isClosing = phase === 'closing';
+  if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 50,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        // Ingen backdrop-filter — orsakar repaint på mobil
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        opacity: isClosing ? 0 : 1,
-        transition: 'opacity 300ms ease',
-        pointerEvents: isClosing ? 'none' : 'auto',
-      }}
-    >
-      <style>{`
-        @keyframes drawCheck {
-          to { stroke-dashoffset: 0; }
-        }
-      `}</style>
+    <AnimatePresence>
+      {phase !== 'idle' && (
+        <motion.div
+          key="meal-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={backdropTransition}
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-none bg-black/50 p-4 font-sans"
+        >
+          <style>{`@keyframes drawCheck { to { stroke-dashoffset: 0; } }`}</style>
 
-      <div style={{
-        position: 'relative',
-        width: 80,
-        height: 80,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
+          <AnimatePresence mode="popLayout" initial={false}>
+            {phase === 'open' && (
+              <motion.div
+                key="meal-modal-card"
+                layout="size"
+                layoutDependency={mode}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={mode === 'manual' ? 'meal-modal-title' : 'saved-recipe-picker-title'}
+                initial={{ opacity: 0, scale: 0.98, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 4 }}
+                transition={cardTransition}
+                className="relative my-4 flex max-h-[calc(100dvh-2rem)] w-full max-w-md transform-gpu flex-col overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-br from-[#FCF9F8] to-[#E8F5E9] shadow-2xl will-change-transform sm:my-8 sm:max-h-[calc(100dvh-4rem)]"
+              >
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {mode === 'manual' ? (
+                    <motion.div
+                      key="manual"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={contentTransition}
+                      className="p-6"
+                    >
+                      <h2 id="meal-modal-title" className="text-[1.2rem] font-semibold leading-[1.3] text-gray-800">
+                        Vad vill du lägga till för {mealType} på {day}?
+                      </h2>
+                      <p className="mb-6 mt-2 text-sm text-gray-600">Skriv in en maträtt eller en länk.</p>
 
-        {/* Grön cirkel */}
-        <div style={{
-          position: 'absolute',
-          width: 80,
-          height: 80,
-          borderRadius: '50%',
-          backgroundColor: '#1a6b20',
-          transform: isConfirming ? 'scale(1)' : 'scale(0)',
-          opacity: isConfirming ? 1 : 0,
-          transition: 'transform 600ms cubic-bezier(0.4,0,0.2,1), opacity 400ms ease',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: isConfirming ? '0 0 24px rgba(26,107,32,0.5)' : 'none',
-          willChange: 'transform, opacity',
-        }}>
-          {phase === 'check' && (
-            <svg
-              viewBox="0 0 52 52"
-              style={{
-                width: 36, height: 36,
-                stroke: 'white', strokeWidth: 4,
-                strokeLinecap: 'round', strokeLinejoin: 'round',
-                fill: 'none',
-                strokeDasharray: 100,
-                strokeDashoffset: 100,
-                animation: 'drawCheck 0.35s ease-out forwards',
-              }}
-            >
-              <path d="M14.1 27.2l7.1 7.2 16.7-16.8" />
-            </svg>
-          )}
-        </div>
+                      <button
+                        type="button"
+                        onClick={() => setMode('savedRecipePicker')}
+                        className="mb-4 w-full rounded-[14px] border border-[#D9E8D7] bg-[#F3F8F1] px-3.5 py-3 text-sm font-semibold text-[#1A6B20] transition-transform active:scale-[0.97]"
+                      >
+                        Vill du använda ett sparat recept?
+                      </button>
 
-        {/* Modal-kort */}
-        <div style={{
-          position: 'absolute',
-          width: 320,
-          borderRadius: 24,
-          background: 'linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%)',
-          border: '1px solid rgba(0,90,10,0.1)',
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
-          padding: 24,
-          transform: isVisible ? 'scale(1)' : 'scale(0)',
-          opacity: isVisible ? 1 : 0,
-          transition: 'transform 400ms cubic-bezier(0.4,0,0.2,1), opacity 300ms ease',
-          willChange: 'transform, opacity',
-          transformOrigin: 'center center',
-          contain: 'layout paint',
-        }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#1f2937', marginBottom: 8, lineHeight: 1.3 }}>
-            Vad vill du lägga till för {mealType} på {day}?
-          </h2>
-          <p style={{ fontSize: '0.875rem', color: '#4b5563', marginBottom: 24 }}>
-            Skriv in en maträtt eller en länk.
-          </p>
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        defaultValue=""
+                        className="mb-7 w-full rounded-2xl border-0 bg-[#FCF9F8] px-4 py-3.5 text-base text-gray-700 shadow-[inset_4px_4px_8px_#DCD9D8,inset_-4px_-4px_8px_#FFFFFF] outline-none"
+                        placeholder="T.ex. Havregrynsgröt"
+                        autoFocus
+                      />
 
-          <input
-            ref={inputRef}
-            type="text"
-            defaultValue=""
-            style={{
-              width: '100%',
-              padding: '14px 16px',
-              borderRadius: 16,
-              border: 'none',
-              background: '#fcf9f8',
-              boxShadow: 'inset 4px 4px 8px #dcd9d8, inset -4px -4px 8px #ffffff',
-              color: '#374151',
-              fontSize: '1rem',
-              marginBottom: 28,
-              boxSizing: 'border-box' as const,
-              outline: 'none',
-            }}
-            placeholder="T.ex. Havregrynsgröt"
-            autoFocus
-          />
+                      <div className="flex gap-3">
+                        <button type="button" onClick={handleCancel} className="flex-1 rounded-2xl border-0 bg-gray-100 px-5 py-3.5 text-base font-medium text-gray-700 transition-transform active:scale-[0.97]">
+                          Avbryt
+                        </button>
+                        <button type="button" onClick={handleConfirm} className="flex-1 rounded-2xl border-0 bg-[#1A6B20] px-5 py-3.5 text-base font-semibold text-white shadow-[0_4px_14px_rgba(26,107,32,0.35)] transition-transform active:scale-[0.97]">
+                          OK
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="saved"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={contentTransition}
+                      className="min-h-0"
+                    >
+                      <SavedRecipePicker
+                        isLoggedIn={isLoggedIn}
+                        onBack={() => setMode('manual')}
+                        onClose={handleCancel}
+                        onSelect={handleSavedRecipeSelect}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
 
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button
-              onClick={handleCancel}
-              style={{
-                flex: 1, padding: '14px 20px', borderRadius: 16,
-                border: 'none', background: '#f3f4f6', color: '#374151',
-                fontWeight: 500, fontSize: '1rem', cursor: 'pointer',
-              }}
-            >
-              Avbryt
-            </button>
-            <button
-              onClick={handleConfirm}
-              style={{
-                flex: 1, padding: '14px 20px', borderRadius: 16,
-                border: 'none', background: '#1a6b20', color: 'white',
-                fontWeight: 600, fontSize: '1rem', cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(26,107,32,0.35)',
-              }}
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>,
+            {(phase === 'confirming' || phase === 'check') && (
+              <motion.div
+                key="meal-modal-confirmation"
+                initial={{ opacity: 0, scale: 0.98, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 4 }}
+                transition={cardTransition}
+                className="flex h-20 w-20 items-center justify-center rounded-full bg-[#1A6B20] shadow-[0_0_24px_rgba(26,107,32,0.5)]"
+              >
+                {phase === 'check' && (
+                  <svg
+                    viewBox="0 0 52 52"
+                    style={{
+                      width: 36,
+                      height: 36,
+                      stroke: 'white',
+                      strokeWidth: 4,
+                      strokeLinecap: 'round',
+                      strokeLinejoin: 'round',
+                      fill: 'none',
+                      strokeDasharray: 100,
+                      strokeDashoffset: 100,
+                      animation: 'drawCheck 0.35s ease-out forwards',
+                    }}
+                  >
+                    <path d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+                  </svg>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+    </AnimatePresence>,
     document.body
   );
 });

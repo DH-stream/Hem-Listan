@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient } from "../types";
+import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
@@ -11,9 +11,11 @@ import RecipeImportPreviewModal, {
   RecipeImportPreview,
   RecipeImportSelection,
 } from "./RecipeImportPreviewModal";
+import { getRecipeUrlFeedback, touchSavedRecipeLastUsed, upsertSavedRecipeFromImport } from "../lib/supabase";
 
 interface ListDetailGroceryProps {
   list: List;
+  isLoggedIn: boolean;
   members: ListMember[] | null;
   onBack: () => void;
   onToggleTask: (listId: string, taskId: string) => void;
@@ -58,6 +60,7 @@ interface ListDetailGroceryProps {
 
 export default function ListDetailGrocery({
   list,
+  isLoggedIn,
   members,
   onBack,
   onToggleTask,
@@ -83,6 +86,8 @@ export default function ListDetailGrocery({
   const [recipeImportPreview, setRecipeImportPreview] =
     useState<RecipeImportPreview | null>(null);
   const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
+  const [selectedSavedRecipeId, setSelectedSavedRecipeId] = useState<string | null>(null);
+  const [dislikedUrlWarning, setDislikedUrlWarning] = useState<string | null>(null);
 
   // States for adding item / meals
   const [newItemText, setNewItemText] = useState("");
@@ -117,10 +122,19 @@ export default function ListDetailGrocery({
     setSelectedRecipeMeal(meal);
   };
 
-  const handleImportRecipe = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleImportRecipe = async (event: React.FormEvent) => {
+    event.preventDefault();
     const url = recipeUrl.trim();
     if (!url) return;
+    const feedback = await getRecipeUrlFeedback(url);
+    if (feedback?.rating === "disliked") {
+      setDislikedUrlWarning(url);
+      return;
+    }
+    await importRecipeUrl(url);
+  };
+
+  const importRecipeUrl = async (url: string) => {
 
     const requestId =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -273,11 +287,53 @@ export default function ListDetailGrocery({
       `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
     );
     setRecipeImportPreview(null);
+    setSelectedSavedRecipeId(null);
     setRecipeUrl("");
-  }, [list.id, onBulkAddGroceryDetails, recipeImportPreview]);
+
+    if (selectedSavedRecipeId) {
+      void touchSavedRecipeLastUsed(selectedSavedRecipeId).catch((error) => {
+        console.error("saved_recipe_touch_failed", {
+          recipeId: selectedSavedRecipeId,
+          error,
+        });
+      });
+    } else {
+      void upsertSavedRecipeFromImport({
+        title: recipeImportPreview.recipeName,
+        mealName: recipeImportPreview.mealName,
+        sourceUrl: recipeImportPreview.sourceUrl,
+        sourceDomain: recipeImportPreview.sourceDomain,
+        imageUrl: recipeImportPreview.imageUrl,
+        ingredients: recipeImportPreview.ingredients,
+        instructions: recipeImportPreview.instructions,
+        markUsed: true,
+      }).catch((error) => {
+        console.error("saved_recipe_upsert_failed", {
+          sourceUrl: recipeImportPreview.sourceUrl,
+          error,
+        });
+      });
+    }
+  }, [list.id, onBulkAddGroceryDetails, recipeImportPreview, selectedSavedRecipeId]);
 
   const handleRejectRecipeImport = useCallback(() => {
     setRecipeImportPreview(null);
+    setSelectedSavedRecipeId(null);
+  }, []);
+
+  const handleSelectSavedRecipe = useCallback((recipe: SavedRecipe) => {
+    setMealModalOpen(false);
+    setSelectedSavedRecipeId(recipe.id);
+    setRecipeImportPreview({
+      recipeName: recipe.title,
+      mealName: recipe.mealName ?? undefined,
+      ingredients: recipe.ingredients,
+      instructions: recipe.instructions ?? undefined,
+      sourceUrl: recipe.sourceUrl ?? undefined,
+      sourceDomain: recipe.sourceDomain ?? undefined,
+      imageUrl: recipe.imageUrl ?? undefined,
+      qualityWarnings: [],
+    });
   }, []);
 
   // Helper categorization heuristic in Swedish
@@ -1042,12 +1098,29 @@ export default function ListDetailGrocery({
         onClose={() => setSelectedRecipeMeal(null)}
       />
 
+      <AnimatePresence>
+        {dislikedUrlWarning && (
+          <motion.div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div role="alertdialog" aria-modal="true" aria-labelledby="disliked-url-title" initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 8 }} transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+              <h2 id="disliked-url-title" className="text-lg font-bold text-text-main">Inte en favorit senast</h2>
+              <p className="mt-2 text-sm font-medium leading-relaxed text-on-surface-variant">Sist markerades den här rätten som inte en favorit. Vill du importera den ändå?</p>
+              <div className="mt-6 flex gap-2">
+                <button type="button" onClick={() => setDislikedUrlWarning(null)} className="min-h-[44px] flex-1 rounded-xl bg-surface-container px-4 text-sm font-bold text-text-main active:scale-[0.97]">Avbryt</button>
+                <button type="button" onClick={() => { const url = dislikedUrlWarning; setDislikedUrlWarning(null); void importRecipeUrl(url); }} className="min-h-[44px] flex-1 rounded-xl bg-primary px-4 text-sm font-bold text-white active:scale-[0.97]">Importera ändå</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <MealModal
         isOpen={mealModalOpen}
         onClose={handleMealModalClose}
         onConfirm={handleMealModalConfirm}
         day={pendingMeal?.day ?? ""}
         mealType={pendingMeal?.type ?? "middag"}
+        isLoggedIn={isLoggedIn}
+        onSelectSavedRecipe={handleSelectSavedRecipe}
       />
     </div>
   );

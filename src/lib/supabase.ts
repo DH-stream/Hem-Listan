@@ -1,5 +1,5 @@
 import { createClient, Session, SupabaseClient, User } from "@supabase/supabase-js";
-import { DeletedList, List, ListMember, PublicListShare, TaskItem, MealSlot, UserProfile } from "../types";
+import { DeletedList, List, ListMember, PublicListShare, TaskItem, MealSlot, UserProfile, RecipeIngredient, RecipeRating, SavedRecipe } from "../types";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -2556,4 +2556,208 @@ export const deleteMeal = async (mealId: string) => {
   const client = getSupabaseClient();
   if (!client) return;
   await client.from('hl_meals').delete().eq('id', mealId);
+};
+
+
+// ── Private saved recipes ───────────────────────────────────────────
+type SavedRecipeRow = {
+  id: string;
+  owner_id: string;
+  title: string;
+  meal_name: string | null;
+  source_url: string | null;
+  source_domain: string | null;
+  image_url: string | null;
+  ingredients: RecipeIngredient[] | null;
+  instructions: string[] | null;
+  user_rating: RecipeRating | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+};
+
+export type SavedRecipeInput = {
+  title: string;
+  mealName?: string | null;
+  sourceUrl?: string | null;
+  sourceDomain?: string | null;
+  imageUrl?: string | null;
+  ingredients: RecipeIngredient[];
+  instructions?: string[] | null;
+  markUsed?: boolean;
+};
+
+export type RecipeUrlFeedbackInput = {
+  sourceUrl: string;
+  sourceDomain?: string | null;
+  recipeTitle?: string | null;
+  rating: RecipeRating;
+};
+
+export const normalizeRecipeSourceUrl = (value: string): string => {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith("utm_") || ["fbclid", "gclid"].includes(key.toLowerCase())) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname !== "/") url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+};
+
+const mapSavedRecipe = (row: SavedRecipeRow): SavedRecipe => ({
+  id: row.id,
+  ownerId: row.owner_id,
+  title: row.title,
+  mealName: row.meal_name,
+  sourceUrl: row.source_url,
+  sourceDomain: row.source_domain,
+  imageUrl: row.image_url,
+  ingredients: Array.isArray(row.ingredients) ? row.ingredients : [],
+  instructions: Array.isArray(row.instructions) ? row.instructions : null,
+  userRating: row.user_rating,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastUsedAt: row.last_used_at,
+});
+
+const getRecipeClientContext = () => {
+  const client = getSupabaseClient();
+  const { userId } = getSupabaseAuthSnapshot();
+  return client && userId ? { client, userId } : null;
+};
+
+export const fetchSavedRecipes = async (): Promise<SavedRecipe[] | null> => {
+  const context = getRecipeClientContext();
+  if (!context) return null;
+  const { data, error } = await context.client
+    .from("hl_recipes")
+    .select("*")
+    .eq("owner_id", context.userId)
+    .order("last_used_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    console.error("saved_recipes_fetch_error", error);
+    return null;
+  }
+  return (data as SavedRecipeRow[]).map(mapSavedRecipe);
+};
+
+export const upsertSavedRecipeFromImport = async (input: SavedRecipeInput): Promise<SavedRecipe | null> => {
+  const context = getRecipeClientContext();
+  if (!context) return null;
+  const sourceUrl = input.sourceUrl ? normalizeRecipeSourceUrl(input.sourceUrl) : null;
+  const now = new Date().toISOString();
+  const values = {
+    owner_id: context.userId,
+    title: input.title,
+    meal_name: input.mealName ?? null,
+    source_url: sourceUrl,
+    source_domain: input.sourceDomain ?? null,
+    image_url: input.imageUrl ?? null,
+    ingredients: input.ingredients,
+    instructions: input.instructions ?? null,
+    updated_at: now,
+    ...(input.markUsed ? { last_used_at: now } : {}),
+  };
+
+  if (sourceUrl) {
+    const { data: existing, error: selectError } = await context.client
+      .from("hl_recipes")
+      .select("id")
+      .eq("owner_id", context.userId)
+      .eq("source_url", sourceUrl)
+      .maybeSingle();
+    if (selectError) {
+      console.error("saved_recipe_lookup_error", selectError);
+      return null;
+    }
+    if (existing?.id) {
+      const { data, error } = await context.client
+        .from("hl_recipes")
+        .update(values)
+        .eq("id", existing.id)
+        .eq("owner_id", context.userId)
+        .select("*")
+        .single();
+      if (error) {
+        console.error("saved_recipe_update_error", error);
+        return null;
+      }
+      return mapSavedRecipe(data as SavedRecipeRow);
+    }
+  }
+
+  const { data, error } = await context.client.from("hl_recipes").insert(values).select("*").single();
+  if (error) {
+    if (sourceUrl && error.code === "23505") {
+      const { data: raced, error: racedError } = await context.client
+        .from("hl_recipes")
+        .update(values)
+        .eq("owner_id", context.userId)
+        .eq("source_url", sourceUrl)
+        .select("*")
+        .single();
+      if (!racedError && raced) return mapSavedRecipe(raced as SavedRecipeRow);
+    }
+    console.error("saved_recipe_insert_error", error);
+    return null;
+  }
+  return mapSavedRecipe(data as SavedRecipeRow);
+};
+
+export const deleteSavedRecipe = async (recipeId: string): Promise<boolean> => {
+  const context = getRecipeClientContext();
+  if (!context) return false;
+  const { error } = await context.client.from("hl_recipes").delete().eq("id", recipeId).eq("owner_id", context.userId);
+  if (error) console.error("saved_recipe_delete_error", error);
+  return !error;
+};
+
+export const updateSavedRecipeRating = async (recipeId: string, rating: RecipeRating): Promise<boolean> => {
+  const context = getRecipeClientContext();
+  if (!context) return false;
+  const { error } = await context.client.from("hl_recipes").update({ user_rating: rating, updated_at: new Date().toISOString() }).eq("id", recipeId).eq("owner_id", context.userId);
+  if (error) console.error("saved_recipe_rating_error", error);
+  return !error;
+};
+
+export const upsertRecipeUrlFeedback = async (input: RecipeUrlFeedbackInput): Promise<boolean> => {
+  const context = getRecipeClientContext();
+  if (!context) return false;
+  const sourceUrl = normalizeRecipeSourceUrl(input.sourceUrl);
+  const { error } = await context.client.from("hl_recipe_url_feedback").upsert({
+    owner_id: context.userId,
+    source_url: sourceUrl,
+    source_domain: input.sourceDomain ?? null,
+    recipe_title: input.recipeTitle ?? null,
+    rating: input.rating,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "owner_id,source_url" });
+  if (error) console.error("recipe_url_feedback_upsert_error", error);
+  return !error;
+};
+
+export const getRecipeUrlFeedback = async (sourceUrl: string): Promise<{ rating: RecipeRating } | null> => {
+  const context = getRecipeClientContext();
+  if (!context) return null;
+  const { data, error } = await context.client.from("hl_recipe_url_feedback").select("rating").eq("owner_id", context.userId).eq("source_url", normalizeRecipeSourceUrl(sourceUrl)).maybeSingle();
+  if (error) console.error("recipe_url_feedback_fetch_error", error);
+  return error || !data ? null : { rating: data.rating as RecipeRating };
+};
+
+export const touchSavedRecipeLastUsed = async (recipeId: string): Promise<boolean> => {
+  const context = getRecipeClientContext();
+  if (!context) return false;
+  const now = new Date().toISOString();
+  const { error } = await context.client.from("hl_recipes").update({ last_used_at: now, updated_at: now }).eq("id", recipeId).eq("owner_id", context.userId);
+  if (error) console.error("saved_recipe_touch_error", error);
+  return !error;
 };
