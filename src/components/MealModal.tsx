@@ -82,22 +82,29 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
           )}
         </div>
 
-        <motion.div
-          layout="size"
-          transition={{ layout: { duration: 0.24, ease: [0.77, 0, 0.175, 1] } }}
+        <div
           style={{
-            position: 'absolute', width: mode === 'manual' ? 320 : 'min(520px, calc(100vw - 32px))',
-            borderRadius: 24, background: 'linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%)',
-            border: '1px solid rgba(0,90,10,0.1)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
-            padding: mode === 'manual' ? 24 : 0, transform: isVisible ? 'scale(1)' : 'scale(0)',
-            opacity: isVisible ? 1 : 0, transitionProperty: 'transform, opacity',
-            transitionDuration: '400ms, 300ms', transitionTimingFunction: 'cubic-bezier(0.23, 1, 0.32, 1)',
-            willChange: 'transform, opacity', transformOrigin: 'center center', overflow: 'hidden',
+            position: 'absolute',
+            transform: isVisible ? 'scale(1)' : 'scale(0.98)',
+            opacity: isVisible ? 1 : 0,
+            transition: 'transform 180ms cubic-bezier(0.23, 1, 0.32, 1), opacity 160ms cubic-bezier(0.23, 1, 0.32, 1)',
+            transformOrigin: 'center center',
           }}
         >
+          <motion.div
+            layout="size"
+            layoutDependency={mode}
+            transition={{ layout: { type: 'tween', duration: 0.18, ease: [0.23, 1, 0.32, 1] } }}
+            style={{
+              width: mode === 'manual' ? 320 : 'min(520px, calc(100vw - 32px))',
+              borderRadius: 24, background: 'linear-gradient(135deg, #fcf9f8 0%, #e8f5e9 100%)',
+              border: '1px solid rgba(0,90,10,0.1)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.12)',
+              padding: mode === 'manual' ? 24 : 0, overflow: 'hidden',
+            }}
+          >
           <AnimatePresence mode="popLayout" initial={false}>
             {mode === 'manual' ? (
-              <motion.div key="manual" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}>
+              <motion.div key="manual" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}>
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#1f2937', marginBottom: 8, lineHeight: 1.3 }}>Vad vill du lägga till för {mealType} på {day}?</h2>
                 <p style={{ fontSize: '0.875rem', color: '#4b5563', marginBottom: 24 }}>Skriv in en maträtt eller en länk.</p>
 
@@ -113,12 +120,13 @@ const MealModal = memo(({ isOpen, onClose, onConfirm, day = "Måndag", mealType 
                 </div>
               </motion.div>
             ) : (
-              <motion.div key="saved" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}>
+              <motion.div key="saved" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.14, ease: [0.23, 1, 0.32, 1] }}>
                 <SavedRecipePicker isLoggedIn={isLoggedIn} onBack={() => setMode('manual')} onClose={handleCancel} onSelect={handleSavedRecipeSelect} />
               </motion.div>
             )}
           </AnimatePresence>
-        </motion.div>
+          </motion.div>
+        </div>
       </div>
     </div>,
     document.body
