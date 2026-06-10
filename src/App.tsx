@@ -791,28 +791,13 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     }
   };
 
-  const handleAddMeal = async (
+  const persistOptimisticMeal = async (
     listId: string,
-    day: string,
-    type: MealType,
-    name: string,
-    clientId: string,
+    newMeal: MealSlot,
+    previousMeal?: MealSlot,
   ): Promise<boolean> => {
-    const tempId = `meal-${clientId}`;
-    const newMeal: MealSlot = { id: tempId, clientId, day, type, name };
-    const previousMeal = lists
-      .find(list => list.id === listId)
-      ?.meals?.find(meal => meal.day === day && meal.type === type);
-
-    pendingMealSavesRef.current.set(clientId, { listId, meal: newMeal });
-    setListsAndSync(current => current.map(list => {
-      if (list.id !== listId) return list;
-      const meals = [...(list.meals ?? [])];
-      const slotIndex = meals.findIndex(meal => meal.day === day && meal.type === type);
-      if (slotIndex === -1) meals.push(newMeal);
-      else meals[slotIndex] = newMeal;
-      return { ...list, meals };
-    }));
+    const clientId = newMeal.clientId;
+    if (!clientId) return false;
 
     if (!await canCloudSave("add_meal")) {
       pendingMealSavesRef.current.delete(clientId);
@@ -845,8 +830,34 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       if (previousMeal) meals.push(previousMeal);
       return { ...list, meals };
     }));
-    console.error("cloud_add_meal_error", { listId, mealId: tempId });
+    console.error("cloud_add_meal_error", { listId, mealId: newMeal.id });
     return false;
+  };
+
+  const handleAddMeal = async (
+    listId: string,
+    day: string,
+    type: MealType,
+    name: string,
+    clientId: string,
+  ): Promise<boolean> => {
+    const tempId = `meal-${clientId}`;
+    const newMeal: MealSlot = { id: tempId, clientId, day, type, name };
+    const previousMeal = lists
+      .find(list => list.id === listId)
+      ?.meals?.find(meal => meal.day === day && meal.type === type);
+
+    pendingMealSavesRef.current.set(clientId, { listId, meal: newMeal });
+    setListsAndSync(current => current.map(list => {
+      if (list.id !== listId) return list;
+      const meals = [...(list.meals ?? [])];
+      const slotIndex = meals.findIndex(meal => meal.day === day && meal.type === type);
+      if (slotIndex === -1) meals.push(newMeal);
+      else meals[slotIndex] = newMeal;
+      return { ...list, meals };
+    }));
+
+    return persistOptimisticMeal(listId, newMeal, previousMeal);
   };
 
   const handleDeleteMeal = async (listId: string, mealId: string) => {
@@ -859,7 +870,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       ...l, meals: (l.meals ?? []).filter(m => m.id !== mealId)
     });
     applyAndSync(updated);
-    if (await canCloudSave("delete_meal")) await deleteMeal(mealId);
+    if (isUuid(mealId) && await canCloudSave("delete_meal")) await deleteMeal(mealId);
   };
 
   const handleMoveMeal = async (
@@ -909,10 +920,12 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       | "recipeInstructions"
       | "recipeImageUrl"
     >,
+    clientId: string,
   ) => {
     const importId = Date.now();
-    const newMeal = {
-      id: `meal-${importId}-imported`,
+    const newMeal: MealSlot = {
+      id: `meal-${clientId}`,
+      clientId,
       day,
       type: mealType,
       name: mealName,
@@ -928,25 +941,28 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       checked: false,
       notes: ingredient.category,
     }));
-    const updated = lists.map(list =>
-      list.id === listId
-        ? {
-            ...list,
-            meals: [...(list.meals ?? []), newMeal],
-            tasks: [...newTasks, ...list.tasks],
-          }
-        : list
-    );
-    applyAndSync(updated);
+    const previousMeal = lists
+      .find(list => list.id === listId)
+      ?.meals?.find(meal => meal.day === day && meal.type === mealType);
 
+    pendingMealSavesRef.current.set(clientId, { listId, meal: newMeal });
+    setListsAndSync(current => current.map(list => {
+      if (list.id !== listId) return list;
+      const meals = [...(list.meals ?? [])];
+      const slotIndex = meals.findIndex(meal => meal.day === day && meal.type === mealType);
+      if (slotIndex === -1) meals.push(newMeal);
+      else meals[slotIndex] = newMeal;
+      return { ...list, meals, tasks: [...newTasks, ...list.tasks] };
+    }));
+
+    const mealSave = persistOptimisticMeal(listId, newMeal, previousMeal);
     if (await canCloudSave("bulk_add_grocery_details")) {
       for (const task of newTasks) {
         const dbId = await addTask(listId, task);
         if (!dbId) console.error("cloud_add_task_error", { listId, taskId: task.id });
       }
-      const dbId = await upsertMeal(listId, newMeal);
-      if (!dbId) console.error("cloud_add_meal_error", { listId, mealId: newMeal.id });
     }
+    await mealSave;
   };
 
   const handleAddNewList = async (

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { mergePendingMeals } from "./src/lib/optimisticMeals";
+import { getMealRecipeMeta } from "./src/lib/supabase";
 import type { List, MealSlot } from "./src/types";
 
 const list = (meals: MealSlot[] = []): List => ({
@@ -29,6 +30,7 @@ test("keeps an optimistic meal visible when a realtime fetch does not contain it
   );
 
   assert.deepEqual(merged[0].meals, [optimisticMeal]);
+  assert.equal(getMealRecipeMeta(optimisticMeal), null);
 });
 
 test("pending meal replaces stale server data in the same slot without duplicating it", () => {
@@ -52,4 +54,39 @@ test("pending meal replaces stale server data in the same slot without duplicati
   );
 
   assert.deepEqual(merged[0].meals, [savedMeal]);
+});
+
+test("keeps imported recipe metadata on the optimistic meal during a realtime fetch", () => {
+  const importedMeal: MealSlot = {
+    id: "meal-client-recipe",
+    clientId: "client-recipe",
+    day: "Fredag",
+    type: "middag",
+    name: "Pasta",
+    source: "recipe_import",
+    recipeSourceUrl: "https://example.com/pasta",
+    recipeSourceDomain: "example.com",
+    recipeIngredients: [
+      { text: "Pasta", quantity: "400 g", category: "Skafferi" },
+    ],
+    recipeInstructions: ["Koka pastan."],
+    recipeImageUrl: "https://example.com/pasta.jpg",
+    importedAt: "2026-06-10T12:00:00.000Z",
+  };
+
+  const merged = mergePendingMeals(
+    [list()],
+    [{ listId: "list-1", meal: importedMeal }],
+  );
+
+  assert.deepEqual(merged[0].meals, [importedMeal]);
+  assert.deepEqual(getMealRecipeMeta(importedMeal), {
+    source: "recipe_import",
+    recipeSourceUrl: importedMeal.recipeSourceUrl,
+    recipeSourceDomain: importedMeal.recipeSourceDomain,
+    recipeIngredients: importedMeal.recipeIngredients,
+    recipeInstructions: importedMeal.recipeInstructions,
+    recipeImageUrl: importedMeal.recipeImageUrl,
+    importedAt: importedMeal.importedAt,
+  });
 });

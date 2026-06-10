@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -56,7 +56,8 @@ interface ListDetailGroceryProps {
       | "recipeInstructions"
       | "recipeImageUrl"
     >,
-  ) => void;
+    clientId: string,
+  ) => Promise<void>;
 }
 
 export default function ListDetailGrocery({
@@ -83,7 +84,6 @@ export default function ListDetailGrocery({
   const [recipeUrl, setRecipeUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [recipeImportPreview, setRecipeImportPreview] =
     useState<RecipeImportPreview | null>(null);
   const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
@@ -99,24 +99,6 @@ export default function ListDetailGrocery({
     type: MealType;
   } | null>(null);
   const [highlightedMealClientId, setHighlightedMealClientId] = useState<string | null>(null);
-  const [mealFeedback, setMealFeedback] = useState<{
-    tone: "success" | "error";
-    message: string;
-  } | null>(null);
-  const mealFeedbackTimerRef = useRef<number | null>(null);
-  const showMealFeedback = useCallback((tone: "success" | "error", message: string) => {
-    if (mealFeedbackTimerRef.current) window.clearTimeout(mealFeedbackTimerRef.current);
-    setMealFeedback({ tone, message });
-    mealFeedbackTimerRef.current = window.setTimeout(
-      () => setMealFeedback(null),
-      tone === "success" ? 2400 : 4200,
-    );
-  }, []);
-
-  useEffect(() => () => {
-    if (mealFeedbackTimerRef.current) window.clearTimeout(mealFeedbackTimerRef.current);
-  }, []);
-
   useEffect(() => {
     if (!highlightedMealClientId) return;
     const mealCard = document.querySelector<HTMLElement>(
@@ -130,7 +112,7 @@ export default function ListDetailGrocery({
       block: "center",
       inline: "nearest",
     });
-    const timeoutId = window.setTimeout(() => setHighlightedMealClientId(null), 1000);
+    const timeoutId = window.setTimeout(() => setHighlightedMealClientId(null), 1300);
     return () => window.clearTimeout(timeoutId);
   }, [highlightedMealClientId, list.meals]);
 
@@ -186,7 +168,6 @@ export default function ListDetailGrocery({
 
     setIsImporting(true);
     setImportError(null);
-    setImportSuccess(null);
     setRecipeImportPreview(null);
 
     try {
@@ -306,7 +287,11 @@ export default function ListDetailGrocery({
   const handleAcceptRecipeImport = useCallback((selection: RecipeImportSelection) => {
     if (!recipeImportPreview) return;
 
-    onBulkAddGroceryDetails(
+    const clientId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setHighlightedMealClientId(clientId);
+    void onBulkAddGroceryDetails(
       list.id,
       recipeImportPreview.mealName || recipeImportPreview.recipeName,
       selection.day,
@@ -319,9 +304,7 @@ export default function ListDetailGrocery({
         recipeInstructions: recipeImportPreview.instructions,
         recipeImageUrl: recipeImportPreview.imageUrl,
       },
-    );
-    setImportSuccess(
-      `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
+      clientId,
     );
     setRecipeImportPreview(null);
     setSelectedSavedRecipeId(null);
@@ -528,16 +511,11 @@ export default function ListDetailGrocery({
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
       setHighlightedMealClientId(clientId);
-      showMealFeedback("success", `✓ ${mealName} tillagd`);
-      void onAddMeal(list.id, day, type, mealName, clientId)
-        .then((saved) => {
-          if (!saved) showMealFeedback("error", "Kunde inte spara måltiden. Försök igen.");
-        })
-        .catch(() => showMealFeedback("error", "Kunde inte spara måltiden. Försök igen."));
+      void onAddMeal(list.id, day, type, mealName, clientId);
     }
     setMealModalOpen(false);
     setPendingMeal(null);
-  }, [pendingMeal, onAddMeal, list.id, showMealFeedback]);
+  }, [pendingMeal, onAddMeal, list.id]);
 
   return (
     <div className="w-full max-w-[768px] mx-auto pb-[170px]">
@@ -614,12 +592,6 @@ export default function ListDetailGrocery({
               {importError && (
                 <div className="bg-error/10 text-error text-xs p-3 rounded-lg border border-error/20 mb-3.5">
                   {importError}
-                </div>
-              )}
-
-              {importSuccess && (
-                <div className="bg-secondary-container text-on-secondary-container text-xs p-3 rounded-lg border border-secondary/20 mb-3.5">
-                  {importSuccess}
                 </div>
               )}
 
@@ -1165,22 +1137,6 @@ export default function ListDetailGrocery({
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {mealFeedback && (
-          <motion.div
-            key={`${mealFeedback.tone}-${mealFeedback.message}`}
-            role={mealFeedback.tone === "error" ? "alert" : "status"}
-            aria-live={mealFeedback.tone === "error" ? "assertive" : "polite"}
-            initial={{ opacity: 0, x: "-50%", y: 8, scale: 0.97 }}
-            animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
-            exit={{ opacity: 0, x: "-50%", y: 4, scale: 0.98 }}
-            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-            className={`pointer-events-none fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-[65] max-w-[calc(100vw-2rem)] rounded-full px-4 py-2 text-center text-xs font-bold shadow-lg ${mealFeedback.tone === "error" ? "bg-error text-white" : "bg-primary text-white"}`}
-          >
-            {mealFeedback.message}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <MealModal
         isOpen={mealModalOpen}

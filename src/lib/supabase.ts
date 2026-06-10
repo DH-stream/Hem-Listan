@@ -2451,28 +2451,8 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
   }
 };
 
-// Lägg till/uppdatera måltid
-export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string | null> => {
-  const client = getSupabaseClient();
-  if (!client) return null;
-
-  // Ta bort befintlig måltid för samma dag+typ först
-  await client.from('hl_meals')
-    .delete()
-    .eq('list_id', listId)
-    .eq('day', meal.day)
-    .eq('type', meal.type);
-
-  const isUuid = meal.id ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meal.id) : false;
-  const insertData: any = {
-    list_id: listId,
-    day: meal.day,
-    type: meal.type,
-    name: meal.name,
-  };
-
-  if (meal.source === "recipe_import") {
-    insertData.recipe_meta = {
+export const getMealRecipeMeta = (meal: MealSlot) => meal.source === "recipe_import"
+  ? {
       source: meal.source,
       recipeSourceUrl: meal.recipeSourceUrl,
       recipeSourceDomain: meal.recipeSourceDomain,
@@ -2480,24 +2460,30 @@ export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string
       recipeInstructions: meal.recipeInstructions,
       recipeImageUrl: meal.recipeImageUrl,
       importedAt: meal.importedAt,
-    };
-  }
+    }
+  : null;
 
-  if (isUuid && meal.id) {
-    insertData.id = meal.id;
-  }
+// Ersätt måltiden i en slot atomiskt så den tidigare raden behålls om insert misslyckas.
+export const upsertMeal = async (listId: string, meal: MealSlot): Promise<string | null> => {
+  const client = getSupabaseClient();
+  if (!client) return null;
 
-  const { data, error } = await client
-    .from('hl_meals')
-    .insert(insertData)
-    .select('id')
-    .single();
+  const recipeMeta = getMealRecipeMeta(meal);
 
-  if (error || !data) {
-    console.error("Error upserting meal:", error);
+  const { data, error } = await client.rpc("hl_replace_meal", {
+    p_list_id: listId,
+    p_day: meal.day,
+    p_type: meal.type,
+    p_name: meal.name,
+    p_recipe_meta: recipeMeta,
+  });
+
+  if (error || typeof data !== "string") {
+    console.error("replace_meal_error", { error, listId, mealId: meal.id });
     return null;
   }
-  return data.id;
+
+  return data;
 };
 
 // Flytta en befintlig måltid utan att ändra receptdata eller skapa en ny rad.
