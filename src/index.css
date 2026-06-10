@@ -155,19 +155,27 @@
   pointer-events: none;
   background: rgba(16, 185, 129, 0.16);
   opacity: 0;
-  transition: opacity 2200ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .meal-card-highlight::after {
-  opacity: 1;
-  transition-delay: 400ms;
-  transition-duration: 240ms;
+  animation: mealCardGreenOverlayFade 900ms cubic-bezier(0.23, 1, 0.32, 1) 400ms both;
+}
+
+@keyframes mealCardGreenOverlayFade {
+  0% {
+    opacity: 1;
+  }
+  35% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-meal-client-id]::after,
   .meal-card-highlight::after {
-    transition-delay: 0ms;
-    transition-duration: 1ms;
+    animation-delay: 0ms;
+    animation-duration: 1ms;
   }
 }
