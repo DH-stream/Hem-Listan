@@ -42,6 +42,7 @@ export interface SavedRecipe {
 
 export interface MealSlot {
   id: string;
+  clientId?: string;
   day: string; // "Måndag", "Tisdag" etc.
   type: MealType;
   name: string;

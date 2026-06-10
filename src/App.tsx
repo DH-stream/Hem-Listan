@@ -39,6 +39,7 @@ import {
   uploadUserAvatar,
   acceptListInvite,
 } from "./lib/supabase";
+import { mergePendingMeals, type PendingMealSave } from "./lib/optimisticMeals";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -197,6 +198,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
   const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
+  const pendingMealSavesRef = useRef<Map<string, PendingMealSave>>(new Map());
 
   const [userName, setUserName] = useState<string>(
     () => localStorage.getItem("hem-listan-user-name") ?? "Hem-Listan"
@@ -384,8 +386,17 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     const fetched = await fetchLists();
     if (!fetched) return false;
 
-    setLists(fetched);
-    saveLocalActiveLists(fetched);
+    const pendingMealSaves = pendingMealSavesRef.current;
+    for (const [clientId, pending] of pendingMealSaves) {
+      const savedMealIsPresent = fetched
+        .find(list => list.id === pending.listId)
+        ?.meals?.some(meal => meal.id === pending.meal.id);
+      if (savedMealIsPresent) pendingMealSaves.delete(clientId);
+    }
+
+    const merged = mergePendingMeals(fetched, pendingMealSaves.values());
+    setLists(merged);
+    saveLocalActiveLists(merged);
     return true;
   };
 
@@ -780,31 +791,70 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     }
   };
 
-  const handleAddMeal = async (listId: string, day: string, type: MealType, name: string) => {
-    const tempId = `meal-${Date.now()}`;
-    const newMeal = { id: tempId, day, type, name };
-    const updated = lists.map(l => {
-      if (l.id !== listId) return l;
-      const meals = [...(l.meals ?? [])];
-      const idx = meals.findIndex(m => m.day === day && m.type === type);
-      if (idx !== -1) meals[idx] = newMeal; else meals.push(newMeal);
-      return { ...l, meals };
-    });
-    applyAndSync(updated);
+  const handleAddMeal = async (
+    listId: string,
+    day: string,
+    type: MealType,
+    name: string,
+    clientId: string,
+  ): Promise<boolean> => {
+    const tempId = `meal-${clientId}`;
+    const newMeal: MealSlot = { id: tempId, clientId, day, type, name };
+    const previousMeal = lists
+      .find(list => list.id === listId)
+      ?.meals?.find(meal => meal.day === day && meal.type === type);
 
-    if (await canCloudSave("add_meal")) {
-      const dbId = await upsertMeal(listId, newMeal);
-      if (dbId) {
-        setListsAndSync(prev => prev.map(l => l.id !== listId ? l : {
-          ...l, meals: (l.meals ?? []).map(m => m.id === tempId ? { ...m, id: dbId } : m)
-        }));
-      } else {
-        console.error("cloud_add_meal_error", { listId, mealId: tempId });
-      }
+    pendingMealSavesRef.current.set(clientId, { listId, meal: newMeal });
+    setListsAndSync(current => current.map(list => {
+      if (list.id !== listId) return list;
+      const meals = [...(list.meals ?? [])];
+      const slotIndex = meals.findIndex(meal => meal.day === day && meal.type === type);
+      if (slotIndex === -1) meals.push(newMeal);
+      else meals[slotIndex] = newMeal;
+      return { ...list, meals };
+    }));
+
+    if (!await canCloudSave("add_meal")) {
+      pendingMealSavesRef.current.delete(clientId);
+      return true;
     }
+
+    const dbId = await upsertMeal(listId, newMeal);
+    if (dbId) {
+      if (!pendingMealSavesRef.current.has(clientId)) {
+        await deleteMeal(dbId);
+        return true;
+      }
+
+      const savedMeal = { ...newMeal, id: dbId };
+      pendingMealSavesRef.current.set(clientId, { listId, meal: savedMeal });
+      setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+        ...list,
+        meals: (list.meals ?? []).map(meal => meal.clientId === clientId ? savedMeal : meal),
+      }));
+      return true;
+    }
+
+    pendingMealSavesRef.current.delete(clientId);
+    setListsAndSync(current => current.map(list => {
+      if (list.id !== listId) return list;
+      const optimisticMealIsCurrent = (list.meals ?? []).some(meal => meal.clientId === clientId);
+      if (!optimisticMealIsCurrent) return list;
+
+      const meals = (list.meals ?? []).filter(meal => meal.clientId !== clientId);
+      if (previousMeal) meals.push(previousMeal);
+      return { ...list, meals };
+    }));
+    console.error("cloud_add_meal_error", { listId, mealId: tempId });
+    return false;
   };
 
   const handleDeleteMeal = async (listId: string, mealId: string) => {
+    const meal = lists
+      .find(list => list.id === listId)
+      ?.meals?.find(item => item.id === mealId);
+    if (meal?.clientId) pendingMealSavesRef.current.delete(meal.clientId);
+
     const updated = lists.map(l => l.id !== listId ? l : {
       ...l, meals: (l.meals ?? []).filter(m => m.id !== mealId)
     });
