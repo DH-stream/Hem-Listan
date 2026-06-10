@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -33,7 +33,8 @@ interface ListDetailGroceryProps {
     day: string,
     type: MealType,
     name: string,
-  ) => void;
+    clientId: string,
+  ) => Promise<boolean>;
   onDeleteMeal: (listId: string, mealId: string) => void;
   onMoveMeal: (
     listId: string,
@@ -55,7 +56,8 @@ interface ListDetailGroceryProps {
       | "recipeInstructions"
       | "recipeImageUrl"
     >,
-  ) => void;
+    clientId: string,
+  ) => Promise<void>;
 }
 
 export default function ListDetailGrocery({
@@ -82,7 +84,6 @@ export default function ListDetailGrocery({
   const [recipeUrl, setRecipeUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [recipeImportPreview, setRecipeImportPreview] =
     useState<RecipeImportPreview | null>(null);
   const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
@@ -97,6 +98,24 @@ export default function ListDetailGrocery({
     day: string;
     type: MealType;
   } | null>(null);
+  const [highlightedMealClientId, setHighlightedMealClientId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightedMealClientId) return;
+    const mealCard = document.querySelector<HTMLElement>(
+      `[data-meal-client-id="${highlightedMealClientId}"]`,
+    );
+    if (!mealCard) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    mealCard.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+    const timeoutId = window.setTimeout(() => setHighlightedMealClientId(null), 1300);
+    return () => window.clearTimeout(timeoutId);
+  }, [highlightedMealClientId, list.meals]);
+
   const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
@@ -149,7 +168,6 @@ export default function ListDetailGrocery({
 
     setIsImporting(true);
     setImportError(null);
-    setImportSuccess(null);
     setRecipeImportPreview(null);
 
     try {
@@ -269,7 +287,11 @@ export default function ListDetailGrocery({
   const handleAcceptRecipeImport = useCallback((selection: RecipeImportSelection) => {
     if (!recipeImportPreview) return;
 
-    onBulkAddGroceryDetails(
+    const clientId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setHighlightedMealClientId(clientId);
+    void onBulkAddGroceryDetails(
       list.id,
       recipeImportPreview.mealName || recipeImportPreview.recipeName,
       selection.day,
@@ -282,9 +304,7 @@ export default function ListDetailGrocery({
         recipeInstructions: recipeImportPreview.instructions,
         recipeImageUrl: recipeImportPreview.imageUrl,
       },
-    );
-    setImportSuccess(
-      `"${recipeImportPreview.recipeName}" lades till som ${selection.mealType} på ${selection.day.toLowerCase()}. ${selection.ingredients.length} varor lades till i inköpslistan.`,
+      clientId,
     );
     setRecipeImportPreview(null);
     setSelectedSavedRecipeId(null);
@@ -484,7 +504,14 @@ export default function ListDetailGrocery({
 
   const handleMealModalConfirm = useCallback((name: string) => {
     if (pendingMeal && name.trim()) {
-      onAddMeal(list.id, pendingMeal.day, pendingMeal.type, name.trim());
+      const mealName = name.trim();
+      const { day, type } = pendingMeal;
+      const clientId = typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      setHighlightedMealClientId(clientId);
+      void onAddMeal(list.id, day, type, mealName, clientId);
     }
     setMealModalOpen(false);
     setPendingMeal(null);
@@ -568,12 +595,6 @@ export default function ListDetailGrocery({
                 </div>
               )}
 
-              {importSuccess && (
-                <div className="bg-secondary-container text-on-secondary-container text-xs p-3 rounded-lg border border-secondary/20 mb-3.5">
-                  {importSuccess}
-                </div>
-              )}
-
               <form onSubmit={handleImportRecipe} className="flex gap-2">
                 <input
                   type="url"
@@ -644,7 +665,8 @@ export default function ListDetailGrocery({
                             onKeyDown={(event) => handleMealKeyDown(event, breakfast)}
                             role={hasRecipeDetails(breakfast) ? "button" : undefined}
                             tabIndex={hasRecipeDetails(breakfast) ? 0 : undefined}
-                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(breakfast) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                            data-meal-client-id={breakfast.clientId}
+                            className={`relative overflow-hidden bg-surface-container p-3 rounded-xl flex items-center justify-between ${highlightedMealClientId === breakfast.clientId ? "meal-card-highlight" : ""} ${hasRecipeDetails(breakfast) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
                           >
                             <div className="flex items-center gap-3">
                               <LucideIcon
@@ -702,7 +724,8 @@ export default function ListDetailGrocery({
                             onKeyDown={(event) => handleMealKeyDown(event, lunch)}
                             role={hasRecipeDetails(lunch) ? "button" : undefined}
                             tabIndex={hasRecipeDetails(lunch) ? 0 : undefined}
-                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(lunch) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                            data-meal-client-id={lunch.clientId}
+                            className={`relative overflow-hidden bg-surface-container p-3 rounded-xl flex items-center justify-between ${highlightedMealClientId === lunch.clientId ? "meal-card-highlight" : ""} ${hasRecipeDetails(lunch) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
                           >
                             <div className="flex items-center gap-3">
                               <LucideIcon
@@ -760,7 +783,8 @@ export default function ListDetailGrocery({
                             onKeyDown={(event) => handleMealKeyDown(event, dinner)}
                             role={hasRecipeDetails(dinner) ? "button" : undefined}
                             tabIndex={hasRecipeDetails(dinner) ? 0 : undefined}
-                            className={`bg-surface-container p-3 rounded-xl flex items-center justify-between ${hasRecipeDetails(dinner) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
+                            data-meal-client-id={dinner.clientId}
+                            className={`relative overflow-hidden bg-surface-container p-3 rounded-xl flex items-center justify-between ${highlightedMealClientId === dinner.clientId ? "meal-card-highlight" : ""} ${hasRecipeDetails(dinner) ? "cursor-pointer transition-[background-color,transform] duration-150 hover:bg-surface-container-high active:scale-[0.99]" : ""}`}
                           >
                             <div className="flex items-center gap-3">
                               <LucideIcon
@@ -1112,6 +1136,7 @@ export default function ListDetailGrocery({
           </motion.div>
         )}
       </AnimatePresence>
+
 
       <MealModal
         isOpen={mealModalOpen}
