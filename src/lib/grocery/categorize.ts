@@ -7,13 +7,13 @@ export const categorizeGroceryItem = (name: string, raw = name): GroceryCategory
   if (/\b(fryst|frysta|tinad|tinade)\b/.test(value)) return "Fryst";
 
   if (includesAny(name, [
-    "lax", "torsk", "räkor", "kycklingfilé", "köttfärs", "bacon", "chorizo", "korv",
+    "lax", "torsk", "räkor", "kycklingfilé", "köttfärs", "sidfläsk", "bacon", "pancetta", "chorizo", "korv",
     "vegokorv", "vegetarisk korv",
   ])) return "Kött & Fisk";
 
   if (includesAny(name, [
     "mjölk", "grädde", "ägg", "smör", "ost", "parmesan", "yoghurt", "crème fraiche",
-    "havredryck", "sojadryck", "mandeldryck", "växtgrädde", "växtyoghurt",
+    "keso", "cottage cheese", "havredryck", "sojadryck", "mandeldryck", "växtgrädde", "växtyoghurt",
   ])) return "Mejeri";
 
   if (includesAny(name, [
@@ -27,7 +27,8 @@ export const categorizeGroceryItem = (name: string, raw = name): GroceryCategory
   if (includesAny(name, [
     "pasta", "penne", "ris", "vetemjöl", "socker", "salt", "svartpeppar", "oregano",
     "basilika", "cayennepeppar", "kanel", "olivolja", "vinäger", "honung", "tomatpuré",
-    "krossade tomater", "passerade tomater", "röda linser", "buljong", "fond",
+    "krossade tomater", "passerade tomater", "soltorkade tomater", "röda linser", "buljong", "fond",
+    "lingonsylt", "sylt",
   ])) return "Skafferi";
 
   return "Övrigt";

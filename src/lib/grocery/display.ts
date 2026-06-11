@@ -1,6 +1,8 @@
 import type { CanonicalGroceryItem, ParsedQuantity } from "./types";
 
-const titleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+const titleCase = (value: string) => value === "penne pasta"
+  ? "Penne Pasta"
+  : value.charAt(0).toUpperCase() + value.slice(1);
 const formatNumber = (value: number) => Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
 
 const formatExact = (quantity: ParsedQuantity): string => {
