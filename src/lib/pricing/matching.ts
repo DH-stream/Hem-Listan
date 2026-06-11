@@ -1,11 +1,14 @@
 import type { ListItemPriceMatch, PriceMatchConfidence, ProductPrice } from "./types";
 
-const normalize = (value: string) =>
+export const normalizePriceQuery = (value: string) =>
   value
     .toLocaleLowerCase("sv-SE")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:st|stycken|pack|kg|g|l|dl|cl)?\b/g, " ")
+    .replace(
+      /\b\d+(?:[.,]\d+)?\s*(?:st|stycken|pack|paket|förp|kg|g|l|dl|cl|klase|klasar|burk|flaska|påse)?\b/g,
+      " ",
+    )
     .replace(/[^a-zåäö\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -61,12 +64,12 @@ export const matchListItem = (
   item: { id: string; name: string },
   products: ProductPrice[],
 ): ListItemPriceMatch => {
-  const query = normalize(item.name);
+  const query = normalizePriceQuery(item.name);
   let bestProduct: ProductPrice | null = null;
   let bestConfidence: PriceMatchConfidence = "none";
 
   for (const product of products) {
-    const candidates = [product.productName, ...product.searchTerms].map(normalize);
+    const candidates = [product.productName, ...product.searchTerms].map(normalizePriceQuery);
     const productConfidence = candidates.reduce<PriceMatchConfidence>((best, candidate) => {
       const confidence = confidenceFor(query, candidate);
       return confidenceRank[confidence] > confidenceRank[best] ? confidence : best;

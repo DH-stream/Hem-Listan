@@ -6,6 +6,10 @@ import {
   RecipeImportError,
   type RecipeImportErrorCode,
 } from "./api/_lib/recipeImporter";
+import {
+  searchCityGrossProducts,
+  validatePricingQuery,
+} from "./api/_lib/cityGrossPricing";
 
 const app = express();
 const PORT = 3000;
@@ -18,6 +22,21 @@ const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
   unsupported_content_type: 422,
   no_recipe_found: 422,
 };
+
+app.get(
+  "/api/pricing/citygross/search",
+  async (req: express.Request, res: express.Response) => {
+    const validation = validatePricingQuery(req.query.q);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const storeId = typeof req.query.storeId === "string" ? req.query.storeId : undefined;
+    const products = await searchCityGrossProducts(validation.query, storeId);
+    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
+    return res.json(products);
+  },
+);
 
 app.post(
   "/api/import-recipe",

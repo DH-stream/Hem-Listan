@@ -3,10 +3,12 @@ import test from "node:test";
 import { cityGrossPriceAdapter, CITY_GROSS_DEMO_STORE } from "./src/lib/pricing/cityGrossAdapter";
 import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
+import { buildBasketPriceEstimate } from "./src/lib/pricing/useBasketPriceEstimate";
 
 const products: ProductPrice[] = [
   {
     id: "coffee",
+    chainId: "city_gross",
     storeId: "demo",
     productName: "Gevalia Mellanrost Bryggkaffe 450 g",
     priceSek: 54.95,
@@ -46,4 +48,18 @@ test("calculates a demo basket and keeps missing items visible", async () => {
   assert.equal(result.matches.at(-1)?.product, null);
   assert.equal(result.approximateTotalSek, 75.85);
   assert.equal(result.isEstimate, true);
+});
+
+
+test("basket estimate only includes unchecked tasks", () => {
+  const result = buildBasketPriceEstimate(
+    [
+      { id: "active", text: "kaffe", checked: false },
+      { id: "checked", text: "kaffe", checked: true },
+    ],
+    new Map([["kaffe", products]]),
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.deepEqual(Object.keys(result.matchByTaskId), ["active"]);
 });

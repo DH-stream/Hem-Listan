@@ -18,11 +18,17 @@ export type PriceMatchConfidence = "high" | "medium" | "low" | "none";
 
 export interface ProductPrice {
   id: string;
+  chainId: GroceryChainId;
   storeId: string;
   productName: string;
   priceSek: number;
   unitLabel: string;
   searchTerms: string[];
+  comparePrice?: string;
+  productUrl?: string;
+  imageUrl?: string;
+  isCampaign?: boolean;
+  fetchedAt?: string;
 }
 
 export interface ListItemPriceMatch {
