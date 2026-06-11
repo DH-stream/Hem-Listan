@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import basketPricingHandler from "./api/pricing/basket";
+import { Readable } from "node:stream";
+import basketPricingHandler, {
+  createBasketPricingHandler,
+} from "./api/pricing/basket";
 import {
   calculateCityGrossBasket,
   validateBasketPricingRequest,
@@ -47,6 +50,117 @@ const milkProduct: ProductPrice = {
   unitLabel: "1 l",
   searchTerms: ["mjölk", "mellanmjölk"],
 };
+
+test("basket pricing endpoint accepts an object body", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    {
+      method: "POST",
+      body: { chain: "city_gross", items: [{ id: "milk", name: "mjölk" }] },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    (response.responseBody as { matches: unknown[] }).matches.length,
+    1,
+  );
+});
+
+test("basket pricing endpoint accepts a JSON string body", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    {
+      method: "POST",
+      body: JSON.stringify({
+        chain: "city_gross",
+        items: [{ id: "milk", name: "mjölk" }],
+      }),
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    (response.responseBody as { matches: unknown[] }).matches.length,
+    1,
+  );
+});
+
+test("basket pricing endpoint accepts a raw request stream", async () => {
+  const response = createResponse();
+  const request = Readable.from([
+    JSON.stringify({
+      chain: "city_gross",
+      items: [{ id: "milk", name: "mjölk" }],
+    }),
+  ]) as IncomingMessage;
+  request.method = "POST";
+
+  await basketPricingHandler(request, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    (response.responseBody as { matches: unknown[] }).matches.length,
+    1,
+  );
+});
+
+test("basket pricing endpoint returns 400 for invalid JSON", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    { method: "POST", body: "{" } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.responseBody, { error: "Invalid JSON body." });
+});
+
+test("basket pricing endpoint returns 400 when items are missing", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    {
+      method: "POST",
+      body: { chain: "city_gross" },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.responseBody, {
+    error: "At least one item is required.",
+  });
+});
+
+test("basket pricing endpoint degrades safely when calculation throws", async () => {
+  const pricing = await import("./api/_lib/basketPricing");
+  const handler = createBasketPricingHandler(async () => ({
+    ...pricing,
+    calculateCityGrossBasket: async () => {
+      throw new Error("City Gross exploded");
+    },
+  }));
+  const response = createResponse();
+
+  await handler(
+    {
+      method: "POST",
+      url: "/api/pricing/basket?debug=1",
+      body: { chain: "city_gross", items: [{ id: "milk", name: "mjölk" }] },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.responseBody, {
+    matches: [],
+    approximateTotalSek: 0,
+    error: "Basket pricing unavailable",
+    debugMessage: "City Gross exploded",
+  });
+});
 
 test("basket pricing endpoint returns 400 for an empty basket", async () => {
   const response = createResponse();
