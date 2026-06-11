@@ -6,6 +6,10 @@ import {
   RecipeImportError,
   type RecipeImportErrorCode,
 } from "./api/_lib/recipeImporter";
+import {
+  calculateCityGrossBasket,
+  validateBasketPricingRequest,
+} from "./api/_lib/basketPricing";
 
 const app = express();
 const PORT = 3000;
@@ -18,6 +22,18 @@ const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
   unsupported_content_type: 422,
   no_recipe_found: 422,
 };
+
+app.post(
+  "/api/pricing/basket",
+  async (req: express.Request, res: express.Response) => {
+    const validation = validateBasketPricingRequest(req.body);
+    if (validation.ok === false) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    return res.json(await calculateCityGrossBasket(validation.request));
+  },
+);
 
 app.post(
   "/api/import-recipe",

@@ -12,6 +12,8 @@ import RecipeImportPreviewModal, {
   RecipeImportSelection,
 } from "./RecipeImportPreviewModal";
 import { getRecipeUrlFeedback, touchSavedRecipeLastUsed, upsertSavedRecipeFromImport } from "../lib/supabase";
+import { useBasketPriceEstimate } from "../lib/pricing/useBasketPriceEstimate";
+import StoreLogo from "./StoreLogo";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -119,6 +121,7 @@ export default function ListDetailGrocery({
   const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
+  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.tasks);
 
   const defaultDays = [
     "Måndag",
@@ -861,9 +864,19 @@ export default function ListDetailGrocery({
                     {totalTasks - completedCount} varor kvar
                   </h2>
                 </div>
-                <p className="font-display text-base font-bold text-primary">
-                  {completedCount} / {totalTasks}
-                </p>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {approximateTotalSek > 0 && (
+                    <div className="flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
+                      <span className="font-display text-base font-bold text-primary">
+                        ≈ {Math.round(approximateTotalSek)} kr
+                      </span>
+                      <StoreLogo chainId="city_gross" className="h-5 w-auto max-w-14" />
+                    </div>
+                  )}
+                  <p className="font-display text-sm font-bold text-primary">
+                    {completedCount} / {totalTasks}
+                  </p>
+                </div>
               </div>
 
               <div className="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
@@ -942,6 +955,26 @@ export default function ListDetailGrocery({
                                   {item.text}
                                 </span>
                               </div>
+
+                              {matchByTaskId[item.id]?.product && (
+                                <div
+                                  className={`mr-2 flex shrink-0 items-center gap-1.5 ${
+                                    matchByTaskId[item.id].confidence === "high"
+                                      ? "text-primary"
+                                      : "text-on-surface-variant/65"
+                                  }`}
+                                  title={`Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`}
+                                >
+                                  <span className="font-sans text-xs font-semibold tabular-nums">
+                                    {matchByTaskId[item.id].product?.priceSek.toLocaleString("sv-SE", {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })} kr
+                                    {matchByTaskId[item.id].confidence !== "high" ? " ?" : ""}
+                                  </span>
+                                  <StoreLogo chainId="city_gross" className="h-4 w-auto max-w-12" />
+                                </div>
+                              )}
 
                               <button
                                 onClick={() => onDeleteTask(list.id, item.id)}
@@ -1023,6 +1056,7 @@ export default function ListDetailGrocery({
                 </AnimatePresence>
               </div>
             )}
+
 
             {/* Inspirational Eco Tip Card */}
             <section className="pt-2">
