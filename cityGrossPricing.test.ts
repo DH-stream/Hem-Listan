@@ -93,7 +93,7 @@ test("basket pricing deduplicates normalized item queries", async () => {
     },
   );
 
-  assert.deepEqual(queries, ["mjolk"]);
+  assert.deepEqual(queries, ["Mjölk"]);
   assert.equal(result.matches.length, 2);
   assert.equal(result.approximateTotalSek, 31.9);
 });

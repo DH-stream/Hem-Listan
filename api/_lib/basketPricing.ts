@@ -83,25 +83,29 @@ export async function calculateCityGrossBasket(
 ): Promise<BasketPriceEstimate> {
   const searchProducts = options.searchProducts ?? searchCityGrossProducts;
   const queryByItemId = new Map<string, string>();
-  const uniqueQueries = new Set<string>();
+  const searchQueryByNormalizedQuery = new Map<string, string>();
 
   request.items.forEach((item) => {
-    const query = normalizePriceQuery(item.name);
-    queryByItemId.set(item.id, query);
-    uniqueQueries.add(query);
+    const normalizedQuery = normalizePriceQuery(item.name);
+    const searchQuery = item.name.normalize("NFKC").replace(/\s+/g, " ").trim();
+    const currentSearchQuery = searchQueryByNormalizedQuery.get(normalizedQuery);
+    queryByItemId.set(item.id, normalizedQuery);
+    if (!currentSearchQuery || searchQuery.length < currentSearchQuery.length) {
+      searchQueryByNormalizedQuery.set(normalizedQuery, searchQuery);
+    }
   });
 
-  const queries = Array.from(uniqueQueries);
+  const queries = Array.from(searchQueryByNormalizedQuery.entries());
   const productEntries: Array<readonly [string, ProductPrice[]]> = [];
   let nextQueryIndex = 0;
 
   const worker = async () => {
     while (nextQueryIndex < queries.length) {
-      const query = queries[nextQueryIndex];
+      const [normalizedQuery, searchQuery] = queries[nextQueryIndex];
       nextQueryIndex += 1;
       productEntries.push([
-        query,
-        await searchProducts(query, request.storeId),
+        normalizedQuery,
+        await searchProducts(searchQuery, request.storeId),
       ] as const);
     }
   };
