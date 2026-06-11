@@ -31,7 +31,11 @@ const canonicalize = (input: string): string => {
   if (/\bröda? linser\b/.test(value)) return "röda linser";
   if (/\bhonung\b/.test(value)) return "honung";
   if (/\bkrossade tomater\b/.test(value)) return "krossade tomater";
+  if (/\bsoltorkade tomater\b/.test(value)) {
+    return /\bstrimlade\b/.test(value) ? "strimlade soltorkade tomater" : "soltorkade tomater";
+  }
   if (/\btomatpuré\b/.test(value)) return "tomatpuré";
+  if (/\bpenne\b/.test(value)) return "penne pasta";
   if (/\bbasilika\b/.test(value)) {
     if (/\b(färsk|färska)\b/.test(value)) return "färsk basilika";
     if (/\b(torkad|torkade)\b/.test(value) || /basilika\s*-\s*torkad/.test(value)) return "torkad basilika";
@@ -58,7 +62,7 @@ const canonicalize = (input: string): string => {
 const HIDE = new Set([
   "salt", "svartpeppar", "honung", "vetemjöl", "socker", "ris", "pasta", "röda linser",
   "buljong", "fond", "olivolja", "vinäger", "torkad basilika", "torkad oregano", "vitlök",
-  "smör- & rapsolja",
+  "smör- & rapsolja", "tomatpuré", "soltorkade tomater", "strimlade soltorkade tomater",
 ]);
 const PACKAGE_ROUND = new Set(["mjölk", "vispgrädde", "grädde", "ägg"]);
 

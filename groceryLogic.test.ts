@@ -105,3 +105,54 @@ test("checked tasks are never merge candidates", () => {
   assert.equal(result.tasks.find(item => item.id === "checked")?.checked, true);
   assert.equal(result.creates.length, 1);
 });
+
+test("normalizes penne variants to Penne Pasta in Skafferi", () => {
+  for (const text of [
+    "port penne",
+    "penne",
+    "penne (eller annan kort pasta)",
+    "4 port penne (eller annan kort pasta)",
+  ]) {
+    const normalized = normalizeRecipeIngredient(ingredient(text));
+    assert.equal(normalized.name, "penne pasta");
+    assert.equal(normalized.category, "Skafferi");
+    assert.equal(plan([], [ingredient(text)]).tasks[0].text, "Penne Pasta");
+  }
+});
+
+test("categorizes soltorkade tomater as Skafferi and preserves strimlade", () => {
+  const plain = normalizeRecipeIngredient(ingredient("Soltorkade tomater", "1 dl"));
+  const sliced = normalizeRecipeIngredient(ingredient("Strimlade soltorkade tomater", "1 dl"));
+
+  assert.equal(plain.name, "soltorkade tomater");
+  assert.equal(plain.category, "Skafferi");
+  assert.equal(sliced.name, "strimlade soltorkade tomater");
+  assert.equal(sliced.category, "Skafferi");
+  assert.equal(plan([], [ingredient("Strimlade soltorkade tomater", "1 dl")]).tasks[0].text, "Strimlade soltorkade tomater");
+});
+
+test("categorizes sidfläsk, bacon, and pancetta as Kött & Fisk", () => {
+  for (const text of ["Sidfläsk", "Rimmat sidfläsk", "Bacon", "Pancetta"]) {
+    const result = plan([], [ingredient(text, "300 g")]).tasks[0];
+    assert.equal(result.notes, "Kött & Fisk");
+  }
+});
+
+test("categorizes keso and cottage cheese as Mejeri", () => {
+  for (const text of ["Keso", "Cottage cheese", "Keso cottage cheese"]) {
+    const result = plan([], [ingredient(text, "250 g")]).tasks[0];
+    assert.equal(result.notes, "Mejeri");
+  }
+  assert.equal(plan([], [ingredient("Keso cottage cheese", "250 g")]).tasks[0].text, "Keso cottage cheese (250 g)");
+});
+
+test("categorizes lingonsylt and sylt as Skafferi", () => {
+  assert.equal(plan([], [ingredient("Lingonsylt", "1 dl")]).tasks[0].notes, "Skafferi");
+  assert.equal(plan([], [ingredient("Sylt", "1 dl")]).tasks[0].notes, "Skafferi");
+});
+
+test("tomatpuré hides small recipe quantities", () => {
+  assert.equal(plan([], [ingredient("Tomatpuré", "1 msk")]).tasks[0].text, "Tomatpuré");
+  assert.equal(plan([], [ingredient("Tomatpuré", "15 ml")]).tasks[0].text, "Tomatpuré");
+  assert.equal(normalizeRecipeIngredient(ingredient("Tomatpuré", "15 ml")).category, "Skafferi");
+});
