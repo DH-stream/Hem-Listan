@@ -28,7 +28,7 @@ const printRun = (label, run) => {
   const matches = Array.isArray(run.body?.matches) ? run.body.matches : [];
   const matched = matches.filter((match) => match.product);
   console.log(`\n${label}: HTTP ${run.status} (${run.durationMs} ms)`);
-  console.log(`Matched ${matched.length}/${matches.length}`);
+  console.log(`Matched items: ${matched.length}/${matches.length}`);
   for (const match of matches) {
     console.log(
       `${match.listItemName} → ${match.product?.productName ?? "no match"} → ${
@@ -36,7 +36,7 @@ const printRun = (label, run) => {
       } → ${match.confidence}`,
     );
   }
-  console.log(`Approximate total: ${run.body?.approximateTotalSek ?? 0} kr`);
+  console.log(`approximateTotalSek: ${run.body?.approximateTotalSek ?? 0} kr`);
 };
 
 const first = await requestBasket();
