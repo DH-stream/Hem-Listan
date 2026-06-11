@@ -26,12 +26,31 @@ const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
 app.post(
   "/api/pricing/basket",
   async (req: express.Request, res: express.Response) => {
+    const debug =
+      req.query.debug === "1" || req.header("x-pricing-debug") === "1";
     const validation = validateBasketPricingRequest(req.body);
     if (validation.ok === false) {
       return res.status(400).json({ error: validation.error });
     }
 
-    return res.json(await calculateCityGrossBasket(validation.request));
+    try {
+      return res.json(
+        await calculateCityGrossBasket(validation.request, { debug }),
+      );
+    } catch (error) {
+      console.error("Failed in /api/pricing/basket:", error);
+      return res.status(200).json({
+        matches: [],
+        approximateTotalSek: 0,
+        error: "Basket pricing unavailable",
+        ...(debug
+          ? {
+              debugMessage:
+                error instanceof Error ? error.message : String(error),
+            }
+          : {}),
+      });
+    }
   },
 );
 
