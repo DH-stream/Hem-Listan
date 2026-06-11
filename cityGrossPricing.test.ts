@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import basketPricingHandler, {
   createBasketPricingHandler,
+  serializePricingError,
 } from "./api/pricing/basket";
 import {
   calculateCityGrossBasket,
@@ -158,7 +159,130 @@ test("basket pricing endpoint degrades safely when calculation throws", async ()
     matches: [],
     approximateTotalSek: 0,
     error: "Basket pricing unavailable",
+    debugCode: "calculation_failed",
     debugMessage: "City Gross exploded",
+  });
+});
+
+test("basket pricing endpoint hides calculation details without debug mode", async () => {
+  const pricing = await import("./api/_lib/basketPricing");
+  const handler = createBasketPricingHandler(async () => ({
+    ...pricing,
+    calculateCityGrossBasket: async () => {
+      throw new Error("Sensitive calculation detail");
+    },
+  }));
+  const response = createResponse();
+
+  await handler(
+    {
+      method: "POST",
+      body: { chain: "city_gross", items: [{ id: "milk", name: "mjölk" }] },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.deepEqual(response.responseBody, {
+    matches: [],
+    approximateTotalSek: 0,
+    error: "Basket pricing unavailable",
+  });
+});
+
+test("basket pricing endpoint identifies module load failures in debug mode", async () => {
+  const handler = createBasketPricingHandler(async () => {
+    throw new Error("Cannot find basket pricing module");
+  });
+  const response = createResponse();
+
+  await handler(
+    {
+      method: "POST",
+      url: "/api/pricing/basket?pricingDebug=1",
+      body: { chain: "city_gross", items: [{ id: "milk", name: "mjölk" }] },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.deepEqual(response.responseBody, {
+    matches: [],
+    approximateTotalSek: 0,
+    error: "Basket pricing unavailable",
+    debugCode: "module_load_failed",
+    debugMessage: "Cannot find basket pricing module",
+  });
+});
+
+test("basket pricing endpoint hides module load details without debug mode", async () => {
+  const handler = createBasketPricingHandler(async () => {
+    throw new Error("Sensitive module path");
+  });
+  const response = createResponse();
+
+  await handler(
+    {
+      method: "POST",
+      body: { chain: "city_gross", items: [{ id: "milk", name: "mjölk" }] },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.deepEqual(response.responseBody, {
+    matches: [],
+    approximateTotalSek: 0,
+    error: "Basket pricing unavailable",
+  });
+});
+
+test("basket pricing endpoint adds validation diagnostics only in debug mode", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    {
+      method: "POST",
+      url: "/api/pricing/basket?debug=1",
+      body: { chain: "city_gross" },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.deepEqual(response.responseBody, {
+    error: "At least one item is required.",
+    debugCode: "validation_failed",
+    debugMessage: "At least one item is required.",
+  });
+});
+
+test("basket pricing endpoint adds invalid JSON diagnostics only in debug mode", async () => {
+  const response = createResponse();
+  await basketPricingHandler(
+    {
+      method: "POST",
+      url: "/api/pricing/basket?debug=1",
+      body: "{",
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.deepEqual(response.responseBody, {
+    error: "Invalid JSON body.",
+    debugCode: "invalid_json",
+    debugMessage: "Invalid JSON body.",
+  });
+});
+
+test("pricing error serialization exposes only safe fields", () => {
+  const cause = new Error("upstream refused");
+  const error = Object.assign(new Error("pricing failed", { cause }), {
+    code: "E_PRICE",
+    stack: "sensitive stack",
+    secret: "do not expose",
+  });
+
+  assert.deepEqual(serializePricingError(error), {
+    name: "Error",
+    message: "pricing failed",
+    code: "E_PRICE",
+    causeMessage: "upstream refused",
   });
 });
 
@@ -180,7 +304,10 @@ test("basket pricing endpoint returns 400 for an empty basket", async () => {
 
 test("basket request validation rejects unsupported chains", () => {
   assert.deepEqual(
-    validateBasketPricingRequest({ chain: "other", items: [{ id: "1", name: "mjölk" }] }),
+    validateBasketPricingRequest({
+      chain: "other",
+      items: [{ id: "1", name: "mjölk" }],
+    }),
     { ok: false, error: "Unsupported grocery chain." },
   );
 });
@@ -220,16 +347,24 @@ test("failed City Gross fetch is negative-cached briefly", async () => {
     throw new Error("network unavailable");
   };
 
-  const first = await searchCityGrossProducts("negative cache test", undefined, {
-    fetchImpl,
-    liveEnabled: true,
-    now: () => 1_000,
-  });
-  const second = await searchCityGrossProducts("negative cache test", undefined, {
-    fetchImpl,
-    liveEnabled: true,
-    now: () => 2_000,
-  });
+  const first = await searchCityGrossProducts(
+    "negative cache test",
+    undefined,
+    {
+      fetchImpl,
+      liveEnabled: true,
+      now: () => 1_000,
+    },
+  );
+  const second = await searchCityGrossProducts(
+    "negative cache test",
+    undefined,
+    {
+      fetchImpl,
+      liveEnabled: true,
+      now: () => 2_000,
+    },
+  );
 
   assert.deepEqual(first, []);
   assert.deepEqual(second, []);
@@ -277,38 +412,42 @@ test("expired successful cache is returned when refresh fails", async () => {
 
 test("normalizes public City Gross JSON without exposing the raw response", async () => {
   clearCityGrossPricingCache();
-  const products = await searchCityGrossProducts("ägg endpoint test", undefined, {
-    liveEnabled: true,
-    fetchImpl: async () =>
-      new Response(
-        JSON.stringify({
-          searchResults: {
-            products: [
-              {
-                id: "egg-1",
-                name: "Ägg 12-pack",
-                brand: "Garant",
-                descriptiveSize: "12P",
-                url: "/matvaror/agg-p1",
-                images: [{ url: "egg.jpeg" }],
-                productStoreDetails: {
-                  prices: {
-                    currentPrice: {
-                      price: 34.5,
-                      unit: "PCE",
-                      comparativePrice: 2.88,
-                      comparativePriceUnit: "PCE",
+  const products = await searchCityGrossProducts(
+    "ägg endpoint test",
+    undefined,
+    {
+      liveEnabled: true,
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            searchResults: {
+              products: [
+                {
+                  id: "egg-1",
+                  name: "Ägg 12-pack",
+                  brand: "Garant",
+                  descriptiveSize: "12P",
+                  url: "/matvaror/agg-p1",
+                  images: [{ url: "egg.jpeg" }],
+                  productStoreDetails: {
+                    prices: {
+                      currentPrice: {
+                        price: 34.5,
+                        unit: "PCE",
+                        comparativePrice: 2.88,
+                        comparativePriceUnit: "PCE",
+                      },
+                      hasPromotion: false,
                     },
-                    hasPromotion: false,
                   },
                 },
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-  });
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    },
+  );
 
   assert.equal(products.length, 1);
   assert.equal(products[0].productName, "Garant Ägg 12-pack");

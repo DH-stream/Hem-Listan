@@ -119,7 +119,9 @@ export const normalizeCityGrossProduct = (
   const productName = [brand, product.name.trim()].filter(Boolean).join(" ");
   const comparativePrice = parsePriceSek(currentPrice?.comparativePrice);
   const comparativeUnit = unitLabel(currentPrice?.comparativePriceUnit);
-  const imageName = product.images?.find((image) => typeof image.url === "string")?.url;
+  const imageName = product.images?.find(
+    (image) => typeof image.url === "string",
+  )?.url;
 
   return {
     id: product.id,
@@ -128,11 +130,13 @@ export const normalizeCityGrossProduct = (
     productName,
     priceSek,
     unitLabel:
-      typeof product.descriptiveSize === "string" && product.descriptiveSize.trim()
+      typeof product.descriptiveSize === "string" &&
+      product.descriptiveSize.trim()
         ? product.descriptiveSize.trim()
         : unitLabel(currentPrice?.unit),
-    searchTerms: [product.name, brand, product.subtitle]
-      .filter((term): term is string => typeof term === "string" && term.trim() !== ""),
+    searchTerms: [product.name, brand, product.subtitle].filter(
+      (term): term is string => typeof term === "string" && term.trim() !== "",
+    ),
     comparePrice:
       comparativePrice === null
         ? undefined
@@ -141,7 +145,7 @@ export const normalizeCityGrossProduct = (
     imageUrl: absoluteUrl(imageName, `${CITY_GROSS_IMAGE_BASE_URL}/`),
     isCampaign: Boolean(
       product.productStoreDetails?.prices?.hasDiscount ||
-        product.productStoreDetails?.prices?.hasPromotion,
+      product.productStoreDetails?.prices?.hasPromotion,
     ),
     fetchedAt,
   };
@@ -149,8 +153,8 @@ export const normalizeCityGrossProduct = (
 
 const getProducts = (payload: unknown): CityGrossProduct[] => {
   if (!payload || typeof payload !== "object") return [];
-  const products = (payload as { searchResults?: { products?: unknown } }).searchResults
-    ?.products;
+  const products = (payload as { searchResults?: { products?: unknown } })
+    .searchResults?.products;
   return Array.isArray(products) ? (products as CityGrossProduct[]) : [];
 };
 
@@ -168,6 +172,7 @@ export async function searchCityGrossProducts(
 
   const liveEnabled =
     options.liveEnabled ?? process.env.CITY_GROSS_LIVE_PRICING !== "false";
+  pricingApiLog(debug, "citygross live status", { liveEnabled });
   if (!liveEnabled) {
     pricingApiLog(debug, "citygross disabled");
     return [];
@@ -177,6 +182,7 @@ export async function searchCityGrossProducts(
   const cacheKey = `city_gross:${normalizedStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
+  pricingApiLog(debug, "citygross cache key", { cacheKey });
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > currentTime) {
     pricingApiLog(debug, "citygross cache hit", {
@@ -192,13 +198,21 @@ export async function searchCityGrossProducts(
   searchUrl.searchParams.set("skip", "0");
   searchUrl.searchParams.set("take", "12");
   searchUrl.searchParams.set("type", "product");
-  if (storeId?.trim()) searchUrl.searchParams.set("store", storeId.trim().slice(0, 40));
+  if (storeId?.trim())
+    searchUrl.searchParams.set("store", storeId.trim().slice(0, 40));
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    pricingApiLog(debug, "citygross fetch", { searchUrl: searchUrl.toString() });
+    const loggedSearchUrl = new URL(searchUrl);
+    loggedSearchUrl.searchParams.set("SearchQuery", "[redacted]");
+    if (loggedSearchUrl.searchParams.has("store")) {
+      loggedSearchUrl.searchParams.set("store", "[redacted]");
+    }
+    pricingApiLog(debug, "citygross fetch", {
+      searchUrl: loggedSearchUrl.toString(),
+    });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
       headers: {
         Accept: "application/json",
@@ -223,12 +237,18 @@ export async function searchCityGrossProducts(
       .filter((product): product is ProductPrice => product !== null);
 
     pricingApiLog(debug, "citygross products parsed", {
-      rawCount: rawProducts.length,
-      normalizedCount: products.length,
+      rawProductCount: rawProducts.length,
+      normalizedProductCount: products.length,
+      products: products.slice(0, 3).map((product) => ({
+        productName: product.productName,
+        priceSek: product.priceSek,
+        unitLabel: product.unitLabel,
+      })),
     });
     cache.set(cacheKey, {
       expiresAt:
-        currentTime + (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
+        currentTime +
+        (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
       products,
     });
     return products;
@@ -236,7 +256,7 @@ export async function searchCityGrossProducts(
     pricingApiLog(debug, "citygross error", error);
     const fallbackProducts = cached?.products ?? [];
     pricingApiLog(debug, "citygross fallback", {
-      productCount: fallbackProducts.length,
+      fallbackCount: fallbackProducts.length,
     });
     cache.set(cacheKey, {
       expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,

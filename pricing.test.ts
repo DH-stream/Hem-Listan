@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cityGrossPriceAdapter, CITY_GROSS_DEMO_STORE } from "./src/lib/pricing/cityGrossAdapter";
+import {
+  cityGrossPriceAdapter,
+  CITY_GROSS_DEMO_STORE,
+} from "./src/lib/pricing/cityGrossAdapter";
 import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
-import { selectActiveBasketEstimate } from "./src/lib/pricing/useBasketPriceEstimate";
+import {
+  logBasketPricingResult,
+  selectActiveBasketEstimate,
+} from "./src/lib/pricing/useBasketPriceEstimate";
 
 const products: ProductPrice[] = [
   {
@@ -18,8 +24,14 @@ const products: ProductPrice[] = [
 ];
 
 test("matches exact or nearly exact names with high confidence", () => {
-  assert.equal(matchListItem({ id: "1", name: "kaffe" }, products).confidence, "high");
-  assert.equal(matchListItem({ id: "2", name: "kafffe" }, products).confidence, "high");
+  assert.equal(
+    matchListItem({ id: "1", name: "kaffe" }, products).confidence,
+    "high",
+  );
+  assert.equal(
+    matchListItem({ id: "2", name: "kafffe" }, products).confidence,
+    "high",
+  );
 });
 
 test("matches query words contained in a product name with medium confidence", () => {
@@ -30,17 +42,26 @@ test("matches query words contained in a product name with medium confidence", (
 });
 
 test("uses low confidence for a weak fuzzy match and none for an unknown item", () => {
-  assert.equal(matchListItem({ id: "1", name: "kaffetår" }, products).confidence, "low");
-  assert.equal(matchListItem({ id: "2", name: "diskmedel" }, products).confidence, "none");
+  assert.equal(
+    matchListItem({ id: "1", name: "kaffetår" }, products).confidence,
+    "low",
+  );
+  assert.equal(
+    matchListItem({ id: "2", name: "diskmedel" }, products).confidence,
+    "none",
+  );
 });
 
 test("calculates a demo basket and keeps missing items visible", async () => {
-  const result = await cityGrossPriceAdapter.calculateBasket(CITY_GROSS_DEMO_STORE.id, [
-    { id: "milk", name: "2 l mjölk" },
-    { id: "eggs", name: "ägg" },
-    { id: "pasta", name: "pasta" },
-    { id: "unknown", name: "diskmedel" },
-  ]);
+  const result = await cityGrossPriceAdapter.calculateBasket(
+    CITY_GROSS_DEMO_STORE.id,
+    [
+      { id: "milk", name: "2 l mjölk" },
+      { id: "eggs", name: "ägg" },
+      { id: "pasta", name: "pasta" },
+      { id: "unknown", name: "diskmedel" },
+    ],
+  );
 
   assert.equal(result.matchedItemCount, 3);
   assert.equal(result.uncertainOrMissingItemCount, 1);
@@ -50,10 +71,12 @@ test("calculates a demo basket and keeps missing items visible", async () => {
   assert.equal(result.isEstimate, true);
 });
 
-
 test("basket estimate only includes unchecked tasks", () => {
   const activeMatch = matchListItem({ id: "active", name: "kaffe" }, products);
-  const checkedMatch = matchListItem({ id: "checked", name: "kaffe" }, products);
+  const checkedMatch = matchListItem(
+    { id: "checked", name: "kaffe" },
+    products,
+  );
   const result = selectActiveBasketEstimate(
     [
       { id: "active", text: "kaffe", checked: false },
@@ -67,4 +90,50 @@ test("basket estimate only includes unchecked tasks", () => {
 
   assert.equal(result.approximateTotalSek, 54.95);
   assert.deepEqual(Object.keys(result.matchByTaskId), ["active"]);
+});
+
+test("pricing debug result logging includes safe error diagnostics", () => {
+  const originalWindow = globalThis.window;
+  const originalConsoleLog = console.log;
+  const calls: unknown[][] = [];
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      location: { search: "?debug=1" },
+      localStorage: { getItem: () => null },
+    },
+  });
+  console.log = (...args: unknown[]) => calls.push(args);
+
+  try {
+    const result = {
+      matches: [],
+      approximateTotalSek: 0,
+      error: "Basket pricing unavailable",
+      debugCode: "module_load_failed",
+      debugMessage: "Cannot find module",
+    };
+    logBasketPricingResult(result);
+
+    const resultCall = calls.find(
+      ([message]) => message === "[pricing] result",
+    );
+    assert.deepEqual(resultCall?.[1], {
+      matchCount: 0,
+      pricedCount: 0,
+      approximateTotalSek: 0,
+      error: "Basket pricing unavailable",
+      debugCode: "module_load_failed",
+      debugMessage: "Cannot find module",
+      matches: [],
+      rawResult: result,
+    });
+    assert.ok(calls.some(([message]) => message === "[pricing] unavailable"));
+  } finally {
+    console.log = originalConsoleLog;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+  }
 });
