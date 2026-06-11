@@ -6,6 +6,32 @@ import type {
 } from "./types";
 
 const BASKET_DEBOUNCE_MS = 3_000;
+const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
+
+const isPricingDebugEnabled = () => {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("debug") === "1" ||
+      params.get("pricingDebug") === "1" ||
+      window.localStorage.getItem(PRICING_DEBUG_STORAGE_KEY) === "true"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const pricingLog = (message: string, details?: unknown) => {
+  if (!isPricingDebugEnabled()) return;
+  if (details === undefined) {
+    console.log(`[pricing] ${message}`);
+    return;
+  }
+  console.log(`[pricing] ${message}`, details);
+};
+
 const EMPTY_ESTIMATE: BasketPriceEstimate = {
   matches: [],
   approximateTotalSek: 0,
@@ -49,32 +75,62 @@ export const useBasketPriceEstimate = (
         .map((task) => ({ id: task.id, name: task.text })),
     [tasks],
   );
+  pricingLog("hook input", {
+    taskCount: tasks.length,
+    activeCount: activeItems.length,
+    activeItems,
+  });
+
   const itemSignature = activeItems
     .map((item) => `${item.id}:${item.name}`)
     .join("|");
 
   useEffect(() => {
     setEstimate(EMPTY_ESTIMATE);
-    if (activeItems.length === 0) return;
+    if (activeItems.length === 0) {
+      pricingLog("skip: no active items");
+      return;
+    }
 
+    const debugEnabled = isPricingDebugEnabled();
     const controller = new AbortController();
+    pricingLog("debounce scheduled", {
+      delayMs: BASKET_DEBOUNCE_MS,
+      activeCount: activeItems.length,
+    });
     const timeoutId = window.setTimeout(() => {
-      void fetch("/api/pricing/basket", {
+      const chain = "city_gross";
+      pricingLog("request basket", { chain, items: activeItems });
+      void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chain: "city_gross",
+          chain,
           items: activeItems,
         }),
         signal: controller.signal,
       })
         .then(async (response) => {
+          pricingLog("response", { status: response.status, ok: response.ok });
           if (!response.ok) throw new Error("Basket pricing request failed");
           return (await response.json()) as BasketPriceEstimate;
         })
-        .then((result) => setEstimate(result))
-        .catch(() => {
-          if (!controller.signal.aborted) setEstimate(EMPTY_ESTIMATE);
+        .then((result) => {
+          pricingLog("result", {
+            matchCount: result.matches.length,
+            pricedCount: result.matches.filter((match) => match.product).length,
+            approximateTotalSek: result.approximateTotalSek,
+            matches: result.matches,
+          });
+          setEstimate(result);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            pricingLog("request aborted");
+            return;
+          }
+          pricingLog("request failed", error);
+          setEstimate(EMPTY_ESTIMATE);
         });
     }, BASKET_DEBOUNCE_MS);
 

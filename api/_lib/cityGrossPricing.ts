@@ -14,6 +14,7 @@ interface CacheEntry {
 }
 
 interface CityGrossSearchOptions {
+  debug?: boolean;
   fetchImpl?: typeof fetch;
   now?: () => number;
   liveEnabled?: boolean;
@@ -42,6 +43,14 @@ interface CityGrossProduct {
 }
 
 const cache = new Map<string, CacheEntry>();
+
+const pricingApiLog = (
+  enabled: boolean,
+  message: string,
+  details?: unknown,
+) => {
+  if (enabled) console.log(`[pricing-api] ${message}`, details ?? "");
+};
 
 export const normalizePricingQuery = (value: string) =>
   value
@@ -152,19 +161,31 @@ export async function searchCityGrossProducts(
   storeId?: string,
   options: CityGrossSearchOptions = {},
 ): Promise<ProductPrice[]> {
+  const debug = options.debug ?? false;
+  pricingApiLog(debug, "citygross validate query", { query });
   const validation = validatePricingQuery(query);
   if (!validation.ok) return [];
 
   const liveEnabled =
     options.liveEnabled ?? process.env.CITY_GROSS_LIVE_PRICING !== "false";
-  if (!liveEnabled) return [];
+  if (!liveEnabled) {
+    pricingApiLog(debug, "citygross disabled");
+    return [];
+  }
 
   const normalizedStoreId = storeId?.trim().slice(0, 40) || "public";
   const cacheKey = `city_gross:${normalizedStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > currentTime) return cached.products;
+  if (cached && cached.expiresAt > currentTime) {
+    pricingApiLog(debug, "citygross cache hit", {
+      cacheKey,
+      productCount: cached.products.length,
+    });
+    return cached.products;
+  }
+  pricingApiLog(debug, "citygross cache miss", { cacheKey });
 
   const searchUrl = new URL(CITY_GROSS_SEARCH_URL);
   searchUrl.searchParams.set("SearchQuery", validation.query);
@@ -177,6 +198,7 @@ export async function searchCityGrossProducts(
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
+    pricingApiLog(debug, "citygross fetch", { searchUrl: searchUrl.toString() });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
       headers: {
         Accept: "application/json",
@@ -184,25 +206,38 @@ export async function searchCityGrossProducts(
       },
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`City Gross returned ${response.status}`);
     const contentType = response.headers.get("content-type") ?? "";
+    pricingApiLog(debug, "citygross response", {
+      status: response.status,
+      contentType,
+    });
+    if (!response.ok) throw new Error(`City Gross returned ${response.status}`);
     if (!contentType.includes("application/json")) {
       throw new Error("City Gross returned a non-JSON response");
     }
 
     const fetchedAt = new Date(currentTime).toISOString();
-    const products = getProducts(await response.json())
+    const rawProducts = getProducts(await response.json());
+    const products = rawProducts
       .map((product) => normalizeCityGrossProduct(product, storeId, fetchedAt))
       .filter((product): product is ProductPrice => product !== null);
 
+    pricingApiLog(debug, "citygross products parsed", {
+      rawCount: rawProducts.length,
+      normalizedCount: products.length,
+    });
     cache.set(cacheKey, {
       expiresAt:
         currentTime + (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
       products,
     });
     return products;
-  } catch {
+  } catch (error) {
+    pricingApiLog(debug, "citygross error", error);
     const fallbackProducts = cached?.products ?? [];
+    pricingApiLog(debug, "citygross fallback", {
+      productCount: fallbackProducts.length,
+    });
     cache.set(cacheKey, {
       expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
       products: fallbackProducts,
