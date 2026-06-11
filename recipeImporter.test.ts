@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   extractRecipeFromHtml,
@@ -126,7 +127,12 @@ test("marks a one-ingredient import as low confidence", () => {
   assert.ok(result);
   assert.equal(result.confidence, "low");
   assert.match(result.qualityWarnings.join(" "), /Färre än tre/);
-  assert.deepEqual(result.attemptedMethods, ["json_ld", "site_adapter"]);
+  assert.deepEqual(result.attemptedMethods, [
+    "json_ld",
+    "site_adapter",
+    "dom_fallback",
+    "text_section_fallback",
+  ]);
   assert.equal(result.usedFallback, false);
   assert.equal(result.canRetryWithAi, true);
 });
@@ -176,6 +182,112 @@ test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
   assert.equal(result.ingredients.length, 3);
   assert.deepEqual(result.attemptedMethods, ["json_ld", "dom_fallback"]);
   assert.equal(result.usedFallback, true);
+});
+
+test("extracts the Coop parmesanpotatis recipe from encoded component data", () => {
+  const html = readFileSync(
+    new URL("./test-fixtures/coop-parmesanpotatis.html", import.meta.url),
+    "utf8",
+  );
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.coop.se/recept/lunch-pa-4-minuter/parmesanpotatis-med-kallrokt-lax/",
+    ),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "site_adapter");
+  assert.equal(result.confidence, "high");
+  assert.deepEqual(result.attemptedMethods, [
+    "json_ld",
+    "site_adapter",
+    "coop_adapter",
+  ]);
+  assert.deepEqual(
+    result.ingredients.map((ingredient) => ingredient.rawText),
+    [
+      "ca 8 kokta potatisar",
+      "1 msk olivolja",
+      "1 dl finriven parmesan",
+      "flingsalt",
+      "1 dl crème fraiche",
+      "1 citron, finrivet skal och saft",
+      "30 g grönkål",
+      "½ msk olivolja",
+      "200 g kallrökt lax",
+      "salt och peppar",
+    ],
+  );
+  assert.ok(
+    result.ingredients.every(
+      (ingredient) => !ingredient.rawText?.includes("Sätt ugnen"),
+    ),
+  );
+});
+
+test("uses only the conservative Swedish ingredient text section", () => {
+  const html = `
+    <html>
+      <head><title>Enkel gryta</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>2 st morötter</p>
+        <p>1 st gul lök</p>
+        <p>4 dl buljong</p>
+        <h2>Gör så här</h2>
+        <p>Hacka morötterna och löken.</p>
+        <p>Koka allt i 20 minuter.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recept.example/enkel-gryta"),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "text_section_fallback");
+  assert.equal(result.confidence, "medium");
+  assert.deepEqual(
+    result.ingredients.map((ingredient) => ingredient.rawText),
+    ["2 st morötter", "1 st gul lök", "4 dl buljong"],
+  );
+  assert.ok(
+    result.ingredients.every(
+      (ingredient) =>
+        !ingredient.rawText?.includes("Hacka") &&
+        !ingredient.rawText?.includes("Koka"),
+    ),
+  );
+});
+
+test("accepts supported Swedish recipe domains for embedded recipe data", () => {
+  const html = `
+    <script type="application/json">
+      {"recipe":{"ingredients":["1 st tomat","2 st ägg","3 dl mjölk"]}}
+    </script>
+  `;
+  const domains = [
+    "coop.se",
+    "tasteline.com",
+    "recepten.se",
+    "landleyskok.se",
+    "undertian.com",
+    "zeinas.se",
+    "valio.se",
+  ];
+
+  for (const domain of domains) {
+    const result = extractRecipeFromHtml(
+      html,
+      new URL(`https://${domain}/recept`),
+    );
+    assert.ok(result, domain);
+    assert.equal(result.extractionMethod, "site_adapter", domain);
+  }
 });
 
 const recipeHtml = `
@@ -319,7 +431,11 @@ test("returns retry metadata for a page with no recipe", async (t) => {
       assert.ok(error instanceof RecipeImportError);
       assert.equal(error.code, "no_recipe_found");
       assert.equal(error.canRetryWithAi, true);
-      assert.deepEqual(error.attemptedMethods, ["json_ld", "dom_fallback"]);
+      assert.deepEqual(error.attemptedMethods, [
+        "json_ld",
+        "dom_fallback",
+        "text_section_fallback",
+      ]);
       return true;
     },
   );
