@@ -6,7 +6,7 @@ import type {
   BasketPriceEstimate,
   ProductPrice,
 } from "../../src/lib/pricing/types";
-import { searchCityGrossProducts } from "./cityGrossPricing";
+import { searchCityGrossProducts } from "./cityGrossPricing.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
