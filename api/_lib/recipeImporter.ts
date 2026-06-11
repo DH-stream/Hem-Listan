@@ -6,7 +6,12 @@ export type RecipeIngredient = {
   note?: string;
 };
 
-export type ExtractionMethod = "json_ld" | "dom_fallback" | "site_adapter";
+export type ExtractionMethod =
+  | "json_ld"
+  | "dom_fallback"
+  | "text_section_fallback"
+  | "site_adapter";
+export type ExtractionAttemptMethod = ExtractionMethod | "coop_adapter";
 export type ImportConfidence = "high" | "medium" | "low";
 export type RecipeImportErrorCode =
   | "invalid_url"
@@ -22,7 +27,7 @@ export class RecipeImportError extends Error {
   constructor(
     public readonly code: RecipeImportErrorCode,
     message: string,
-    public readonly attemptedMethods: ExtractionMethod[] = [],
+    public readonly attemptedMethods: ExtractionAttemptMethod[] = [],
   ) {
     super(message);
     this.name = "RecipeImportError";
@@ -44,14 +49,14 @@ export type ExtractedRecipe = {
   extractionMethod: ExtractionMethod;
   confidence: ImportConfidence;
   qualityWarnings: string[];
-  attemptedMethods: ExtractionMethod[];
+  attemptedMethods: ExtractionAttemptMethod[];
   usedFallback: boolean;
   canRetryWithAi: boolean;
 };
 
 type ExtractionAttempt = {
   recipe: ExtractedRecipe | null;
-  attemptedMethods: ExtractionMethod[];
+  attemptedMethods: ExtractionAttemptMethod[];
 };
 
 type RecipeCandidate = {
@@ -62,7 +67,19 @@ type RecipeCandidate = {
   extractionMethod: ExtractionMethod;
 };
 
-const SUPPORTED_SITES = ["ica.se", "arla.se", "koket.se"];
+const SUPPORTED_SITES = [
+  "ica.se",
+  "arla.se",
+  "koket.se",
+  "mathem.se",
+  "coop.se",
+  "tasteline.com",
+  "recepten.se",
+  "landleyskok.se",
+  "undertian.com",
+  "zeinas.se",
+  "valio.se",
+];
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_HTML_LENGTH = 2_000_000;
 const MAX_REDIRECTS = 3;
@@ -373,16 +390,62 @@ function extractPageTitle(html: string): string {
   );
 }
 
-function extractDomIngredients(html: string): string[] {
+function extractElementTexts(
+  html: string,
+  tagPattern = "[a-z\\d]+",
+): string[] {
   const results: string[] = [];
-  const patterns = [
-    /<([a-z\d]+)\b[^>]*itemprop=["']recipeIngredient["'][^>]*>([\s\S]*?)<\/\1>/gi,
-    /<([a-z\d]+)\b[^>]*(?:class|data-testid)=["'][^"']*(?:recipe[-_ ]?ingredient|ingredient[-_ ]?(?:item|row)|ingredients-list__item)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi,
-  ];
+  const pattern = new RegExp(
+    `<(${tagPattern})\\b[^>]*>([\\s\\S]*?)<\\/\\1>`,
+    "gi",
+  );
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(html))) {
+    const text = cleanText(match[2]);
+    if (text) results.push(text);
+  }
+  return results;
+}
 
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(html))) {
+const INGREDIENT_HEADING = /^(?:ingredienser|du behöver|det här behöver du)(?:\s*[(:].*)?$/i;
+const STOP_HEADING = /^(?:gör så här|så här gör du|tillagning|instruktioner|metod)(?:\s*:.*)?$/i;
+
+function extractIngredientSection(html: string): string | null {
+  const headingPattern = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+  const headings: Array<{ start: number; end: number; text: string }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = headingPattern.exec(html))) {
+    headings.push({
+      start: match.index,
+      end: headingPattern.lastIndex,
+      text: cleanText(match[1]),
+    });
+  }
+
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    if (!INGREDIENT_HEADING.test(heading.text)) continue;
+
+    const stop = headings
+      .slice(index + 1)
+      .find((candidate) => STOP_HEADING.test(candidate.text));
+    return html.slice(heading.end, stop?.start ?? html.length);
+  }
+
+  return null;
+}
+
+function extractSemanticDomIngredients(html: string): string[] {
+  const results: string[] = [];
+  const pattern =
+    /<([a-z\d]+)\b[^>]*itemprop=["'](?:recipeIngredient|ingredients)["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(html))) {
+    const nestedItems = extractElementTexts(match[2], "li");
+    if (nestedItems.length) results.push(...nestedItems);
+    else {
       const text = cleanText(match[2]);
       if (text) results.push(text);
     }
@@ -391,32 +454,88 @@ function extractDomIngredients(html: string): string[] {
   return results;
 }
 
-function extractSiteFallback(html: string, hostname: string): RecipeCandidate | null {
-  let ingredients: unknown[] = [];
+function extractSupportedDomIngredients(html: string): string[] {
+  const results: string[] = [];
+  const pattern =
+    /<([a-z\d]+)\b[^>]*(?:class|data-testid)=["'][^"']*(?:recipe[-_ ]?ingredient|recipeIngredient|ingredient-list|ingredients-list|ingredient[-_ ]?(?:item|row)|recipe__ingredients|recipeIngredients)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  let match: RegExpExecArray | null;
 
-  if (isSupportedSite(hostname)) {
-    const documents = parseJsonScriptContents(
-      html,
-      /\btype\s*=\s*["']application\/json["']|\bid\s*=\s*["']__NEXT_DATA__["']/i,
-    );
-    for (const document of documents) {
-      const found = findIngredientArray(document);
-      if (found) {
-        ingredients = found;
-        break;
-      }
+  while ((match = pattern.exec(html))) {
+    const nestedItems = extractElementTexts(match[2], "li");
+    if (nestedItems.length) results.push(...nestedItems);
+    else {
+      const text = cleanText(match[2]);
+      if (text) results.push(text);
     }
   }
 
-  if (ingredients.length === 0) ingredients = extractDomIngredients(html);
-  if (ingredients.length === 0) return null;
+  const section = extractIngredientSection(html);
+  if (section) results.push(...extractElementTexts(section, "li"));
 
-  return {
-    recipeName: extractPageTitle(html),
-    ingredients,
-    imageUrl: extractMetaContent(html, "og:image"),
-    extractionMethod: isSupportedSite(hostname) ? "site_adapter" : "dom_fallback",
-  };
+  return results;
+}
+
+function extractTextSectionIngredients(html: string): string[] {
+  const section = extractIngredientSection(html);
+  if (!section) return [];
+
+  const withoutScripts = section
+    .replace(/<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|tr)>/gi, "\n");
+
+  return decodeHtml(withoutScripts.replace(/<[^>]*>/g, " "))
+    .split(/\n+/)
+    .map((line) => line.replace(/[\u00a0\s]+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function extractEmbeddedData(html: string): RecipeCandidate | null {
+  const documents = parseJsonScriptContents(
+    html,
+    /\btype\s*=\s*["']application\/json(?:\s*;[^"']*)?["']|\bid\s*=\s*["']__NEXT_DATA__["']/i,
+  );
+  for (const document of documents) {
+    const ingredients = findIngredientArray(document);
+    if (ingredients) {
+      return {
+        recipeName: extractPageTitle(html),
+        ingredients,
+        imageUrl: extractMetaContent(html, "og:image"),
+        extractionMethod: "site_adapter",
+      };
+    }
+  }
+  return null;
+}
+
+function extractCoopAdapter(html: string): RecipeCandidate | null {
+  const propsPattern = /\bdata-react-props\s*=\s*(["'])([\s\S]*?)\1/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = propsPattern.exec(html))) {
+    try {
+      const props = JSON.parse(decodeHtml(match[2])) as Record<string, unknown>;
+      const mainBody = typeof props.mainBody === "string" ? props.mainBody : "";
+      if (!mainBody) continue;
+      const section = extractIngredientSection(mainBody);
+      const ingredients = section ? extractElementTexts(section, "li") : [];
+      if (ingredients.length === 0) continue;
+
+      return {
+        recipeName: cleanText(
+          props.headline ?? props.moduleHeadline ?? props.name ?? props.title,
+        ),
+        ingredients,
+        imageUrl: extractImageUrl(props.moduleImage ?? props.heroImage),
+        extractionMethod: "site_adapter",
+      };
+    } catch {
+      // Continue with another Coop component or the generic fallbacks.
+    }
+  }
+
+  return null;
 }
 
 function simplifyMealName(recipeName: string): string {
@@ -514,10 +633,16 @@ function categorizeIngredient(text: string): string {
 
 function isCredibleIngredient(ingredient: RecipeIngredient): boolean {
   const value = ingredient.text.toLowerCase();
+  const rejectedContent =
+    /^(?:gör så här|så här gör du|tillagning|instruktioner|metod|servering|portioner?|annons|sponsrat|betyg|recensioner?|kommentarer?|näringsvärde|energi|kalorier|protein|kolhydrater|fett|läs mer|visa mer|logga in|meny|recept)(?:[:\s]|$)/i;
+  const instructionStart =
+    /^(?:blanda|hacka|skär|lägg|sätt|värm|stek|koka|grädda|servera|rör|häll|tillsätt|smaka|låt|skala|riv|vispa|rosta|fördela|toppa|ringla|pressa|baka)\b/i;
+
   return (
     value.length >= 2 &&
     value.length <= 100 &&
-    !/^(ingredienser?|gör så här|tillagning|servering|portioner?)[:\s]*$/i.test(value) &&
+    !rejectedContent.test(value) &&
+    !instructionStart.test(value) &&
     !/^https?:\/\//.test(value)
   );
 }
@@ -608,7 +733,7 @@ function normalizeCandidate(
 
 function withExtractionMetadata(
   recipe: ExtractedRecipe,
-  attemptedMethods: ExtractionMethod[],
+  attemptedMethods: ExtractionAttemptMethod[],
 ): ExtractedRecipe {
   return {
     ...recipe,
@@ -623,7 +748,7 @@ function attemptRecipeExtraction(
   sourceUrl: URL,
 ): ExtractionAttempt {
   const hostname = getHostname(sourceUrl);
-  const attemptedMethods: ExtractionMethod[] = ["json_ld"];
+  const attemptedMethods: ExtractionAttemptMethod[] = ["json_ld"];
   const jsonLdCandidate = extractJsonLd(html);
   const normalizedJsonLd = jsonLdCandidate
     ? normalizeCandidate(jsonLdCandidate, sourceUrl)
@@ -638,18 +763,86 @@ function attemptRecipeExtraction(
     };
   }
 
-  const fallbackMethod: ExtractionMethod = isSupportedSite(hostname)
-    ? "site_adapter"
-    : "dom_fallback";
-  attemptedMethods.push(fallbackMethod);
-  const fallbackCandidate = extractSiteFallback(html, hostname);
-  const normalizedFallback = fallbackCandidate
-    ? normalizeCandidate(fallbackCandidate, sourceUrl)
-    : null;
-  const recipe = normalizedFallback ?? normalizedJsonLd;
+  const tryFallback = (
+    attemptMethod: ExtractionAttemptMethod,
+    candidate: RecipeCandidate | null,
+  ): ExtractedRecipe | null => {
+    if (!attemptedMethods.includes(attemptMethod)) {
+      attemptedMethods.push(attemptMethod);
+    }
+    if (!candidate) return null;
+    const normalized = normalizeCandidate(candidate, sourceUrl);
+    if (!normalized) return null;
+    const credibleIngredients = normalized.ingredients.filter(isCredibleIngredient);
+    if (credibleIngredients.length < 3) return null;
+    return withExtractionMetadata(
+      { ...normalized, ingredients: credibleIngredients },
+      attemptedMethods,
+    );
+  };
+
+  if (isSupportedSite(hostname)) {
+    const embeddedRecipe = tryFallback(
+      "site_adapter",
+      extractEmbeddedData(html),
+    );
+    if (embeddedRecipe) return { recipe: embeddedRecipe, attemptedMethods };
+  }
+
+  if (hostname === "coop.se" || hostname.endsWith(".coop.se")) {
+    const coopRecipe = tryFallback("coop_adapter", extractCoopAdapter(html));
+    if (coopRecipe) return { recipe: coopRecipe, attemptedMethods };
+  }
+
+  const semanticDomCandidate: RecipeCandidate = {
+    recipeName: extractPageTitle(html),
+    ingredients: extractSemanticDomIngredients(html),
+    imageUrl: extractMetaContent(html, "og:image"),
+    extractionMethod: isSupportedSite(hostname) ? "site_adapter" : "dom_fallback",
+  };
+  const semanticDomRecipe = tryFallback("dom_fallback", semanticDomCandidate);
+  if (semanticDomRecipe) {
+    return { recipe: semanticDomRecipe, attemptedMethods };
+  }
+
+  if (isSupportedSite(hostname)) {
+    const supportedDomCandidate: RecipeCandidate = {
+      recipeName: extractPageTitle(html),
+      ingredients: extractSupportedDomIngredients(html),
+      imageUrl: extractMetaContent(html, "og:image"),
+      extractionMethod: "site_adapter",
+    };
+    const supportedDomRecipe = tryFallback(
+      "site_adapter",
+      supportedDomCandidate,
+    );
+    if (supportedDomRecipe) {
+      return { recipe: supportedDomRecipe, attemptedMethods };
+    }
+
+    const textCandidate: RecipeCandidate = {
+      recipeName: extractPageTitle(html),
+      ingredients: extractTextSectionIngredients(html),
+      imageUrl: extractMetaContent(html, "og:image"),
+      extractionMethod: "text_section_fallback",
+    };
+    const textRecipe = tryFallback("text_section_fallback", textCandidate);
+    if (textRecipe) {
+      return {
+        recipe: {
+          ...textRecipe,
+          confidence:
+            textRecipe.confidence === "high" ? "medium" : textRecipe.confidence,
+        },
+        attemptedMethods,
+      };
+    }
+  }
 
   return {
-    recipe: recipe ? withExtractionMetadata(recipe, attemptedMethods) : null,
+    recipe: normalizedJsonLd
+      ? withExtractionMetadata(normalizedJsonLd, attemptedMethods)
+      : null,
     attemptedMethods,
   };
 }

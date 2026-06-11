@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   extractRecipeFromHtml,
@@ -53,6 +54,28 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
     "Blanda & vispa.",
     "Grädda: Ställ in i ugnen.",
   ]);
+});
+
+test("imports JSON-LD Recipe data from an unsupported domain", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Tomatsoppa",
+        "recipeIngredient": ["4 st tomater", "1 st gul lök", "5 dl buljong"]
+      }
+    </script>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://random.example/tomatsoppa"),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "json_ld");
+  assert.deepEqual(result.attemptedMethods, ["json_ld"]);
+  assert.equal(result.ingredients.length, 3);
 });
 
 test("flattens JSON-LD HowToSection instructions in order", () => {
@@ -126,7 +149,12 @@ test("marks a one-ingredient import as low confidence", () => {
   assert.ok(result);
   assert.equal(result.confidence, "low");
   assert.match(result.qualityWarnings.join(" "), /Färre än tre/);
-  assert.deepEqual(result.attemptedMethods, ["json_ld", "site_adapter"]);
+  assert.deepEqual(result.attemptedMethods, [
+    "json_ld",
+    "site_adapter",
+    "dom_fallback",
+    "text_section_fallback",
+  ]);
   assert.equal(result.usedFallback, false);
   assert.equal(result.canRetryWithAi, true);
 });
@@ -154,7 +182,7 @@ test("rejects invalid and local URLs", () => {
   assert.throws(() => validateRecipeUrl("file:///tmp/recipe"), /http- eller https/);
 });
 
-test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
+test("imports semantic itemprop ingredients from an unsupported domain", () => {
   const html = `
     <html>
       <head><title>Tomatsallad</title></head>
@@ -176,6 +204,158 @@ test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
   assert.equal(result.ingredients.length, 3);
   assert.deepEqual(result.attemptedMethods, ["json_ld", "dom_fallback"]);
   assert.equal(result.usedFallback, true);
+});
+
+test("extracts the Coop parmesanpotatis recipe from encoded component data", () => {
+  const html = readFileSync(
+    new URL("./test-fixtures/coop-parmesanpotatis.html", import.meta.url),
+    "utf8",
+  );
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.coop.se/recept/lunch-pa-4-minuter/parmesanpotatis-med-kallrokt-lax/",
+    ),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "site_adapter");
+  assert.equal(result.confidence, "high");
+  assert.deepEqual(result.attemptedMethods, [
+    "json_ld",
+    "site_adapter",
+    "coop_adapter",
+  ]);
+  assert.deepEqual(
+    result.ingredients.map((ingredient) => ingredient.rawText),
+    [
+      "ca 8 kokta potatisar",
+      "1 msk olivolja",
+      "1 dl finriven parmesan",
+      "flingsalt",
+      "1 dl crème fraiche",
+      "1 citron, finrivet skal och saft",
+      "30 g grönkål",
+      "½ msk olivolja",
+      "200 g kallrökt lax",
+      "salt och peppar",
+    ],
+  );
+  assert.ok(
+    result.ingredients.every(
+      (ingredient) => !ingredient.rawText?.includes("Sätt ugnen"),
+    ),
+  );
+});
+
+test("does not use Swedish text sections on an unsupported domain", () => {
+  const html = `
+    <html>
+      <head><title>Enkel gryta</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>2 st morötter</p>
+        <p>1 st gul lök</p>
+        <p>4 dl buljong</p>
+        <h2>Gör så här</h2>
+        <p>Koka allt i 20 minuter.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://random.example/enkel-gryta"),
+  );
+
+  assert.equal(result, null);
+});
+
+test("uses the conservative Swedish text section on a supported domain", () => {
+  const html = `
+    <html>
+      <head><title>Enkel gryta</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>2 st morötter</p>
+        <p>1 st gul lök</p>
+        <p>4 dl buljong</p>
+        <h2>Gör så här</h2>
+        <p>Hacka morötterna och löken.</p>
+        <p>Koka allt i 20 minuter.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recepten.se/enkel-gryta"),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "text_section_fallback");
+  assert.equal(result.confidence, "medium");
+  assert.deepEqual(
+    result.ingredients.map((ingredient) => ingredient.rawText),
+    ["2 st morötter", "1 st gul lök", "4 dl buljong"],
+  );
+  assert.ok(
+    result.ingredients.every(
+      (ingredient) =>
+        !ingredient.rawText?.includes("Hacka") &&
+        !ingredient.rawText?.includes("Koka"),
+    ),
+  );
+});
+
+test("rejects instruction-like lines inside an ingredient section", () => {
+  const html = `
+    <html>
+      <head><title>Inte ett recept</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>Hacka morötterna fint.</p>
+        <p>Lägg allt i en gryta.</p>
+        <p>Koka i 20 minuter.</p>
+        <h2>Gör så här</h2>
+        <p>Servera direkt.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recepten.se/instruktioner"),
+  );
+
+  assert.equal(result, null);
+});
+
+test("accepts supported Swedish recipe domains for embedded recipe data", () => {
+  const html = `
+    <script type="application/json">
+      {"recipe":{"ingredients":["1 st tomat","2 st ägg","3 dl mjölk"]}}
+    </script>
+  `;
+  const domains = [
+    "coop.se",
+    "tasteline.com",
+    "recepten.se",
+    "landleyskok.se",
+    "undertian.com",
+    "zeinas.se",
+    "valio.se",
+  ];
+
+  for (const domain of domains) {
+    const result = extractRecipeFromHtml(
+      html,
+      new URL(`https://${domain}/recept`),
+    );
+    assert.ok(result, domain);
+    assert.equal(result.extractionMethod, "site_adapter", domain);
+  }
 });
 
 const recipeHtml = `
