@@ -7,6 +7,7 @@ import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
 import RecipeDetailModal from "./RecipeDetailModal";
+import PriceSuggestionBeta from "./PriceSuggestionBeta";
 import RecipeImportPreviewModal, {
   RecipeImportPreview,
   RecipeImportSelection,
@@ -1023,6 +1024,8 @@ export default function ListDetailGrocery({
                 </AnimatePresence>
               </div>
             )}
+
+            <PriceSuggestionBeta tasks={list.tasks} />
 
             {/* Inspirational Eco Tip Card */}
             <section className="pt-2">

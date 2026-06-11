@@ -91,6 +91,8 @@ export default function LucideIcon({ name, ...props }: LucideIconProps) {
     case "inventory":
     case "archive":
       return <Lucide.Archive {...props} />;
+    case "receipt":
+      return <Lucide.ReceiptText {...props} />;
     case "architecture":
     case "hammer":
       return <Lucide.Hammer {...props} />;
