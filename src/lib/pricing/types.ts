@@ -1,6 +1,10 @@
 export type PriceMode = "manual_store" | "cheapest_store";
 
-export type GroceryChainId = "city_gross" | (string & {});
+export type GroceryChainId =
+  | "city_gross"
+  | "ica"
+  | "coop"
+  | (string & {});
 
 export interface GroceryChain {
   id: GroceryChainId;

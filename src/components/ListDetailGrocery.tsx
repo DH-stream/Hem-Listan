@@ -870,7 +870,7 @@ export default function ListDetailGrocery({
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
-                      <StoreLogo chainId="city_gross" className="h-5 w-auto" />
+                      <StoreLogo chainId="city_gross" className="h-5 w-auto max-w-14" />
                     </div>
                   )}
                   <p className="font-display text-sm font-bold text-primary">
@@ -972,7 +972,7 @@ export default function ListDetailGrocery({
                                     })} kr
                                     {matchByTaskId[item.id].confidence !== "high" ? " ?" : ""}
                                   </span>
-                                  <StoreLogo chainId="city_gross" className="h-4 w-auto" />
+                                  <StoreLogo chainId="city_gross" className="h-4 w-auto max-w-12" />
                                 </div>
                               )}
 

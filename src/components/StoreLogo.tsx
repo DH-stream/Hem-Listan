@@ -8,6 +8,8 @@ interface StoreLogoProps {
 
 const logoPaths: Partial<Record<GroceryChainId, string>> = {
   city_gross: "/store-logos/citygross.svg",
+  ica: "/store-logos/ica.svg",
+  coop: "/store-logos/coop.svg",
 };
 
 export default function StoreLogo({ chainId, className = "" }: StoreLogoProps) {
@@ -20,7 +22,7 @@ export default function StoreLogo({ chainId, className = "" }: StoreLogoProps) {
       src={src}
       alt=""
       aria-hidden="true"
-      className={className}
+      className={`shrink-0 object-contain ${className}`}
       onError={() => setFailed(true)}
     />
   );
