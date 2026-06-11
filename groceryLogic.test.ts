@@ -26,6 +26,24 @@ test("Arla Standardmjölk merges into existing milk and package-rounds", () => {
   assert.equal(result.updates.length, 1);
 });
 
+test("does not reuse a package-rounded milk display as exact recipe need", () => {
+  const result = plan([task("Mjölk (1 l)", false, "Mejeri")], [ingredient("Mjölk", "2 dl")]);
+  assert.equal(result.tasks.length, 1);
+  assert.equal(result.tasks[0].text, "Mjölk");
+  assert.notEqual(result.tasks[0].text, "Mjölk (2 l)");
+});
+
+test("does not over-round an existing cream shopping suggestion", () => {
+  const result = plan([task("Vispgrädde (5 dl)", false, "Mejeri")], [ingredient("Vispgrädde", "1 dl")]);
+  assert.equal(result.tasks.length, 1);
+  assert.equal(result.tasks[0].text, "Vispgrädde");
+});
+
+test("treats persisted package-rounded text as display rather than recipe-needed quantity", () => {
+  const result = plan([task("Mjölk (2 l)", false, "Mejeri")], [ingredient("Mjölk", "2 dl")]);
+  assert.equal(result.tasks[0].text, "Mjölk");
+});
+
 test("normalizes Arla Smör- & rapsolja", () => {
   assert.equal(normalizeRecipeIngredient(ingredient("Arla Köket® Smör- & rapsolja, till stekning", "3 msk")).name, "smör- & rapsolja");
 });

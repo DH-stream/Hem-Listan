@@ -955,14 +955,30 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
 
     const mealSave = persistOptimisticMeal(listId, newMeal, previousMeal);
     if (await canCloudSave("bulk_add_grocery_details")) {
+      let taskSaveFailed = false;
       for (const update of mergePlan.updates) {
         const updated = await updateTask(update.taskId, update.updates);
-        if (!updated) console.error("cloud_update_task_error", { listId, taskId: update.taskId });
+        if (!updated) {
+          taskSaveFailed = true;
+          console.error("cloud_update_task_error", { listId, taskId: update.taskId });
+          const previousTask = targetList?.tasks.find(task => task.id === update.taskId);
+          if (previousTask) {
+            setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+              ...list,
+              tasks: list.tasks.map(task => task.id === update.taskId ? previousTask : task),
+            }));
+          }
+        }
       }
       for (const task of mergePlan.creates) {
         const dbId = await addTask(listId, task);
         if (!dbId) {
+          taskSaveFailed = true;
           console.error("cloud_add_task_error", { listId, taskId: task.id });
+          setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+            ...list,
+            tasks: list.tasks.filter(existing => existing.id !== task.id),
+          }));
           continue;
         }
         setListsAndSync(current => current.map(list => list.id !== listId ? list : {
@@ -970,6 +986,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
           tasks: list.tasks.map(existing => existing.id === task.id ? { ...existing, id: dbId } : existing),
         }));
       }
+      if (taskSaveFailed) await loadFromSupabase();
     }
     await mealSave;
   };

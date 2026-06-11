@@ -9,7 +9,13 @@ const parseTask = (task: TaskItem): CanonicalGroceryItem => {
   const nameText = task.text.replace(/\s*\([^)]+\)\s*$/, "");
   const name = normalizeGroceryName(nameText);
   const normalized = normalizeRecipeIngredient({ text: name, quantity: quantityText || "", category: task.notes || "" });
-  return { ...normalized, quantity: parseQuantity(quantityText) };
+  const hasPersistedPackageSuggestion = normalized.policy === "package_round" && Boolean(quantityText);
+  return {
+    ...normalized,
+    // Persisted package-rounded text is a shopping suggestion, not the raw recipe need.
+    quantity: hasPersistedPackageSuggestion ? null : parseQuantity(quantityText),
+    policy: hasPersistedPackageSuggestion ? "hide" : normalized.policy,
+  };
 };
 
 const canSafelyMerge = (left: CanonicalGroceryItem, right: CanonicalGroceryItem) => {
@@ -25,6 +31,7 @@ const combine = (existing: CanonicalGroceryItem, incoming: CanonicalGroceryItem)
     ...incoming,
     quantity: quantity ?? existing.quantity ?? incoming.quantity,
     category: incoming.category === "Övrigt" ? existing.category : incoming.category,
+    policy: existing.policy === "hide" && incoming.policy === "package_round" ? "hide" : incoming.policy,
   };
 };
 
