@@ -436,22 +436,36 @@ function extractIngredientSection(html: string): string | null {
   return null;
 }
 
-function extractDomIngredients(html: string): string[] {
+function extractSemanticDomIngredients(html: string): string[] {
   const results: string[] = [];
-  const directPatterns = [
-    /<([a-z\d]+)\b[^>]*itemprop=["'](?:recipeIngredient|ingredients)["'][^>]*>([\s\S]*?)<\/\1>/gi,
-    /<([a-z\d]+)\b[^>]*(?:class|data-testid)=["'][^"']*(?:recipe[-_ ]?ingredient|recipeIngredient|ingredient-list|ingredients-list|ingredient[-_ ]?(?:item|row)|recipe__ingredients|recipeIngredients)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi,
-  ];
+  const pattern =
+    /<([a-z\d]+)\b[^>]*itemprop=["'](?:recipeIngredient|ingredients)["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  let match: RegExpExecArray | null;
 
-  for (const pattern of directPatterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(html))) {
-      const nestedItems = extractElementTexts(match[2], "li");
-      if (nestedItems.length) results.push(...nestedItems);
-      else {
-        const text = cleanText(match[2]);
-        if (text) results.push(text);
-      }
+  while ((match = pattern.exec(html))) {
+    const nestedItems = extractElementTexts(match[2], "li");
+    if (nestedItems.length) results.push(...nestedItems);
+    else {
+      const text = cleanText(match[2]);
+      if (text) results.push(text);
+    }
+  }
+
+  return results;
+}
+
+function extractSupportedDomIngredients(html: string): string[] {
+  const results: string[] = [];
+  const pattern =
+    /<([a-z\d]+)\b[^>]*(?:class|data-testid)=["'][^"']*(?:recipe[-_ ]?ingredient|recipeIngredient|ingredient-list|ingredients-list|ingredient[-_ ]?(?:item|row)|recipe__ingredients|recipeIngredients)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(html))) {
+    const nestedItems = extractElementTexts(match[2], "li");
+    if (nestedItems.length) results.push(...nestedItems);
+    else {
+      const text = cleanText(match[2]);
+      if (text) results.push(text);
     }
   }
 
@@ -753,7 +767,9 @@ function attemptRecipeExtraction(
     attemptMethod: ExtractionAttemptMethod,
     candidate: RecipeCandidate | null,
   ): ExtractedRecipe | null => {
-    attemptedMethods.push(attemptMethod);
+    if (!attemptedMethods.includes(attemptMethod)) {
+      attemptedMethods.push(attemptMethod);
+    }
     if (!candidate) return null;
     const normalized = normalizeCandidate(candidate, sourceUrl);
     if (!normalized) return null;
@@ -778,31 +794,49 @@ function attemptRecipeExtraction(
     if (coopRecipe) return { recipe: coopRecipe, attemptedMethods };
   }
 
-  const domCandidate: RecipeCandidate = {
+  const semanticDomCandidate: RecipeCandidate = {
     recipeName: extractPageTitle(html),
-    ingredients: extractDomIngredients(html),
+    ingredients: extractSemanticDomIngredients(html),
     imageUrl: extractMetaContent(html, "og:image"),
     extractionMethod: isSupportedSite(hostname) ? "site_adapter" : "dom_fallback",
   };
-  const domRecipe = tryFallback("dom_fallback", domCandidate);
-  if (domRecipe) return { recipe: domRecipe, attemptedMethods };
+  const semanticDomRecipe = tryFallback("dom_fallback", semanticDomCandidate);
+  if (semanticDomRecipe) {
+    return { recipe: semanticDomRecipe, attemptedMethods };
+  }
 
-  const textCandidate: RecipeCandidate = {
-    recipeName: extractPageTitle(html),
-    ingredients: extractTextSectionIngredients(html),
-    imageUrl: extractMetaContent(html, "og:image"),
-    extractionMethod: "text_section_fallback",
-  };
-  const textRecipe = tryFallback("text_section_fallback", textCandidate);
-  if (textRecipe) {
-    return {
-      recipe: {
-        ...textRecipe,
-        confidence:
-          textRecipe.confidence === "high" ? "medium" : textRecipe.confidence,
-      },
-      attemptedMethods,
+  if (isSupportedSite(hostname)) {
+    const supportedDomCandidate: RecipeCandidate = {
+      recipeName: extractPageTitle(html),
+      ingredients: extractSupportedDomIngredients(html),
+      imageUrl: extractMetaContent(html, "og:image"),
+      extractionMethod: "site_adapter",
     };
+    const supportedDomRecipe = tryFallback(
+      "site_adapter",
+      supportedDomCandidate,
+    );
+    if (supportedDomRecipe) {
+      return { recipe: supportedDomRecipe, attemptedMethods };
+    }
+
+    const textCandidate: RecipeCandidate = {
+      recipeName: extractPageTitle(html),
+      ingredients: extractTextSectionIngredients(html),
+      imageUrl: extractMetaContent(html, "og:image"),
+      extractionMethod: "text_section_fallback",
+    };
+    const textRecipe = tryFallback("text_section_fallback", textCandidate);
+    if (textRecipe) {
+      return {
+        recipe: {
+          ...textRecipe,
+          confidence:
+            textRecipe.confidence === "high" ? "medium" : textRecipe.confidence,
+        },
+        attemptedMethods,
+      };
+    }
   }
 
   return {

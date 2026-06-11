@@ -56,6 +56,28 @@ test("extracts and normalizes a JSON-LD Recipe with high confidence", () => {
   ]);
 });
 
+test("imports JSON-LD Recipe data from an unsupported domain", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Tomatsoppa",
+        "recipeIngredient": ["4 st tomater", "1 st gul lök", "5 dl buljong"]
+      }
+    </script>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://random.example/tomatsoppa"),
+  );
+
+  assert.ok(result);
+  assert.equal(result.extractionMethod, "json_ld");
+  assert.deepEqual(result.attemptedMethods, ["json_ld"]);
+  assert.equal(result.ingredients.length, 3);
+});
+
 test("flattens JSON-LD HowToSection instructions in order", () => {
   const html = `
     <script type="application/ld+json">
@@ -160,7 +182,7 @@ test("rejects invalid and local URLs", () => {
   assert.throws(() => validateRecipeUrl("file:///tmp/recipe"), /http- eller https/);
 });
 
-test("uses a simple DOM fallback when embedded JSON is unavailable", () => {
+test("imports semantic itemprop ingredients from an unsupported domain", () => {
   const html = `
     <html>
       <head><title>Tomatsallad</title></head>
@@ -227,7 +249,30 @@ test("extracts the Coop parmesanpotatis recipe from encoded component data", () 
   );
 });
 
-test("uses only the conservative Swedish ingredient text section", () => {
+test("does not use Swedish text sections on an unsupported domain", () => {
+  const html = `
+    <html>
+      <head><title>Enkel gryta</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>2 st morötter</p>
+        <p>1 st gul lök</p>
+        <p>4 dl buljong</p>
+        <h2>Gör så här</h2>
+        <p>Koka allt i 20 minuter.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://random.example/enkel-gryta"),
+  );
+
+  assert.equal(result, null);
+});
+
+test("uses the conservative Swedish text section on a supported domain", () => {
   const html = `
     <html>
       <head><title>Enkel gryta</title></head>
@@ -245,7 +290,7 @@ test("uses only the conservative Swedish ingredient text section", () => {
 
   const result = extractRecipeFromHtml(
     html,
-    new URL("https://recept.example/enkel-gryta"),
+    new URL("https://recepten.se/enkel-gryta"),
   );
 
   assert.ok(result);
@@ -262,6 +307,29 @@ test("uses only the conservative Swedish ingredient text section", () => {
         !ingredient.rawText?.includes("Koka"),
     ),
   );
+});
+
+test("rejects instruction-like lines inside an ingredient section", () => {
+  const html = `
+    <html>
+      <head><title>Inte ett recept</title></head>
+      <body>
+        <h2>Ingredienser</h2>
+        <p>Hacka morötterna fint.</p>
+        <p>Lägg allt i en gryta.</p>
+        <p>Koka i 20 minuter.</p>
+        <h2>Gör så här</h2>
+        <p>Servera direkt.</p>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recepten.se/instruktioner"),
+  );
+
+  assert.equal(result, null);
 });
 
 test("accepts supported Swedish recipe domains for embedded recipe data", () => {
@@ -431,11 +499,7 @@ test("returns retry metadata for a page with no recipe", async (t) => {
       assert.ok(error instanceof RecipeImportError);
       assert.equal(error.code, "no_recipe_found");
       assert.equal(error.canRetryWithAi, true);
-      assert.deepEqual(error.attemptedMethods, [
-        "json_ld",
-        "dom_fallback",
-        "text_section_fallback",
-      ]);
+      assert.deepEqual(error.attemptedMethods, ["json_ld", "dom_fallback"]);
       return true;
     },
   );
