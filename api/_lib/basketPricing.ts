@@ -16,11 +16,20 @@ export interface PricingBasketRequest {
 }
 
 interface BasketPricingOptions {
+  debug?: boolean;
   searchProducts?: (
     query: string,
     storeId?: string,
   ) => Promise<ProductPrice[]>;
 }
+
+const pricingApiLog = (
+  enabled: boolean,
+  message: string,
+  details?: unknown,
+) => {
+  if (enabled) console.log(`[pricing-api] ${message}`, details ?? "");
+};
 
 export const validateBasketPricingRequest = (
   body: unknown,
@@ -81,7 +90,11 @@ export async function calculateCityGrossBasket(
   request: PricingBasketRequest,
   options: BasketPricingOptions = {},
 ): Promise<BasketPriceEstimate> {
-  const searchProducts = options.searchProducts ?? searchCityGrossProducts;
+  const debug = options.debug ?? false;
+  const searchProducts =
+    options.searchProducts ??
+    ((query: string, storeId?: string) =>
+      searchCityGrossProducts(query, storeId, { debug }));
   const queryByItemId = new Map<string, string>();
   const searchQueryByNormalizedQuery = new Map<string, string>();
 
@@ -96,6 +109,10 @@ export async function calculateCityGrossBasket(
   });
 
   const queries = Array.from(searchQueryByNormalizedQuery.entries());
+  pricingApiLog(debug, "normalized queries", {
+    queryCount: queries.length,
+    queries,
+  });
   const productEntries: Array<readonly [string, ProductPrice[]]> = [];
   let nextQueryIndex = 0;
 
@@ -103,10 +120,17 @@ export async function calculateCityGrossBasket(
     while (nextQueryIndex < queries.length) {
       const [normalizedQuery, searchQuery] = queries[nextQueryIndex];
       nextQueryIndex += 1;
-      productEntries.push([
+      pricingApiLog(debug, "search query", {
         normalizedQuery,
-        await searchProducts(searchQuery, request.storeId),
-      ] as const);
+        searchQuery,
+        storeId: request.storeId,
+      });
+      const products = await searchProducts(searchQuery, request.storeId);
+      pricingApiLog(debug, "search result", {
+        normalizedQuery,
+        productCount: products.length,
+      });
+      productEntries.push([normalizedQuery, products] as const);
     }
   };
 
@@ -122,7 +146,7 @@ export async function calculateCityGrossBasket(
     ),
   );
 
-  return {
+  const result = {
     matches,
     approximateTotalSek:
       Math.round(
@@ -132,4 +156,12 @@ export async function calculateCityGrossBasket(
         ) * 100,
       ) / 100,
   };
+
+  pricingApiLog(debug, "matched basket", {
+    matchCount: result.matches.length,
+    pricedCount: result.matches.filter((match) => match.product).length,
+    approximateTotalSek: result.approximateTotalSek,
+    matches: result.matches,
+  });
+  return result;
 }
