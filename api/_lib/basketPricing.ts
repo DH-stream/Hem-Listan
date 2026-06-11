@@ -1,5 +1,11 @@
-import { matchListItem, normalizePriceQuery } from "../../src/lib/pricing/matching";
-import type { BasketPriceEstimate, ProductPrice } from "../../src/lib/pricing/types";
+import {
+  matchListItem,
+  normalizePriceQuery,
+} from "../../src/lib/pricing/matching";
+import type {
+  BasketPriceEstimate,
+  ProductPrice,
+} from "../../src/lib/pricing/types";
 import { searchCityGrossProducts } from "./cityGrossPricing";
 
 export const MAX_BASKET_ITEMS = 100;
@@ -17,10 +23,7 @@ export interface PricingBasketRequest {
 
 interface BasketPricingOptions {
   debug?: boolean;
-  searchProducts?: (
-    query: string,
-    storeId?: string,
-  ) => Promise<ProductPrice[]>;
+  searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
 }
 
 const pricingApiLog = (
@@ -33,7 +36,9 @@ const pricingApiLog = (
 
 export const validateBasketPricingRequest = (
   body: unknown,
-): { ok: true; request: PricingBasketRequest } | { ok: false; error: string } => {
+):
+  | { ok: true; request: PricingBasketRequest }
+  | { ok: false; error: string } => {
   if (!body || typeof body !== "object") {
     return { ok: false, error: "Request body is required." };
   }
@@ -95,13 +100,15 @@ export async function calculateCityGrossBasket(
     options.searchProducts ??
     ((query: string, storeId?: string) =>
       searchCityGrossProducts(query, storeId, { debug }));
+  pricingApiLog(debug, "basket input", { itemCount: request.items.length });
   const queryByItemId = new Map<string, string>();
   const searchQueryByNormalizedQuery = new Map<string, string>();
 
   request.items.forEach((item) => {
     const normalizedQuery = normalizePriceQuery(item.name);
     const searchQuery = item.name.normalize("NFKC").replace(/\s+/g, " ").trim();
-    const currentSearchQuery = searchQueryByNormalizedQuery.get(normalizedQuery);
+    const currentSearchQuery =
+      searchQueryByNormalizedQuery.get(normalizedQuery);
     queryByItemId.set(item.id, normalizedQuery);
     if (!currentSearchQuery || searchQuery.length < currentSearchQuery.length) {
       searchQueryByNormalizedQuery.set(normalizedQuery, searchQuery);
@@ -111,7 +118,11 @@ export async function calculateCityGrossBasket(
   const queries = Array.from(searchQueryByNormalizedQuery.entries());
   pricingApiLog(debug, "normalized queries", {
     queryCount: queries.length,
-    queries,
+    queries: queries.slice(0, 10).map(([normalizedQuery, searchQuery]) => ({
+      normalizedQuery,
+      searchQuery,
+    })),
+    ...(queries.length > 10 ? { omittedCount: queries.length - 10 } : {}),
   });
   const productEntries: Array<readonly [string, ProductPrice[]]> = [];
   let nextQueryIndex = 0;
@@ -120,7 +131,7 @@ export async function calculateCityGrossBasket(
     while (nextQueryIndex < queries.length) {
       const [normalizedQuery, searchQuery] = queries[nextQueryIndex];
       nextQueryIndex += 1;
-      pricingApiLog(debug, "search query", {
+      pricingApiLog(debug, "search start", {
         normalizedQuery,
         searchQuery,
         storeId: request.storeId,
@@ -157,11 +168,13 @@ export async function calculateCityGrossBasket(
       ) / 100,
   };
 
-  pricingApiLog(debug, "matched basket", {
+  const pricedCount = result.matches.filter((match) => match.product).length;
+  pricingApiLog(debug, "match summary", {
+    inputItemCount: request.items.length,
     matchCount: result.matches.length,
-    pricedCount: result.matches.filter((match) => match.product).length,
+    pricedCount,
+    noProductCount: result.matches.length - pricedCount,
     approximateTotalSek: result.approximateTotalSek,
-    matches: result.matches,
   });
   return result;
 }

@@ -45,6 +45,9 @@ export interface ListItemPriceMatch {
 export interface BasketPriceEstimate {
   matches: ListItemPriceMatch[];
   approximateTotalSek: number;
+  error?: string;
+  debugMessage?: string;
+  debugCode?: string;
 }
 
 export interface BasketPriceResult {

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
-import type {
-  BasketPriceEstimate,
-  ListItemPriceMatch,
-} from "./types";
+import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
@@ -35,6 +32,32 @@ const pricingLog = (message: string, details?: unknown) => {
 const EMPTY_ESTIMATE: BasketPriceEstimate = {
   matches: [],
   approximateTotalSek: 0,
+};
+
+export const logBasketPricingResult = (result: BasketPriceEstimate) => {
+  const rawResult = result;
+  pricingLog("raw result", rawResult);
+  pricingLog("result", {
+    matchCount: result.matches.length,
+    pricedCount: result.matches.filter((match) => match.product).length,
+    approximateTotalSek: result.approximateTotalSek,
+    error: result.error,
+    debugCode: result.debugCode,
+    debugMessage: result.debugMessage,
+    matches: result.matches,
+    rawResult,
+  });
+  pricingLog("result.error", result.error);
+  pricingLog("result.debugMessage", result.debugMessage);
+  pricingLog("result.debugCode", result.debugCode);
+  if (result.error) {
+    pricingLog("unavailable", {
+      error: result.error,
+      debugCode: result.debugCode,
+      debugMessage: result.debugMessage,
+      rawResult,
+    });
+  }
 };
 
 export interface BasketPriceEstimateView {
@@ -112,16 +135,24 @@ export const useBasketPriceEstimate = (
       })
         .then(async (response) => {
           pricingLog("response", { status: response.status, ok: response.ok });
-          if (!response.ok) throw new Error("Basket pricing request failed");
+          if (!response.ok) {
+            const responseText = await response.text();
+            let body: unknown = responseText;
+            try {
+              body = JSON.parse(responseText);
+            } catch {
+              // Keep the original response text when the error body is not JSON.
+            }
+            pricingLog("response error body", {
+              status: response.status,
+              body,
+            });
+            throw new Error("Basket pricing request failed");
+          }
           return (await response.json()) as BasketPriceEstimate;
         })
         .then((result) => {
-          pricingLog("result", {
-            matchCount: result.matches.length,
-            pricedCount: result.matches.filter((match) => match.product).length,
-            approximateTotalSek: result.approximateTotalSek,
-            matches: result.matches,
-          });
+          logBasketPricingResult(result);
           setEstimate(result);
         })
         .catch((error: unknown) => {
