@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import basketPricingHandler, {
   createBasketPricingHandler,
@@ -51,6 +52,16 @@ const milkProduct: ProductPrice = {
   unitLabel: "1 l",
   searchTerms: ["mjölk", "mellanmjölk"],
 };
+
+test("basket pricing runtime stays inside the API bundle", () => {
+  const source = readFileSync(
+    new URL("./api/_lib/basketPricing.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /from "\.\/pricingMatching\.js"/);
+  assert.doesNotMatch(source, /from "\.\.\/\.\.\/src\/lib\/pricing\/matching"/);
+});
 
 test("basket pricing endpoint accepts an object body", async () => {
   const response = createResponse();

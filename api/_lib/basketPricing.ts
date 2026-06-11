@@ -1,7 +1,7 @@
 import {
   matchListItem,
   normalizePriceQuery,
-} from "../../src/lib/pricing/matching";
+} from "./pricingMatching.js";
 import type {
   BasketPriceEstimate,
   ProductPrice,
