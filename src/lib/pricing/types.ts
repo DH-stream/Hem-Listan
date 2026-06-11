@@ -38,6 +38,11 @@ export interface ListItemPriceMatch {
   confidence: PriceMatchConfidence;
 }
 
+export interface BasketPriceEstimate {
+  matches: ListItemPriceMatch[];
+  approximateTotalSek: number;
+}
+
 export interface BasketPriceResult {
   store: Store;
   matches: ListItemPriceMatch[];

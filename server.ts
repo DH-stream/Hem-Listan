@@ -7,9 +7,9 @@ import {
   type RecipeImportErrorCode,
 } from "./api/_lib/recipeImporter";
 import {
-  searchCityGrossProducts,
-  validatePricingQuery,
-} from "./api/_lib/cityGrossPricing";
+  calculateCityGrossBasket,
+  validateBasketPricingRequest,
+} from "./api/_lib/basketPricing";
 
 const app = express();
 const PORT = 3000;
@@ -23,18 +23,15 @@ const importErrorStatuses: Partial<Record<RecipeImportErrorCode, number>> = {
   no_recipe_found: 422,
 };
 
-app.get(
-  "/api/pricing/citygross/search",
+app.post(
+  "/api/pricing/basket",
   async (req: express.Request, res: express.Response) => {
-    const validation = validatePricingQuery(req.query.q);
-    if (!validation.ok) {
+    const validation = validateBasketPricingRequest(req.body);
+    if (validation.ok === false) {
       return res.status(400).json({ error: validation.error });
     }
 
-    const storeId = typeof req.query.storeId === "string" ? req.query.storeId : undefined;
-    const products = await searchCityGrossProducts(validation.query, storeId);
-    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
-    return res.json(products);
+    return res.json(await calculateCityGrossBasket(validation.request));
   },
 );
 

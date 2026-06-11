@@ -4,6 +4,7 @@ const CITY_GROSS_ORIGIN = "https://www.citygross.se";
 const CITY_GROSS_SEARCH_URL = `${CITY_GROSS_ORIGIN}/api/v1/Loop54/search`;
 const CITY_GROSS_IMAGE_BASE_URL = `${CITY_GROSS_ORIGIN}/images/products`;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const NEGATIVE_CACHE_TTL_MS = 20 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 7_000;
 export const MAX_PRICING_QUERY_LENGTH = 80;
 
@@ -161,8 +162,9 @@ export async function searchCityGrossProducts(
   const normalizedStoreId = storeId?.trim().slice(0, 40) || "public";
   const cacheKey = `city_gross:${normalizedStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
+  const currentTime = now();
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > now()) return cached.products;
+  if (cached && cached.expiresAt > currentTime) return cached.products;
 
   const searchUrl = new URL(CITY_GROSS_SEARCH_URL);
   searchUrl.searchParams.set("SearchQuery", validation.query);
@@ -182,22 +184,30 @@ export async function searchCityGrossProducts(
       },
       signal: controller.signal,
     });
-    if (!response.ok) return [];
+    if (!response.ok) throw new Error(`City Gross returned ${response.status}`);
     const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) return [];
+    if (!contentType.includes("application/json")) {
+      throw new Error("City Gross returned a non-JSON response");
+    }
 
-    const fetchedAt = new Date(now()).toISOString();
+    const fetchedAt = new Date(currentTime).toISOString();
     const products = getProducts(await response.json())
       .map((product) => normalizeCityGrossProduct(product, storeId, fetchedAt))
       .filter((product): product is ProductPrice => product !== null);
 
     cache.set(cacheKey, {
-      expiresAt: now() + CACHE_TTL_MS,
+      expiresAt:
+        currentTime + (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
       products,
     });
     return products;
   } catch {
-    return [];
+    const fallbackProducts = cached?.products ?? [];
+    cache.set(cacheKey, {
+      expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
+      products: fallbackProducts,
+    });
+    return fallbackProducts;
   } finally {
     clearTimeout(timeoutId);
   }

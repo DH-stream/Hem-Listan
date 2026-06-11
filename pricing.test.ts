@@ -3,7 +3,7 @@ import test from "node:test";
 import { cityGrossPriceAdapter, CITY_GROSS_DEMO_STORE } from "./src/lib/pricing/cityGrossAdapter";
 import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
-import { buildBasketPriceEstimate } from "./src/lib/pricing/useBasketPriceEstimate";
+import { selectActiveBasketEstimate } from "./src/lib/pricing/useBasketPriceEstimate";
 
 const products: ProductPrice[] = [
   {
@@ -52,12 +52,17 @@ test("calculates a demo basket and keeps missing items visible", async () => {
 
 
 test("basket estimate only includes unchecked tasks", () => {
-  const result = buildBasketPriceEstimate(
+  const activeMatch = matchListItem({ id: "active", name: "kaffe" }, products);
+  const checkedMatch = matchListItem({ id: "checked", name: "kaffe" }, products);
+  const result = selectActiveBasketEstimate(
     [
       { id: "active", text: "kaffe", checked: false },
       { id: "checked", text: "kaffe", checked: true },
     ],
-    new Map([["kaffe", products]]),
+    {
+      matches: [activeMatch, checkedMatch],
+      approximateTotalSek: 109.9,
+    },
   );
 
   assert.equal(result.approximateTotalSek, 54.95);

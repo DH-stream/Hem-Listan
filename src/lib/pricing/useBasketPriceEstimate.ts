@@ -1,74 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
-import { matchListItem, normalizePriceQuery } from "./matching";
-import type { ListItemPriceMatch, ProductPrice } from "./types";
+import type {
+  BasketPriceEstimate,
+  ListItemPriceMatch,
+} from "./types";
 
-const SEARCH_DEBOUNCE_MS = 500;
-const MAX_CONCURRENT_REQUESTS = 4;
-const productRequestCache = new Map<string, Promise<ProductPrice[]>>();
-
-const fetchProducts = (query: string): Promise<ProductPrice[]> => {
-  const cached = productRequestCache.get(query);
-  if (cached) return cached;
-
-  const request = fetch(`/api/pricing/citygross/search?q=${encodeURIComponent(query)}`)
-    .then(async (response) => {
-      if (!response.ok) throw new Error("Pricing request failed");
-      const payload: unknown = await response.json();
-      return Array.isArray(payload) ? (payload as ProductPrice[]) : [];
-    })
-    .catch(() => {
-      productRequestCache.delete(query);
-      return [];
-    });
-  productRequestCache.set(query, request);
-  return request;
+const BASKET_DEBOUNCE_MS = 3_000;
+const EMPTY_ESTIMATE: BasketPriceEstimate = {
+  matches: [],
+  approximateTotalSek: 0,
 };
 
-const fetchWithConcurrency = async (
-  queries: string[],
-): Promise<Array<[string, ProductPrice[]]>> => {
-  const results: Array<[string, ProductPrice[]]> = [];
-  let nextIndex = 0;
-
-  const worker = async () => {
-    while (nextIndex < queries.length) {
-      const query = queries[nextIndex];
-      nextIndex += 1;
-      results.push([query, await fetchProducts(query)]);
-    }
-  };
-
-  await Promise.all(
-    Array.from(
-      { length: Math.min(MAX_CONCURRENT_REQUESTS, queries.length) },
-      () => worker(),
-    ),
-  );
-  return results;
-};
-
-export interface BasketPriceEstimate {
+export interface BasketPriceEstimateView {
   matchByTaskId: Record<string, ListItemPriceMatch>;
   approximateTotalSek: number;
 }
 
-export const buildBasketPriceEstimate = (
+export const selectActiveBasketEstimate = (
   tasks: TaskItem[],
-  productsByQuery: ReadonlyMap<string, ProductPrice[]>,
-): BasketPriceEstimate => {
+  estimate: BasketPriceEstimate,
+): BasketPriceEstimateView => {
+  const activeTaskIds = new Set(
+    tasks.filter((task) => !task.checked).map((task) => task.id),
+  );
   const matchByTaskId: Record<string, ListItemPriceMatch> = {};
   let approximateTotalSek = 0;
 
-  for (const task of tasks) {
-    if (task.checked) continue;
-    const query = normalizePriceQuery(task.text);
-    const products = productsByQuery.get(query) ?? [];
-    const match = matchListItem({ id: task.id, name: task.text }, products);
-    if (!match.product) continue;
-    matchByTaskId[task.id] = match;
+  estimate.matches.forEach((match) => {
+    if (!activeTaskIds.has(match.listItemId) || !match.product) return;
+    matchByTaskId[match.listItemId] = match;
     approximateTotalSek += match.product.priceSek;
-  }
+  });
 
   return {
     matchByTaskId,
@@ -76,46 +38,54 @@ export const buildBasketPriceEstimate = (
   };
 };
 
-export const useBasketPriceEstimate = (tasks: TaskItem[]): BasketPriceEstimate => {
-  const [productsByQuery, setProductsByQuery] = useState<Map<string, ProductPrice[]>>(
-    () => new Map(),
-  );
-  const activeQueries = useMemo(
+export const useBasketPriceEstimate = (
+  tasks: TaskItem[],
+): BasketPriceEstimateView => {
+  const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
+  const activeItems = useMemo(
     () =>
-      Array.from(
-        new Set(
-          tasks
-            .filter((task) => !task.checked)
-            .map((task) => normalizePriceQuery(task.text))
-            .filter(Boolean),
-        ),
-      ),
+      tasks
+        .filter((task) => !task.checked)
+        .map((task) => ({ id: task.id, name: task.text })),
     [tasks],
   );
-  const querySignature = activeQueries.join("|");
+  const itemSignature = activeItems
+    .map((item) => `${item.id}:${item.name}`)
+    .join("|");
 
   useEffect(() => {
-    if (activeQueries.length === 0) return;
-    let cancelled = false;
+    setEstimate(EMPTY_ESTIMATE);
+    if (activeItems.length === 0) return;
+
+    const controller = new AbortController();
     const timeoutId = window.setTimeout(() => {
-      void fetchWithConcurrency(activeQueries).then((entries) => {
-        if (cancelled) return;
-        setProductsByQuery((current) => {
-          const next = new Map(current);
-          entries.forEach(([query, products]) => next.set(query, products));
-          return next;
+      void fetch("/api/pricing/basket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chain: "city_gross",
+          items: activeItems,
+        }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Basket pricing request failed");
+          return (await response.json()) as BasketPriceEstimate;
+        })
+        .then((result) => setEstimate(result))
+        .catch(() => {
+          if (!controller.signal.aborted) setEstimate(EMPTY_ESTIMATE);
         });
-      });
-    }, SEARCH_DEBOUNCE_MS);
+    }, BASKET_DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
       window.clearTimeout(timeoutId);
+      controller.abort();
     };
-  }, [querySignature]);
+  }, [itemSignature]);
 
   return useMemo(
-    () => buildBasketPriceEstimate(tasks, productsByQuery),
-    [tasks, productsByQuery],
+    () => selectActiveBasketEstimate(tasks, estimate),
+    [tasks, estimate],
   );
 };

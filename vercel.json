@@ -3,7 +3,7 @@
     "api/import-recipe.ts": {
       "includeFiles": "api/_lib/**"
     },
-    "api/pricing/citygross/search.ts": {
+    "api/pricing/basket.ts": {
       "includeFiles": "api/_lib/**"
     }
   },
