@@ -1,4 +1,5 @@
 import {
+  cleanCityGrossSearchQuery,
   matchListItem,
   normalizePriceQuery,
 } from "./pricingMatching.js";
@@ -105,8 +106,8 @@ export async function calculateCityGrossBasket(
   const searchQueryByNormalizedQuery = new Map<string, string>();
 
   request.items.forEach((item) => {
-    const normalizedQuery = normalizePriceQuery(item.name);
-    const searchQuery = item.name.normalize("NFKC").replace(/\s+/g, " ").trim();
+    const searchQuery = cleanCityGrossSearchQuery(item.name);
+    const normalizedQuery = normalizePriceQuery(searchQuery);
     const currentSearchQuery =
       searchQueryByNormalizedQuery.get(normalizedQuery);
     queryByItemId.set(item.id, normalizedQuery);
