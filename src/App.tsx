@@ -40,6 +40,7 @@ import {
   acceptListInvite,
 } from "./lib/supabase";
 import { mergePendingMeals, type PendingMealSave } from "./lib/optimisticMeals";
+import { buildGroceryMergePlan } from "./lib/grocery/merge";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -933,16 +934,13 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       ...recipe,
       importedAt: new Date().toISOString(),
     };
-    const newTasks = ingredients.map((ingredient, index) => ({
-      id: `task-imported-${importId}-${index}`,
-      text: ingredient.quantity
-        ? `${ingredient.text} (${ingredient.quantity})`
-        : ingredient.text,
-      checked: false,
-      notes: ingredient.category,
-    }));
-    const previousMeal = lists
-      .find(list => list.id === listId)
+    const targetList = lists.find(list => list.id === listId);
+    const mergePlan = buildGroceryMergePlan(
+      targetList?.tasks ?? [],
+      ingredients,
+      index => `task-imported-${importId}-${index}`,
+    );
+    const previousMeal = targetList
       ?.meals?.find(meal => meal.day === day && meal.type === mealType);
 
     pendingMealSavesRef.current.set(clientId, { listId, meal: newMeal });
@@ -952,15 +950,43 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       const slotIndex = meals.findIndex(meal => meal.day === day && meal.type === mealType);
       if (slotIndex === -1) meals.push(newMeal);
       else meals[slotIndex] = newMeal;
-      return { ...list, meals, tasks: [...newTasks, ...list.tasks] };
+      return { ...list, meals, tasks: mergePlan.tasks };
     }));
 
     const mealSave = persistOptimisticMeal(listId, newMeal, previousMeal);
     if (await canCloudSave("bulk_add_grocery_details")) {
-      for (const task of newTasks) {
-        const dbId = await addTask(listId, task);
-        if (!dbId) console.error("cloud_add_task_error", { listId, taskId: task.id });
+      let taskSaveFailed = false;
+      for (const update of mergePlan.updates) {
+        const updated = await updateTask(update.taskId, update.updates);
+        if (!updated) {
+          taskSaveFailed = true;
+          console.error("cloud_update_task_error", { listId, taskId: update.taskId });
+          const previousTask = targetList?.tasks.find(task => task.id === update.taskId);
+          if (previousTask) {
+            setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+              ...list,
+              tasks: list.tasks.map(task => task.id === update.taskId ? previousTask : task),
+            }));
+          }
+        }
       }
+      for (const task of mergePlan.creates) {
+        const dbId = await addTask(listId, task);
+        if (!dbId) {
+          taskSaveFailed = true;
+          console.error("cloud_add_task_error", { listId, taskId: task.id });
+          setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+            ...list,
+            tasks: list.tasks.filter(existing => existing.id !== task.id),
+          }));
+          continue;
+        }
+        setListsAndSync(current => current.map(list => list.id !== listId ? list : {
+          ...list,
+          tasks: list.tasks.map(existing => existing.id === task.id ? { ...existing, id: dbId } : existing),
+        }));
+      }
+      if (taskSaveFailed) await loadFromSupabase();
     }
     await mealSave;
   };
