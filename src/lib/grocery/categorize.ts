@@ -18,7 +18,7 @@ export const categorizeGroceryItem = (name: string, raw = name): GroceryCategory
 
   if (includesAny(name, [
     "potatis", "morötter", "gul lök", "röd lök", "schalottenlök", "vitlök", "paprika",
-    "babyspenat", "citron", "lime",
+    "babyspenat", "grönkål", "citron", "lime",
   ])) return "Frukt & Grönt";
   if (/\b(färsk|färska)\b/.test(value) && includesAny(name, ["basilika", "oregano", "persilja", "örter"])) {
     return "Frukt & Grönt";

@@ -41,6 +41,8 @@ const canonicalize = (input: string): string => {
     if (/\b(torkad|torkade)\b/.test(value) || /basilika\s*-\s*torkad/.test(value)) return "torkad basilika";
   }
   if (/\boregano\b/.test(value) && /\btorkad/.test(value)) return "torkad oregano";
+  if (/\bcrème fraiche\b/.test(value)) return "crème fraiche";
+  if (/\bfinriven parmesan\b/.test(value)) return "parmesan";
   if (/\briven parmesan\b/.test(value)) return "riven parmesan";
   if (/\bparmesan\b/.test(value)) return "parmesan";
   if (/\blaxfilé\b/.test(value)) return "laxfilé";
@@ -49,9 +51,11 @@ const canonicalize = (input: string): string => {
   if (/\bschalottenlök\b/.test(value)) return "schalottenlök";
   if (/\bröd lök\b|\brödlök\b/.test(value)) return "röd lök";
   if (/\bgul lök\b/.test(value)) return "gul lök";
+  if (/\b(?:kokt|kokta) potatis(?:ar)?\b/.test(value)) return "potatis";
   if (/\bpotatis\b/.test(value)) return "potatis";
   if (/\bkycklingfilé\b/.test(value)) return "kycklingfilé";
   if (/\bbabyspenat\b/.test(value)) return "babyspenat";
+  if (/\bgrönkål\b/.test(value)) return "grönkål";
   if (/\bägg\b/.test(value)) return "ägg";
   if (/\bvetemjöl\b/.test(value)) return "vetemjöl";
   if (/\bolivolja\b/.test(value)) return "olivolja";
@@ -63,6 +67,7 @@ const HIDE = new Set([
   "salt", "svartpeppar", "honung", "vetemjöl", "socker", "ris", "pasta", "röda linser",
   "buljong", "fond", "olivolja", "vinäger", "torkad basilika", "torkad oregano", "vitlök",
   "smör- & rapsolja", "tomatpuré", "soltorkade tomater", "strimlade soltorkade tomater",
+  "parmesan", "crème fraiche",
 ]);
 const PACKAGE_ROUND = new Set(["mjölk", "vispgrädde", "grädde", "ägg"]);
 

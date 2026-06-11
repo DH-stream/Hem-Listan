@@ -156,3 +156,20 @@ test("tomatpuré hides small recipe quantities", () => {
   assert.equal(plan([], [ingredient("Tomatpuré", "15 ml")]).tasks[0].text, "Tomatpuré");
   assert.equal(normalizeRecipeIngredient(ingredient("Tomatpuré", "15 ml")).category, "Skafferi");
 });
+
+test("cleans up Coop parmesanpotatis grocery items", () => {
+  const cases = [
+    ["ca 8 kokta potatisar", "Potatis", "Frukt & Grönt"],
+    ["30 g grönkål", "Grönkål (30 g)", "Frukt & Grönt"],
+    ["1 dl finriven parmesan", "Parmesan", "Mejeri"],
+    ["1 dl crème fraiche", "Crème fraiche", "Mejeri"],
+  ] as const;
+
+  for (const [text, expectedText, expectedCategory] of cases) {
+    const normalized = normalizeRecipeIngredient(ingredient(text));
+    const result = plan([], [ingredient(text)]).tasks[0];
+    assert.equal(result.text, expectedText);
+    assert.equal(normalized.category, expectedCategory);
+    assert.equal(result.notes, expectedCategory);
+  }
+});
