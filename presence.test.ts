@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getPresenceInitials, getVisiblePresence, mapPresenceState, type PresentUser } from "./src/lib/presence";
+import { getPresenceInitials, getVisiblePresence, mapPresenceState, shouldShowPresence, type PresentUser } from "./src/lib/presence";
 
 test("mapPresenceState deduplicates users and keeps the latest meta", () => {
   const users = mapPresenceState({
@@ -38,4 +38,19 @@ test("getVisiblePresence limits avatars and reports overflow", () => {
   const result = getVisiblePresence(users);
   assert.equal(result.visibleUsers.length, 3);
   assert.equal(result.overflowCount, 2);
+});
+
+test("shouldShowPresence only reveals presence for multiple unique users", () => {
+  const user = (userId: string): PresentUser => ({
+    userId,
+    displayName: `User ${userId}`,
+    avatarUrl: null,
+    avatarPath: null,
+    listId: "list-1",
+    lastSeenAt: "2026-06-12T10:00:00.000Z",
+  });
+
+  assert.equal(shouldShowPresence([]), false);
+  assert.equal(shouldShowPresence([user("1")]), false);
+  assert.equal(shouldShowPresence([user("1"), user("2")]), true);
 });

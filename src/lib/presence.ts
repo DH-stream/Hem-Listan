@@ -78,6 +78,8 @@ export const mapPresenceState = (
   });
 };
 
+export const shouldShowPresence = (users: PresentUser[]): boolean => users.length > 1;
+
 export const getVisiblePresence = (users: PresentUser[], maxVisible = 3) => ({
   visibleUsers: users.slice(0, maxVisible),
   overflowCount: Math.max(0, users.length - maxVisible),

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getPresenceInitials, getVisiblePresence, type PresentUser } from "../lib/presence";
+import { getPresenceInitials, getVisiblePresence, shouldShowPresence, type PresentUser } from "../lib/presence";
 
 interface PresenceAvatarProps {
   user: PresentUser;
@@ -33,7 +33,7 @@ function PresenceAvatar({ user }: PresenceAvatarProps) {
 }
 
 export default function PresenceAvatarStack({ users }: { users: PresentUser[] }) {
-  if (users.length === 0) return null;
+  if (!shouldShowPresence(users)) return null;
   const { visibleUsers, overflowCount } = getVisiblePresence(users);
 
   return (
