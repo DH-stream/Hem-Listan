@@ -552,6 +552,9 @@ test("normalizes public City Gross JSON without exposing the raw response", asyn
                   id: "egg-1",
                   name: "Ägg 12-pack",
                   brand: "Garant",
+                  superCategory: "Mejeri, ost & ägg",
+                  category: "Ägg",
+                  bfCategory: "Hönsägg",
                   descriptiveSize: "12P",
                   url: "/matvaror/agg-p1",
                   images: [{ url: "egg.jpeg" }],
@@ -580,6 +583,12 @@ test("normalizes public City Gross JSON without exposing the raw response", asyn
   assert.equal(products[0].priceSek, 34.5);
   assert.equal(products[0].comparePrice, "2,88 kr/st");
   assert.equal(products[0].chainId, "city_gross");
+  assert.equal(products[0].category, "Mejeri, ost & ägg");
+  assert.deepEqual(products[0].categoryPath, [
+    "Mejeri, ost & ägg",
+    "Ägg",
+    "Hönsägg",
+  ]);
 });
 
 const pricedProduct = (

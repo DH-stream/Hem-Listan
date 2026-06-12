@@ -29,6 +29,8 @@ export interface ProductPrice {
   unitLabel: string;
   searchTerms: string[];
   comparePrice?: string;
+  category?: string;
+  categoryPath?: string[];
   productUrl?: string;
   imageUrl?: string;
   isCampaign?: boolean;

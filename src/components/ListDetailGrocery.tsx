@@ -16,6 +16,10 @@ import RecipeImportPreviewModal, {
 import { getRecipeUrlFeedback, touchSavedRecipeLastUsed, upsertSavedRecipeFromImport } from "../lib/supabase";
 import { useBasketPriceEstimate } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
+import {
+  categorizeGroceryItem,
+  inferCategoryFromCityGrossProduct,
+} from "../lib/grocery/categorize";
 
 interface ListDetailGroceryProps {
   list: List;
@@ -475,8 +479,14 @@ export default function ListDetailGrocery({
     const activeTasks = list.tasks.filter((t) => !t.checked);
 
     activeTasks.forEach((t) => {
-      // Look up inside notes (category fallback)
-      const cat = t.notes || "Övrigt";
+      const matchedProduct = matchByTaskId[t.id]?.product;
+      const cat =
+        (matchedProduct
+          ? inferCategoryFromCityGrossProduct(matchedProduct)
+          : null) ??
+        (t.notes && t.notes !== "Övrigt"
+          ? t.notes
+          : categorizeGroceryItem(t.text));
       if (grouped[cat]) {
         grouped[cat].push(t);
       } else {
