@@ -708,3 +708,199 @@ test("weighted meat uses the requested purchase weight", async () => {
   assert.equal(result.matches[0].estimatedCheckoutPriceSek, 29.81);
   assert.equal(result.approximateTotalSek, 29.81);
 });
+
+test("receipt-informed egg ranking prefers 10P or 15P over 24P", () => {
+  const products = [
+    pricedProduct({
+      id: "eggs-24",
+      productName: "Ägg 24P",
+      priceSek: 59.95,
+      unitLabel: "24 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-10",
+      productName: "Utehönsägg 10P",
+      priceSek: 32.65,
+      unitLabel: "10 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-15",
+      productName: "Ägg 15P Inne Medium",
+      priceSek: 42.95,
+      unitLabel: "15 st",
+      searchTerms: ["ägg"],
+    }),
+  ];
+
+  assert.ok(
+    ["eggs-10", "eggs-15"].includes(
+      matchListItem({ id: "eggs", name: "Ägg" }, products).product?.id ?? "",
+    ),
+  );
+});
+
+test("receipt-informed dairy ranking uses light and lactose-free as tiebreakers", () => {
+  const cremeFraiche = [
+    pricedProduct({
+      id: "regular-cf",
+      productName: "Crème Fraiche 34%",
+      priceSek: 24.95,
+      unitLabel: "2 dl",
+      searchTerms: ["crème fraiche"],
+    }),
+    pricedProduct({
+      id: "light-lf-cf",
+      productName: "L/F Lätt Cr Fraiche",
+      priceSek: 25.95,
+      unitLabel: "2 dl",
+      searchTerms: ["crème fraiche"],
+    }),
+  ];
+  const milk = [
+    pricedProduct({
+      id: "uht-milk",
+      productName: "Mjölk Lång Hållbarhet",
+      priceSek: 22.95,
+      unitLabel: "1 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "light-lf-milk",
+      productName: "Lättmjölk 1,5% LF",
+      priceSek: 19.95,
+      unitLabel: "1,5 l",
+      searchTerms: ["mjölk"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "cf", name: "Crème fraiche" }, cremeFraiche).product?.id,
+    "light-lf-cf",
+  );
+  assert.equal(
+    matchListItem({ id: "milk", name: "Mjölk" }, milk).product?.id,
+    "light-lf-milk",
+  );
+});
+
+test("pasta format ranking rejects ready meals when dry pasta is available", () => {
+  const products = [
+    pricedProduct({
+      id: "ready-penne",
+      productName: "REDO Carbonara med Penne Pasta",
+      priceSek: 54.95,
+      unitLabel: "400 g",
+      searchTerms: ["port penne"],
+    }),
+    pricedProduct({
+      id: "dry-penne",
+      productName: "Penne Pasta 500G",
+      priceSek: 18.95,
+      unitLabel: "500 g",
+      searchTerms: ["port penne"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "penne", name: "Port penne" }, products).product?.id,
+    "dry-penne",
+  );
+});
+
+test("potato ranking follows an explicit floury preference", () => {
+  const products = [
+    pricedProduct({
+      id: "firm-potatoes",
+      productName: "Potatis Fast 2KG",
+      priceSek: 32.95,
+      unitLabel: "2 kg",
+      searchTerms: ["potatis mjölig"],
+    }),
+    pricedProduct({
+      id: "floury-potatoes",
+      productName: "Potatis Mjölig 2KG",
+      priceSek: 32.95,
+      unitLabel: "2 kg",
+      searchTerms: ["potatis mjölig"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "potatoes", name: "Potatis mjölig" }, products).product?.id,
+    "floury-potatoes",
+  );
+});
+
+test("cucumber ranking prefers a Swedish single cucumber", () => {
+  const products = [
+    pricedProduct({
+      id: "cucumber-pack",
+      productName: "Gurka 3-pack",
+      priceSek: 39.95,
+      unitLabel: "3 st",
+      searchTerms: ["gurka"],
+    }),
+    pricedProduct({
+      id: "cucumber-single",
+      productName: "Gurka Sverige ST",
+      priceSek: 14.95,
+      unitLabel: "1 st",
+      searchTerms: ["gurka"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "cucumber", name: "Gurka" }, products).product?.id,
+    "cucumber-single",
+  );
+});
+
+test("falukorv ranking prefers an 800G ring", () => {
+  const products = [
+    pricedProduct({
+      id: "falukorv-small",
+      productName: "Falukorv 500G",
+      priceSek: 31.95,
+      unitLabel: "500 g",
+      searchTerms: ["falukorv"],
+    }),
+    pricedProduct({
+      id: "falukorv-ring",
+      productName: "Falukorv Ring 800G",
+      priceSek: 44.95,
+      unitLabel: "800 g",
+      searchTerms: ["falukorv"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "falukorv", name: "Falukorv" }, products).product?.id,
+    "falukorv-ring",
+  );
+});
+
+test("explicit standard dairy does not automatically prefer light products", () => {
+  const products = [
+    pricedProduct({
+      id: "standard-milk",
+      productName: "Standardmjölk 3%",
+      priceSek: 20.95,
+      unitLabel: "1 l",
+      searchTerms: ["standard mjölk"],
+    }),
+    pricedProduct({
+      id: "light-milk",
+      productName: "Lättmjölk 1,5% LF",
+      priceSek: 19.95,
+      unitLabel: "1 l",
+      searchTerms: ["standard mjölk"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "milk", name: "Standard mjölk" }, products).product?.id,
+    "standard-milk",
+  );
+});

@@ -3,6 +3,7 @@ import type {
   PriceMatchConfidence,
   ProductPrice,
 } from "../../src/lib/pricing/types";
+import { receiptInformedPreferenceScore } from "./productPreferenceRules.js";
 
 export const normalizePriceQuery = (value: string) =>
   value
@@ -142,20 +143,11 @@ const productPreferenceScore = (
   const productName = normalizePriceQuery(product.productName);
   let score = 0;
 
-  if (query === "agg" || query === "eko agg") {
-    const packMatch = product.productName.match(/\b(\d+)\s*(?:p|pack)\b/i);
-    const packSize = packMatch ? Number(packMatch[1]) : undefined;
-    if (packSize && [6, 10, 12].includes(packSize)) score += 10;
-    if (packSize && packSize >= 24) score -= 10;
-
-    const requestsEco = query.includes("eko");
-    const isEcoOrPremium = /\b(?:eko|ekologisk|premium)\b/.test(productName);
-    if (requestsEco) {
-      if (/\b(?:eko|ekologisk)\b/.test(productName)) score += 8;
-    } else if (isEcoOrPremium) {
-      score -= 4;
-    }
-  }
+  score += receiptInformedPreferenceScore(
+    itemName,
+    product.productName,
+    product.unitLabel,
+  );
 
   const requested = parseAmount(itemName);
   const packageAmount = productPackageAmount(product);
