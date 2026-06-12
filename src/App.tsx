@@ -7,7 +7,7 @@ import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
 import ListDetailGrocery from "./components/ListDetailGrocery";
 import CreateListView from "./components/CreateListView";
-import DebugPanel from "./components/DebugPanel";
+import DebugPanel, { getInitialMockPresenceEnabled } from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
 import CollaborativeInviteView from "./components/CollaborativeInviteView";
 import SettingsModal from "./components/SettingsModal";
@@ -42,6 +42,7 @@ import {
 import { mergePendingMeals, type PendingMealSave } from "./lib/optimisticMeals";
 import { buildGroceryMergePlan } from "./lib/grocery/merge";
 import { useListPresence } from "./hooks/useListPresence";
+import { DEBUG_PRESENCE_USER_ID, withMockPresence } from "./lib/presence";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -197,6 +198,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const [deletedListsLoading, setDeletedListsLoading] = useState(false);
   const [inviteStatus, setInviteStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [inviteDismissed, setInviteDismissed] = useState(false);
+  const [mockPresenceEnabled, setMockPresenceEnabled] = useState(getInitialMockPresenceEnabled);
   const realtimeRef = useRef<any>(null);
   const migrationInFlightRef = useRef<Promise<void> | null>(null);
   const pendingTasksByTempListIdRef = useRef<Record<string, TaskItem[]>>({});
@@ -219,6 +221,17 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     ? selectedListId
     : null;
   const { presentUsers } = useListPresence(presenceListId, presenceProfile);
+  const displayedPresentUsers = useMemo(() => withMockPresence(presentUsers, {
+    enabled: mockPresenceEnabled,
+    currentUserId: presenceProfile?.userId ?? null,
+    listId: presenceListId,
+  }), [mockPresenceEnabled, presenceListId, presenceProfile?.userId, presentUsers]);
+
+  useEffect(() => {
+    if (mockPresenceEnabled && displayedPresentUsers.some((user) => user.userId === DEBUG_PRESENCE_USER_ID)) {
+      console.log("[presence] mock user injected");
+    }
+  }, [displayedPresentUsers, mockPresenceEnabled]);
 
   useEffect(() => {
     setListMembers(null);
@@ -1386,6 +1399,8 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
         sessionUserId={sessionUser?.id ?? null}
         currentView={currentView}
         listsCount={lists.length}
+        mockPresenceEnabled={mockPresenceEnabled}
+        onMockPresenceChange={setMockPresenceEnabled}
       />
 
       <main className="w-full flex-1 z-10">
@@ -1422,7 +1437,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   list={activeList}
                   isLoggedIn={isLoggedIn}
                   members={listMembers}
-                  presentUsers={presentUsers}
+                  presentUsers={displayedPresentUsers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
@@ -1439,7 +1454,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                 <ListDetailRenovation
                   list={activeList}
                   members={listMembers}
-                  presentUsers={presentUsers}
+                  presentUsers={displayedPresentUsers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
