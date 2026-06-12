@@ -1,4 +1,8 @@
-import type { ListItemPriceMatch, PriceMatchConfidence, ProductPrice } from "./types";
+import type {
+  ListItemPriceMatch,
+  PriceMatchConfidence,
+  ProductPrice,
+} from "./types";
 
 export const normalizePriceQuery = (value: string) =>
   value
@@ -13,8 +17,23 @@ export const normalizePriceQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+export const cleanCityGrossSearchQuery = (value: string) =>
+  value
+    .normalize("NFKC")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(
+      /\b(?:ca|cirka)?\s*\d+(?:[.,]\d+)?\s*(?:st|stycken|pack|paket|förp|kg|g|l|dl|cl|ml|klase|klasar|burk|flaska|påse)\b/gi,
+      " ",
+    )
+    .replace(/\s*[,;]\s*.*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const editDistance = (left: string, right: string) => {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const previous = Array.from(
+    { length: right.length + 1 },
+    (_, index) => index,
+  );
 
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
     const current = [leftIndex];
@@ -22,7 +41,8 @@ const editDistance = (left: string, right: string) => {
       current[rightIndex] = Math.min(
         current[rightIndex - 1] + 1,
         previous[rightIndex] + 1,
-        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+        previous[rightIndex - 1] +
+          (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
       );
     }
     previous.splice(0, previous.length, ...current);
@@ -31,12 +51,16 @@ const editDistance = (left: string, right: string) => {
   return previous[right.length];
 };
 
-const confidenceFor = (query: string, candidate: string): PriceMatchConfidence => {
+const confidenceFor = (
+  query: string,
+  candidate: string,
+): PriceMatchConfidence => {
   if (!query || !candidate) return "none";
   if (query === candidate) return "high";
 
   const maxLength = Math.max(query.length, candidate.length);
-  if (maxLength >= 4 && editDistance(query, candidate) / maxLength <= 0.2) return "high";
+  if (maxLength >= 4 && editDistance(query, candidate) / maxLength <= 0.2)
+    return "high";
 
   const queryWords = query.split(" ");
   const candidateWords = new Set(candidate.split(" "));
@@ -45,7 +69,9 @@ const confidenceFor = (query: string, candidate: string): PriceMatchConfidence =
   if (
     maxLength >= 5 &&
     (editDistance(query, candidate) / maxLength <= 0.42 ||
-      queryWords.some((word) => word.length >= 4 && candidate.includes(word.slice(0, -1))))
+      queryWords.some(
+        (word) => word.length >= 4 && candidate.includes(word.slice(0, -1)),
+      ))
   ) {
     return "low";
   }
@@ -60,24 +86,60 @@ const confidenceRank: Record<PriceMatchConfidence, number> = {
   none: 0,
 };
 
+const productPreferenceScore = (query: string, product: ProductPrice) => {
+  if (query !== "agg" && query !== "eko agg") return 0;
+
+  const productName = normalizePriceQuery(product.productName);
+  const packMatch = product.productName.match(/\b(\d+)\s*(?:p|pack)\b/i);
+  const packSize = packMatch ? Number(packMatch[1]) : undefined;
+  let score = 0;
+
+  if (packSize && [6, 10, 12].includes(packSize)) score += 10;
+  if (packSize && packSize >= 24) score -= 10;
+
+  const requestsEco = query.includes("eko");
+  const isEcoOrPremium = /\b(?:eko|ekologisk|premium)\b/.test(productName);
+  if (requestsEco) {
+    if (/\b(?:eko|ekologisk)\b/.test(productName)) score += 8;
+  } else if (isEcoOrPremium) {
+    score -= 4;
+  }
+
+  return score;
+};
+
 export const matchListItem = (
   item: { id: string; name: string },
   products: ProductPrice[],
 ): ListItemPriceMatch => {
-  const query = normalizePriceQuery(item.name);
+  const query = normalizePriceQuery(cleanCityGrossSearchQuery(item.name));
   let bestProduct: ProductPrice | null = null;
   let bestConfidence: PriceMatchConfidence = "none";
+  let bestPreferenceScore = Number.NEGATIVE_INFINITY;
 
   for (const product of products) {
-    const candidates = [product.productName, ...product.searchTerms].map(normalizePriceQuery);
-    const productConfidence = candidates.reduce<PriceMatchConfidence>((best, candidate) => {
-      const confidence = confidenceFor(query, candidate);
-      return confidenceRank[confidence] > confidenceRank[best] ? confidence : best;
-    }, "none");
+    const candidates = [product.productName, ...product.searchTerms].map(
+      normalizePriceQuery,
+    );
+    const productConfidence = candidates.reduce<PriceMatchConfidence>(
+      (best, candidate) => {
+        const confidence = confidenceFor(query, candidate);
+        return confidenceRank[confidence] > confidenceRank[best]
+          ? confidence
+          : best;
+      },
+      "none",
+    );
 
-    if (confidenceRank[productConfidence] > confidenceRank[bestConfidence]) {
+    const preferenceScore = productPreferenceScore(query, product);
+    if (
+      confidenceRank[productConfidence] > confidenceRank[bestConfidence] ||
+      (productConfidence === bestConfidence &&
+        preferenceScore > bestPreferenceScore)
+    ) {
       bestProduct = product;
       bestConfidence = productConfidence;
+      bestPreferenceScore = preferenceScore;
     }
   }
 

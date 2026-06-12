@@ -17,6 +17,10 @@ import {
   searchCityGrossProducts,
 } from "./api/_lib/cityGrossPricing";
 import type { ProductPrice } from "./src/lib/pricing/types";
+import {
+  cleanCityGrossSearchQuery,
+  matchListItem,
+} from "./api/_lib/pricingMatching";
 
 type TestResponse = ServerResponse & {
   status(statusCode: number): TestResponse;
@@ -325,6 +329,117 @@ test("basket request validation rejects unsupported chains", () => {
 
 test("normalizes a Swedish price string", () => {
   assert.equal(parsePriceSek("34,50 kr"), 34.5);
+});
+
+test("cleans quantities and recipe notes from City Gross search queries", () => {
+  const examples = [
+    ["Röd paprika (1 st)", "Röd paprika"],
+    ["Potatis (400 g)", "Potatis"],
+    ["Tomatpuré (15 ml)", "Tomatpuré"],
+    ["Crème fraiche (1 dl)", "Crème fraiche"],
+    ["Kycklingfilé (ca 500 g)", "Kycklingfilé"],
+    ["Babyspenat (1 förp)", "Babyspenat"],
+  ];
+
+  for (const [input, expected] of examples) {
+    assert.equal(cleanCityGrossSearchQuery(input), expected);
+  }
+});
+
+test("basket pricing searches with a cleaned query and keeps the original item name", async () => {
+  const queries: string[] = [];
+  const originalName = "Kycklingfilé (ca 500 g)";
+  const chickenProduct: ProductPrice = {
+    id: "chicken",
+    chainId: "city_gross",
+    storeId: "demo",
+    productName: "Kycklingfilé",
+    priceSek: 59.95,
+    unitLabel: "500 g",
+    searchTerms: ["kycklingfilé"],
+  };
+
+  const result = await calculateCityGrossBasket(
+    {
+      chain: "city_gross",
+      items: [{ id: "chicken", name: originalName }],
+    },
+    {
+      searchProducts: async (query) => {
+        queries.push(query);
+        return [chickenProduct];
+      },
+    },
+  );
+
+  assert.deepEqual(queries, ["Kycklingfilé"]);
+  assert.equal(result.matches[0].listItemName, originalName);
+  assert.equal(result.matches[0].product?.id, "chicken");
+});
+
+test("generic egg ranking prefers a normal pack over bulk and eco premium", () => {
+  const eggProducts: ProductPrice[] = [
+    {
+      id: "24-pack",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "GARANT Ägg 24P Frigående Inomhus",
+      priceSek: 59.95,
+      unitLabel: "24 st",
+      searchTerms: ["ägg"],
+    },
+    {
+      id: "12-pack",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "GARANT Ägg 12P Frigående Inomhus",
+      priceSek: 34.95,
+      unitLabel: "12 st",
+      searchTerms: ["ägg"],
+    },
+    {
+      id: "eco-6-pack",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "EKO Ägg 6P",
+      priceSek: 39.95,
+      unitLabel: "6 st",
+      searchTerms: ["ägg"],
+    },
+  ];
+
+  assert.equal(
+    matchListItem({ id: "eggs", name: "Ägg" }, eggProducts).product?.id,
+    "12-pack",
+  );
+});
+
+test("explicit eco egg queries do not penalize eco products", () => {
+  const eggProducts: ProductPrice[] = [
+    {
+      id: "standard",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "GARANT Ägg 12P Frigående Inomhus",
+      priceSek: 34.95,
+      unitLabel: "12 st",
+      searchTerms: ["ägg"],
+    },
+    {
+      id: "eco",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "EKO Ägg 6P",
+      priceSek: 39.95,
+      unitLabel: "6 st",
+      searchTerms: ["eko ägg"],
+    },
+  ];
+
+  assert.equal(
+    matchListItem({ id: "eggs", name: "eko ägg" }, eggProducts).product?.id,
+    "eco",
+  );
 });
 
 test("basket pricing deduplicates normalized item queries", async () => {
