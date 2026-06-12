@@ -163,7 +163,9 @@ export async function calculateCityGrossBasket(
     approximateTotalSek:
       Math.round(
         matches.reduce(
-          (total, match) => total + (match.product?.priceSek ?? 0),
+          (total, match) =>
+            total +
+            (match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0),
           0,
         ) * 100,
       ) / 100,

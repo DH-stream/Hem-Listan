@@ -581,3 +581,130 @@ test("normalizes public City Gross JSON without exposing the raw response", asyn
   assert.equal(products[0].comparePrice, "2,88 kr/st");
   assert.equal(products[0].chainId, "city_gross");
 });
+
+const pricedProduct = (
+  overrides: Partial<ProductPrice> & Pick<ProductPrice, "id" | "productName" | "priceSek" | "unitLabel">,
+): ProductPrice => ({
+  chainId: "city_gross",
+  storeId: "demo",
+  searchTerms: [],
+  ...overrides,
+});
+
+test("fixed packages use the full checkout price instead of prorating recipe quantities", async () => {
+  const cases = [
+    {
+      item: { id: "creme", name: "Crème fraiche (1 dl)" },
+      product: pricedProduct({
+        id: "creme-5dl",
+        productName: "Crème Fraiche 5DL",
+        priceSek: 28.95,
+        unitLabel: "5 dl",
+        searchTerms: ["crème fraiche"],
+      }),
+      expected: 28.95,
+    },
+    {
+      item: { id: "puree", name: "Tomatpuré (15 ml)" },
+      product: pricedProduct({
+        id: "puree-300g",
+        productName: "Tomatpuré 300G",
+        priceSek: 25.5,
+        unitLabel: "300 g",
+        searchTerms: ["tomatpuré"],
+      }),
+      expected: 25.5,
+    },
+  ];
+
+  for (const { item, product, expected } of cases) {
+    const result = await calculateCityGrossBasket(
+      { chain: "city_gross", items: [item] },
+      { searchProducts: async () => [product] },
+    );
+
+    assert.equal(result.matches[0].estimatedCheckoutPriceSek, undefined);
+    assert.equal(result.approximateTotalSek, expected);
+  }
+});
+
+test("package ranking prefers a right-sized chicken product over a 2 kg pack", () => {
+  const products = [
+    pricedProduct({
+      id: "chicken-2kg",
+      productName: "ELDORADO Kyckling Filé 2KG Fryst Storpack",
+      priceSek: 137.2,
+      unitLabel: "2 kg",
+      searchTerms: ["kycklingfilé"],
+    }),
+    pricedProduct({
+      id: "chicken-700g",
+      productName: "Kycklingfilé Naturell 700G",
+      priceSek: 79.95,
+      unitLabel: "700 g",
+      searchTerms: ["kycklingfilé"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "chicken", name: "Kycklingfilé (ca 500 g)" }, products)
+      .product?.id,
+    "chicken-700g",
+  );
+});
+
+test("weighted produce uses the estimated purchased unit weight", () => {
+  const cases = [
+    {
+      item: { id: "pepper", name: "Röd paprika (1 st)" },
+      product: pricedProduct({
+        id: "pepper_KG",
+        productName: "Paprika Röd",
+        priceSek: 44.95,
+        unitLabel: "CA200G",
+        comparePrice: "44.95 kr/kg",
+        searchTerms: ["röd paprika"],
+      }),
+      expected: 8.99,
+    },
+    {
+      item: { id: "onion", name: "Gul lök (1 st)" },
+      product: pricedProduct({
+        id: "onion_KG",
+        productName: "Lök Gul",
+        priceSek: 10.95,
+        unitLabel: "CA 175G",
+        comparePrice: "10.95 kr/kg",
+        searchTerms: ["gul lök"],
+      }),
+      expected: 1.92,
+    },
+  ];
+
+  for (const { item, product, expected } of cases) {
+    const match = matchListItem(item, [product]);
+    assert.equal(match.estimatedCheckoutPriceSek, expected);
+    assert.equal(match.priceBasis, "weighted_item_estimate");
+  }
+});
+
+test("weighted meat uses the requested purchase weight", async () => {
+  const product = pricedProduct({
+    id: "pork_KG",
+    productName: "Rimmat sidfläsk",
+    priceSek: 99.35,
+    unitLabel: "1 kg",
+    comparePrice: "99.35 kr/kg",
+    searchTerms: ["rimmat sidfläsk"],
+  });
+  const result = await calculateCityGrossBasket(
+    {
+      chain: "city_gross",
+      items: [{ id: "pork", name: "Rimmat sidfläsk (300 g)" }],
+    },
+    { searchProducts: async () => [product] },
+  );
+
+  assert.equal(result.matches[0].estimatedCheckoutPriceSek, 29.81);
+  assert.equal(result.approximateTotalSek, 29.81);
+});

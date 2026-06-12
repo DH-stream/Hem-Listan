@@ -78,7 +78,8 @@ export const selectActiveBasketEstimate = (
   estimate.matches.forEach((match) => {
     if (!activeTaskIds.has(match.listItemId) || !match.product) return;
     matchByTaskId[match.listItemId] = match;
-    approximateTotalSek += match.product.priceSek;
+    approximateTotalSek +=
+      match.estimatedCheckoutPriceSek ?? match.product.priceSek;
   });
 
   return {

@@ -966,7 +966,10 @@ export default function ListDetailGrocery({
                                   title={`Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`}
                                 >
                                   <span className="font-sans text-xs font-semibold tabular-nums">
-                                    {matchByTaskId[item.id].product?.priceSek.toLocaleString("sv-SE", {
+                                    {(
+                                      matchByTaskId[item.id].estimatedCheckoutPriceSek ??
+                                      matchByTaskId[item.id].product!.priceSek
+                                    ).toLocaleString("sv-SE", {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
                                     })} kr
