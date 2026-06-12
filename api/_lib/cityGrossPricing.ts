@@ -25,6 +25,16 @@ interface CityGrossProduct {
   name?: unknown;
   brand?: unknown;
   subtitle?: unknown;
+  superCategory?: unknown;
+  category?: unknown;
+  categories?: unknown;
+  breadcrumb?: unknown;
+  breadcrumbs?: unknown;
+  department?: unknown;
+  departmentName?: unknown;
+  productCategory?: unknown;
+  categoryName?: unknown;
+  bfCategory?: unknown;
   descriptiveSize?: unknown;
   url?: unknown;
   images?: Array<{ url?: unknown }>;
@@ -100,6 +110,36 @@ const absoluteUrl = (value: unknown, baseUrl: string) => {
   }
 };
 
+const collectCategoryLabels = (value: unknown): string[] => {
+  if (typeof value === "string") {
+    const label = value.trim();
+    return label ? [label] : [];
+  }
+  if (Array.isArray(value)) return value.flatMap(collectCategoryLabels);
+  if (!value || typeof value !== "object") return [];
+
+  const record = value as Record<string, unknown>;
+  return ["name", "title", "label", "path"].flatMap((key) =>
+    collectCategoryLabels(record[key]),
+  );
+};
+
+const getCityGrossCategoryPath = (product: CityGrossProduct) =>
+  [
+    product.superCategory,
+    product.breadcrumb,
+    product.breadcrumbs,
+    product.department,
+    product.departmentName,
+    product.productCategory,
+    product.categoryName,
+    product.categories,
+    product.category,
+    product.bfCategory,
+  ]
+    .flatMap(collectCategoryLabels)
+    .filter((label, index, labels) => labels.indexOf(label) === index);
+
 export const normalizeCityGrossProduct = (
   product: CityGrossProduct,
   storeId?: string,
@@ -122,6 +162,7 @@ export const normalizeCityGrossProduct = (
   const imageName = product.images?.find(
     (image) => typeof image.url === "string",
   )?.url;
+  const categoryPath = getCityGrossCategoryPath(product);
 
   return {
     id: product.id,
@@ -141,6 +182,8 @@ export const normalizeCityGrossProduct = (
       comparativePrice === null
         ? undefined
         : `${comparativePrice.toLocaleString("sv-SE")} kr/${comparativeUnit}`,
+    category: categoryPath[0],
+    categoryPath: categoryPath.length > 0 ? categoryPath : undefined,
     productUrl: absoluteUrl(product.url, CITY_GROSS_ORIGIN),
     imageUrl: absoluteUrl(imageName, `${CITY_GROSS_IMAGE_BASE_URL}/`),
     isCampaign: Boolean(

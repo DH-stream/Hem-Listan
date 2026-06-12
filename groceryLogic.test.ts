@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RecipeIngredient, TaskItem } from "./src/types";
-import { categorizeGroceryItem } from "./src/lib/grocery/categorize";
+import {
+  categorizeGroceryItem,
+  inferCategoryFromCityGrossProduct,
+} from "./src/lib/grocery/categorize";
+import type { ProductPrice } from "./src/lib/pricing/types";
 import { buildGroceryMergePlan } from "./src/lib/grocery/merge";
 import { normalizeRecipeIngredient } from "./src/lib/grocery/normalize";
 
@@ -172,4 +176,69 @@ test("cleans up Coop parmesanpotatis grocery items", () => {
     assert.equal(normalized.category, expectedCategory);
     assert.equal(result.notes, expectedCategory);
   }
+});
+
+const cityGrossProduct = (
+  overrides: Partial<ProductPrice> = {},
+): ProductPrice => ({
+  id: "city-gross-product",
+  chainId: "city_gross",
+  storeId: "public",
+  productName: "Testprodukt",
+  priceSek: 10,
+  unitLabel: "st",
+  searchTerms: [],
+  ...overrides,
+});
+
+test("uses explicit City Gross categories before product URLs", () => {
+  const cases = [
+    ["Frukt och grönt", "Frukt & Grönt"],
+    ["Mejeri, ost och ägg", "Mejeri"],
+    ["Skafferiet", "Skafferi"],
+    ["Fisk och skaldjur", "Kött & Fisk"],
+    ["Chark och pålägg", "Kött & Fisk"],
+    ["Fryst", "Fryst"],
+    ["Bröd och kakor", "Skafferi"],
+  ] as const;
+
+  for (const [category, expected] of cases) {
+    assert.equal(
+      inferCategoryFromCityGrossProduct(
+        cityGrossProduct({
+          categoryPath: [category],
+          productUrl: "/matvaror/frukt-och-gront/fel-kategori",
+        }),
+      ),
+      expected,
+    );
+  }
+});
+
+test("uses the City Gross product URL as category fallback", () => {
+  const cases = [
+    ["/matvaror/mejeri-ost-och-agg/keso", "Mejeri"],
+    ["/matvaror/skafferiet/sylt", "Skafferi"],
+    ["/matvaror/skafferiet/konserver/tomater", "Skafferi"],
+    ["/matvaror/chark-och-palagg/flask", "Kött & Fisk"],
+    ["/matvaror/frukt-och-gront/gronsaker", "Frukt & Grönt"],
+    ["/matvaror/fisk-och-skaldjur/lax", "Kött & Fisk"],
+  ] as const;
+
+  for (const [productUrl, expected] of cases) {
+    assert.equal(
+      inferCategoryFromCityGrossProduct(cityGrossProduct({ productUrl })),
+      expected,
+    );
+  }
+});
+
+test("returns null without City Gross category data so text fallback can run", () => {
+  const product = cityGrossProduct();
+  assert.equal(inferCategoryFromCityGrossProduct(product), null);
+  assert.equal(
+    inferCategoryFromCityGrossProduct(product) ??
+      categorizeGroceryItem("vegetarisk korv chorizo"),
+    "Kött & Fisk",
+  );
 });
