@@ -1,4 +1,4 @@
-import { useState, useEffect, startTransition, useRef } from "react";
+import { useState, useEffect, startTransition, useMemo, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
 import { DeletedList, List, ListMember, Stats, MealSlot, MealType, RecipeIngredient, TaskItem, UserProfile } from "./types";
@@ -41,6 +41,7 @@ import {
 } from "./lib/supabase";
 import { mergePendingMeals, type PendingMealSave } from "./lib/optimisticMeals";
 import { buildGroceryMergePlan } from "./lib/grocery/merge";
+import { useListPresence } from "./hooks/useListPresence";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -207,6 +208,17 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const [userImage, setUserImage] = useState<string>(
     () => localStorage.getItem("user_profile_image") ?? ""
   );
+
+  const presenceProfile = useMemo(() => sessionUser ? {
+    userId: sessionUser.id,
+    displayName: userProfile?.displayName || userName || sessionUser.email || "Hem-Listan",
+    avatarUrl: userProfile?.avatarUrl || userImage || null,
+    avatarPath: userProfile?.avatarPath ?? null,
+  } : null, [sessionUser, userImage, userName, userProfile]);
+  const presenceListId = currentView === "detail" && selectedListId && isUuid(selectedListId) && isLoggedIn
+    ? selectedListId
+    : null;
+  const { presentUsers } = useListPresence(presenceListId, presenceProfile);
 
   useEffect(() => {
     setListMembers(null);
@@ -1410,6 +1422,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   list={activeList}
                   isLoggedIn={isLoggedIn}
                   members={listMembers}
+                  presentUsers={presentUsers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
@@ -1426,6 +1439,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                 <ListDetailRenovation
                   list={activeList}
                   members={listMembers}
+                  presentUsers={presentUsers}
                   onBack={() => startTransition(() => setCurrentView("dashboard"))}
                   onToggleTask={handleToggleTask}
                   onAddTask={handleAddTask}
@@ -1433,8 +1447,6 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
                   onRenameList={handleRenameList}
-                  userImage={userImage}
-                  userName={userName}
                 />
               )}
             </motion.div>
