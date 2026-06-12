@@ -14,6 +14,35 @@ const clean = (value: string) => value
   .replace(/\s+/g, " ")
   .trim();
 
+const STORE_PREPARATION_PREFIX =
+  /^(?:kokt|kokta|kokade|hackad|hackade|skivad|skivade|tärnad|tärnade|skalad|skalade|pressad|pressade)\s+(.+)$/i;
+
+const preserveInitialCasing = (source: string, value: string): string => {
+  const first = source.charAt(0);
+  if (
+    first &&
+    first === first.toLocaleUpperCase("sv-SE") &&
+    first !== first.toLocaleLowerCase("sv-SE")
+  ) {
+    return value.charAt(0).toLocaleUpperCase("sv-SE") + value.slice(1);
+  }
+  return value;
+};
+
+export const normalizeShoppingItemNameForStore = (name: string): string => {
+  const trimmed = name.trim();
+  const match = trimmed.match(STORE_PREPARATION_PREFIX);
+  if (!match) return trimmed;
+
+  const preparedName = match[1].trim();
+  if (/^tomater?$/i.test(preparedName)) return trimmed;
+
+  const shoppingName = /^potatis(?:ar)?$/i.test(preparedName)
+    ? "potatis"
+    : preparedName;
+  return preserveInitialCasing(trimmed, shoppingName);
+};
+
 const canonicalize = (input: string): string => {
   const value = clean(input)
     .replace(/^(arla(?: köket| ko)?|zeta|ica|coop)\s+/, "")

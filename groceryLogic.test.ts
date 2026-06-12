@@ -7,7 +7,10 @@ import {
 } from "./src/lib/grocery/categorize";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import { buildGroceryMergePlan } from "./src/lib/grocery/merge";
-import { normalizeRecipeIngredient } from "./src/lib/grocery/normalize";
+import {
+  normalizeRecipeIngredient,
+  normalizeShoppingItemNameForStore,
+} from "./src/lib/grocery/normalize";
 
 const ingredient = (text: string, quantity = ""): RecipeIngredient => ({
   text,
@@ -22,6 +25,43 @@ const task = (text: string, checked = false, notes = "Övrigt", id = text): Task
 });
 const plan = (tasks: TaskItem[], ingredients: RecipeIngredient[]) =>
   buildGroceryMergePlan(tasks, ingredients, index => `new-${index}`);
+
+test("removes clear preparation prefixes from imported shopping item names", () => {
+  const cases = [
+    ["Kokta potatisar", "Potatis"],
+    ["Kokt potatis", "Potatis"],
+    ["Kokade potatisar", "Potatis"],
+    ["Hackad gul lök", "Gul lök"],
+    ["Hackade morötter", "Morötter"],
+    ["Skivad gurka", "Gurka"],
+    ["Tärnad potatis", "Potatis"],
+  ] as const;
+
+  for (const [name, expected] of cases) {
+    assert.equal(normalizeShoppingItemNameForStore(name), expected);
+  }
+});
+
+test("preserves purchasable product forms in imported shopping item names", () => {
+  for (const name of [
+    "Riven parmesan",
+    "Strimlade soltorkade tomater",
+    "Krossade tomater",
+    "Kallrökt lax",
+    "Rimmat sidfläsk",
+    "Hackade tomater",
+  ]) {
+    assert.equal(normalizeShoppingItemNameForStore(name), name);
+  }
+});
+
+test("uses store-friendly names when recipe ingredients become list items", () => {
+  assert.equal(
+    plan([], [ingredient("Kokta potatisar")]).tasks[0].text,
+    "Potatis",
+  );
+  assert.equal(plan([], [ingredient("Skivad gurka")]).tasks[0].text, "Gurka");
+});
 
 test("Arla Standardmjölk merges into existing milk and package-rounds", () => {
   const result = plan([task("Mjölk", false, "Mejeri")], [ingredient("Arla Ko® Standardmjölk", "6 dl")]);
