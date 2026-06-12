@@ -1,6 +1,10 @@
 import type { RecipeIngredient, TaskItem } from "../../types";
 import { displayGroceryItem } from "./display";
-import { normalizeGroceryName, normalizeRecipeIngredient } from "./normalize";
+import {
+  normalizeGroceryName,
+  normalizeRecipeIngredient,
+  normalizeShoppingItemNameForStore,
+} from "./normalize";
 import { addQuantities, parseQuantity } from "./parseQuantity";
 import type { CanonicalGroceryItem, GroceryMergePlan } from "./types";
 
@@ -47,7 +51,10 @@ export const buildGroceryMergePlan = (
   const canonicalByTaskId = new Map(tasks.map(task => [task.id, parseTask(task)]));
 
   ingredients.forEach((ingredient, index) => {
-    const incoming = normalizeRecipeIngredient(ingredient);
+    const incoming = normalizeRecipeIngredient({
+      ...ingredient,
+      text: normalizeShoppingItemNameForStore(ingredient.text),
+    });
     if (!incoming.name || incoming.policy === "skip") {
       skipped.push(ingredient);
       return;
