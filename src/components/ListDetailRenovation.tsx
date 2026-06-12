@@ -3,13 +3,15 @@ import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
-import { getProfileInitials } from "../lib/profile";
 import CelebrationCard from "./CelebrationCard";
 import ListNameEditor from "./ListNameEditor";
+import PresenceAvatarStack from "./PresenceAvatarStack";
+import type { PresentUser } from "../lib/presence";
 
 interface ListDetailRenovationProps {
   list: List;
   members: ListMember[] | null;
+  presentUsers: PresentUser[];
   onBack: () => void;
   onToggleTask: (listId: string, taskId: string) => void;
   onAddTask: (
@@ -25,13 +27,12 @@ interface ListDetailRenovationProps {
   onUpdateTask: (listId: string, taskId: string, updates: Partial<TaskItem>) => void;
   onResetList: (listId: string) => void;
   onRenameList: (listId: string, name: string) => Promise<boolean>;
-  userImage?: string;
-  userName?: string;
 }
 
 export default function ListDetailRenovation({
   list,
   members,
+  presentUsers,
   onBack,
   onToggleTask,
   onAddTask,
@@ -39,8 +40,6 @@ export default function ListDetailRenovation({
   onUpdateTask,
   onResetList,
   onRenameList,
-  userImage,
-  userName,
 }: ListDetailRenovationProps) {
   const [newTaskText, setNewTaskText] = useState("");
   const [selectedType, setSelectedType] = useState<"task" | "note" | "progress" | "link">("task");
@@ -179,19 +178,7 @@ export default function ListDetailRenovation({
               <span>Återställ</span>
             </button>
           )}
-          <div className="w-8 h-8 rounded-full overflow-hidden border border-outline-variant bg-emerald-50 text-emerald-800 shrink-0 flex items-center justify-center">
-            {userImage ? (
-              <img
-                alt={`${userName || "Hem-Listan"} profilbild`}
-                src={userImage}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-[10px] font-bold tracking-wide" aria-hidden="true">
-                {getProfileInitials(userName)}
-              </span>
-            )}
-          </div>
+          <PresenceAvatarStack users={presentUsers} />
         </div>
       </header>
 

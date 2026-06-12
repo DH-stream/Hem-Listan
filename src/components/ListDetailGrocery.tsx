@@ -6,6 +6,8 @@ import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
 import MealModal from "./MealModal";
 import ListNameEditor from "./ListNameEditor";
+import PresenceAvatarStack from "./PresenceAvatarStack";
+import type { PresentUser } from "../lib/presence";
 import RecipeDetailModal from "./RecipeDetailModal";
 import RecipeImportPreviewModal, {
   RecipeImportPreview,
@@ -19,6 +21,7 @@ interface ListDetailGroceryProps {
   list: List;
   isLoggedIn: boolean;
   members: ListMember[] | null;
+  presentUsers: PresentUser[];
   onBack: () => void;
   onToggleTask: (listId: string, taskId: string) => void;
   onAddTask: (listId: string, text: string, categoryName?: string) => void;
@@ -66,6 +69,7 @@ export default function ListDetailGrocery({
   list,
   isLoggedIn,
   members,
+  presentUsers,
   onBack,
   onToggleTask,
   onAddTask,
@@ -561,9 +565,12 @@ export default function ListDetailGrocery({
           </div>
         </div>
 
-        <button className="p-2 hover:bg-surface-container text-primary rounded-full transition-all shrink-0">
-          <LucideIcon name="shopping_cart" className="w-5 h-5 opacity-80" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <PresenceAvatarStack users={presentUsers} />
+          <button className="p-2 hover:bg-surface-container text-primary rounded-full transition-all shrink-0">
+            <LucideIcon name="shopping_cart" className="w-5 h-5 opacity-80" />
+          </button>
+        </div>
       </header>
 
       {/* Slide Carousel Layout Blocks */}
