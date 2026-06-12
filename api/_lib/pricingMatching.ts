@@ -3,7 +3,7 @@ import type {
   PriceMatchConfidence,
   ProductPrice,
 } from "../../src/lib/pricing/types";
-import { receiptInformedPreferenceScore } from "./productPreferenceRules.js";
+import { evaluateReceiptInformedPreference } from "./productPreferenceRules.js";
 
 export const normalizePriceQuery = (value: string) =>
   value
@@ -136,18 +136,18 @@ const weightedCheckoutPrice = (itemName: string, product: ProductPrice) => {
 };
 
 const productPreferenceScore = (
-  query: string,
   itemName: string,
   product: ProductPrice,
 ) => {
   const productName = normalizePriceQuery(product.productName);
-  let score = 0;
-
-  score += receiptInformedPreferenceScore(
+  const normalizedItemName = normalizePriceQuery(itemName);
+  const receiptPreference = evaluateReceiptInformedPreference(
     itemName,
     product.productName,
     product.unitLabel,
   );
+  let score = receiptPreference.score;
+  const reasons = [...receiptPreference.reasons];
 
   const requested = parseAmount(itemName);
   const packageAmount = productPackageAmount(product);
@@ -159,57 +159,145 @@ const productPreferenceScore = (
     !isWeightedProduct(product)
   ) {
     const ratio = packageAmount.amount / requested.amount;
-    if (ratio >= 1) score += Math.max(0, 20 - Math.log2(ratio) * 6);
-    else score -= 12 + (1 - ratio) * 8;
+    if (ratio >= 1) {
+      score += Math.max(0, 20 - Math.log2(ratio) * 6);
+      if (ratio <= 2) reasons.push("requested_pack_size");
+    } else {
+      score -= 12 + (1 - ratio) * 8;
+      reasons.push("package_too_small");
+    }
   }
 
-  const requestsBulk = /\b(?:storpack|familjepack)\b/.test(
-    normalizePriceQuery(itemName),
+  if (!requested && packageAmount) {
+    const isExtremeCount =
+      packageAmount.dimension === "count" && packageAmount.amount >= 24;
+    const isExtremeMass =
+      packageAmount.dimension === "mass" && packageAmount.amount >= 5000;
+    const isExtremeVolume =
+      packageAmount.dimension === "volume" && packageAmount.amount >= 3000;
+    if (isExtremeCount || isExtremeMass || isExtremeVolume) {
+      score -= 10;
+      reasons.push("avoided_extreme_pack_size");
+    }
+  }
+
+  const requestsBulk = /\b(?:storpack|familjepack|bulk)\b/.test(
+    normalizedItemName,
   );
-  if (!requestsBulk && /\b(?:storpack|familjepack)\b/.test(productName)) score -= 12;
+  if (
+    !requestsBulk &&
+    /\b(?:storpack|familjepack|bulk)\b/.test(productName)
+  ) {
+    score -= 14;
+    reasons.push("avoided_bulk");
+  }
 
-  const requestsFrozen = /\bfryst\b/.test(normalizePriceQuery(itemName));
-  if (!requestsFrozen && /\bfryst\b/.test(productName)) score -= 6;
+  const requestsFrozen = /\bfryst\b/.test(normalizedItemName);
+  if (!requestsFrozen && /\bfryst\b/.test(productName)) {
+    score -= 8;
+    reasons.push("avoided_frozen");
+  }
 
-  return score;
+  if (
+    /\bkycklingfile\b/.test(normalizedItemName) &&
+    !requestsFrozen &&
+    /\b(?:farsk|naturell)\b/.test(productName)
+  ) {
+    score += 5;
+    reasons.push("fresh_natural_chicken");
+  }
+
+  return { score, reasons: [...new Set(reasons)] };
+};
+
+const medianPrice = (products: ProductPrice[]) => {
+  if (products.length === 0) return undefined;
+  const prices = products
+    .map((product) => product.priceSek)
+    .sort((a, b) => a - b);
+  const middle = Math.floor(prices.length / 2);
+  return prices.length % 2 === 0 ? prices[middle - 1] : prices[middle];
+};
+
+const priceSanity = (priceSek: number, medianPriceSek: number | undefined) => {
+  if (!medianPriceSek || medianPriceSek <= 0) {
+    return { score: 0, reasons: [] as string[] };
+  }
+  const ratio = priceSek / medianPriceSek;
+  if (ratio >= 2.5) {
+    return { score: -14, reasons: ["unreasonable_high_price"] };
+  }
+  if (ratio >= 1.75) return { score: -8, reasons: ["high_price"] };
+  if (ratio >= 0.7 && ratio <= 1.3) {
+    return { score: 2, reasons: ["reasonable_price"] };
+  }
+  return { score: 0, reasons: [] as string[] };
+};
+
+const confidenceScore: Record<PriceMatchConfidence, number> = {
+  high: 40,
+  medium: 25,
+  low: 10,
+  none: Number.NEGATIVE_INFINITY,
 };
 
 export const matchListItem = (
   item: { id: string; name: string },
   products: ProductPrice[],
+  options: { debug?: boolean } = {},
 ): ListItemPriceMatch => {
   const query = normalizePriceQuery(cleanCityGrossSearchQuery(item.name));
-  let bestProduct: ProductPrice | null = null;
-  let bestConfidence: PriceMatchConfidence = "none";
-  let bestPreferenceScore = Number.NEGATIVE_INFINITY;
-
-  for (const product of products) {
-    const candidates = [product.productName, ...product.searchTerms].map(
-      normalizePriceQuery,
-    );
-    const productConfidence = candidates.reduce<PriceMatchConfidence>(
-      (best, candidate) => {
+  const candidates = products.map((product) => {
+    const productConfidence = [product.productName, ...product.searchTerms]
+      .map(normalizePriceQuery)
+      .reduce<PriceMatchConfidence>((best, candidate) => {
         const confidence = confidenceFor(query, candidate);
         return confidenceRank[confidence] > confidenceRank[best]
           ? confidence
           : best;
-      },
-      "none",
-    );
+      }, "none");
 
-    const preferenceScore = productPreferenceScore(query, item.name, product);
-    if (
-      confidenceRank[productConfidence] > confidenceRank[bestConfidence] ||
-      (productConfidence === bestConfidence &&
-        preferenceScore > bestPreferenceScore)
-    ) {
-      bestProduct = product;
-      bestConfidence = productConfidence;
-      bestPreferenceScore = preferenceScore;
+    return { product, confidence: productConfidence };
+  });
+  const comparableMedianPrice = medianPrice(
+    candidates
+      .filter((candidate) => candidate.confidence !== "none")
+      .map((candidate) => candidate.product),
+  );
+
+  let best:
+    | {
+        product: ProductPrice;
+        confidence: PriceMatchConfidence;
+        preferenceScore: number;
+        preferenceReasons: string[];
+        rankingScore: number;
+      }
+    | undefined;
+
+  for (const candidate of candidates) {
+    if (candidate.confidence === "none") continue;
+    const preference = productPreferenceScore(item.name, candidate.product);
+    const pricePreference = priceSanity(
+      candidate.product.priceSek,
+      comparableMedianPrice,
+    );
+    const preferenceScore = preference.score + pricePreference.score;
+    const rankingScore = confidenceScore[candidate.confidence] + preferenceScore;
+
+    if (!best || rankingScore > best.rankingScore) {
+      best = {
+        ...candidate,
+        preferenceScore,
+        preferenceReasons: [
+          ...new Set([...preference.reasons, ...pricePreference.reasons]),
+        ],
+        rankingScore,
+      };
     }
   }
 
-  const product = bestConfidence === "none" ? null : bestProduct;
+  const product = best?.product ?? null;
   const estimatedCheckoutPriceSek = product
     ? weightedCheckoutPrice(item.name, product)
     : undefined;
@@ -218,7 +306,13 @@ export const matchListItem = (
     listItemId: item.id,
     listItemName: item.name,
     product,
-    confidence: bestConfidence,
+    confidence: best?.confidence ?? "none",
+    ...(options.debug && best
+      ? {
+          preferenceScore: best.preferenceScore,
+          preferenceReasons: best.preferenceReasons,
+        }
+      : {}),
     ...(estimatedCheckoutPriceSek === undefined
       ? {}
       : {

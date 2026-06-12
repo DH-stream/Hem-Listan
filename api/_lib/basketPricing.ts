@@ -155,6 +155,7 @@ export async function calculateCityGrossBasket(
     matchListItem(
       item,
       productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
+      { debug },
     ),
   );
 
@@ -178,6 +179,13 @@ export async function calculateCityGrossBasket(
     pricedCount,
     noProductCount: result.matches.length - pricedCount,
     approximateTotalSek: result.approximateTotalSek,
+    winners: result.matches.slice(0, 10).map((match) => ({
+      listItemName: match.listItemName,
+      productName: match.product?.productName,
+      confidence: match.confidence,
+      preferenceScore: match.preferenceScore,
+      preferenceReasons: match.preferenceReasons,
+    })),
   });
   return result;
 }
