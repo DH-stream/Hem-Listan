@@ -11,7 +11,7 @@ function PresenceAvatar({ user }: PresenceAvatarProps) {
 
   return (
     <div
-      className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-50 text-emerald-800 shadow-sm"
+      className="presence-avatar relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-50 text-emerald-800"
       title={label}
       role="img"
       aria-label={label}
@@ -45,7 +45,7 @@ export default function PresenceAvatarStack({ users }: { users: PresentUser[] })
       ))}
       {overflowCount > 0 && (
         <div
-          className="-ml-2 flex h-8 min-w-8 items-center justify-center rounded-full border-2 border-white bg-surface-container-high px-1.5 text-[10px] font-bold text-text-main shadow-sm"
+          className="presence-avatar -ml-2 flex h-8 min-w-8 items-center justify-center rounded-full border-2 border-white bg-surface-container-high px-1.5 text-[10px] font-bold text-text-main"
           title={`${overflowCount} fler är inne i listan`}
           role="img"
           aria-label={`${overflowCount} fler är inne i listan`}

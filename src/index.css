@@ -138,6 +138,27 @@
   }
 }
 
+
+.presence-avatar {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.16), 0 0 12px rgba(16, 185, 129, 0.18);
+  animation: presenceGlow 3.2s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes presenceGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12), 0 0 8px rgba(16, 185, 129, 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2), 0 0 14px rgba(16, 185, 129, 0.24);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presence-avatar {
+    animation: none;
+  }
+}
+
 [data-meal-client-id] {
   isolation: isolate;
 }

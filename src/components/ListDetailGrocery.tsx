@@ -536,7 +536,7 @@ export default function ListDetailGrocery({
           <LucideIcon name="arrow_back" className="w-6 h-6" />
         </button>
 
-        <div className="flex min-w-0 flex-1 flex-col items-center pr-4">
+        <div className="flex min-w-0 flex-1 flex-col items-center px-4">
           <ListNameEditor
             name={list.name}
             canRename={list.membershipRole !== "member"}
@@ -566,7 +566,9 @@ export default function ListDetailGrocery({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <PresenceAvatarStack users={presentUsers} />
+          <div className="flex w-20 shrink-0 justify-end sm:w-28">
+            <PresenceAvatarStack users={presentUsers} />
+          </div>
           <button className="p-2 hover:bg-surface-container text-primary rounded-full transition-all shrink-0">
             <LucideIcon name="shopping_cart" className="w-5 h-5 opacity-80" />
           </button>

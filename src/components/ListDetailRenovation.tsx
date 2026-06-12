@@ -178,7 +178,9 @@ export default function ListDetailRenovation({
               <span>Återställ</span>
             </button>
           )}
-          <PresenceAvatarStack users={presentUsers} />
+          <div className="flex w-20 shrink-0 justify-end sm:w-28">
+            <PresenceAvatarStack users={presentUsers} />
+          </div>
         </div>
       </header>
 
