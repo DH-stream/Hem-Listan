@@ -40,6 +40,10 @@ export interface ListItemPriceMatch {
   listItemName: string;
   product: ProductPrice | null;
   confidence: PriceMatchConfidence;
+  estimatedCheckoutPriceSek?: number;
+  priceBasis?: "product_price" | "weighted_item_estimate";
+  preferenceScore?: number;
+  preferenceReasons?: string[];
 }
 
 export interface BasketPriceEstimate {

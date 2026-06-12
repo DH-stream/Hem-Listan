@@ -581,3 +581,504 @@ test("normalizes public City Gross JSON without exposing the raw response", asyn
   assert.equal(products[0].comparePrice, "2,88 kr/st");
   assert.equal(products[0].chainId, "city_gross");
 });
+
+const pricedProduct = (
+  overrides: Partial<ProductPrice> & Pick<ProductPrice, "id" | "productName" | "priceSek" | "unitLabel">,
+): ProductPrice => ({
+  chainId: "city_gross",
+  storeId: "demo",
+  searchTerms: [],
+  ...overrides,
+});
+
+test("fixed packages use the full checkout price instead of prorating recipe quantities", async () => {
+  const cases = [
+    {
+      item: { id: "creme", name: "Crème fraiche (1 dl)" },
+      product: pricedProduct({
+        id: "creme-5dl",
+        productName: "Crème Fraiche 5DL",
+        priceSek: 28.95,
+        unitLabel: "5 dl",
+        searchTerms: ["crème fraiche"],
+      }),
+      expected: 28.95,
+    },
+    {
+      item: { id: "puree", name: "Tomatpuré (15 ml)" },
+      product: pricedProduct({
+        id: "puree-300g",
+        productName: "Tomatpuré 300G",
+        priceSek: 25.5,
+        unitLabel: "300 g",
+        searchTerms: ["tomatpuré"],
+      }),
+      expected: 25.5,
+    },
+  ];
+
+  for (const { item, product, expected } of cases) {
+    const result = await calculateCityGrossBasket(
+      { chain: "city_gross", items: [item] },
+      { searchProducts: async () => [product] },
+    );
+
+    assert.equal(result.matches[0].estimatedCheckoutPriceSek, undefined);
+    assert.equal(result.approximateTotalSek, expected);
+  }
+});
+
+test("package ranking prefers a right-sized chicken product over a 2 kg pack", () => {
+  const products = [
+    pricedProduct({
+      id: "chicken-2kg",
+      productName: "ELDORADO Kyckling Filé 2KG Fryst Storpack",
+      priceSek: 137.2,
+      unitLabel: "2 kg",
+      searchTerms: ["kycklingfilé"],
+    }),
+    pricedProduct({
+      id: "chicken-700g",
+      productName: "Kycklingfilé Naturell 700G",
+      priceSek: 79.95,
+      unitLabel: "700 g",
+      searchTerms: ["kycklingfilé"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "chicken", name: "Kycklingfilé (ca 500 g)" }, products)
+      .product?.id,
+    "chicken-700g",
+  );
+});
+
+test("weighted produce uses the estimated purchased unit weight", () => {
+  const cases = [
+    {
+      item: { id: "pepper", name: "Röd paprika (1 st)" },
+      product: pricedProduct({
+        id: "pepper_KG",
+        productName: "Paprika Röd",
+        priceSek: 44.95,
+        unitLabel: "CA200G",
+        comparePrice: "44.95 kr/kg",
+        searchTerms: ["röd paprika"],
+      }),
+      expected: 8.99,
+    },
+    {
+      item: { id: "onion", name: "Gul lök (1 st)" },
+      product: pricedProduct({
+        id: "onion_KG",
+        productName: "Lök Gul",
+        priceSek: 10.95,
+        unitLabel: "CA 175G",
+        comparePrice: "10.95 kr/kg",
+        searchTerms: ["gul lök"],
+      }),
+      expected: 1.92,
+    },
+  ];
+
+  for (const { item, product, expected } of cases) {
+    const match = matchListItem(item, [product]);
+    assert.equal(match.estimatedCheckoutPriceSek, expected);
+    assert.equal(match.priceBasis, "weighted_item_estimate");
+  }
+});
+
+test("weighted meat uses the requested purchase weight", async () => {
+  const product = pricedProduct({
+    id: "pork_KG",
+    productName: "Rimmat sidfläsk",
+    priceSek: 99.35,
+    unitLabel: "1 kg",
+    comparePrice: "99.35 kr/kg",
+    searchTerms: ["rimmat sidfläsk"],
+  });
+  const result = await calculateCityGrossBasket(
+    {
+      chain: "city_gross",
+      items: [{ id: "pork", name: "Rimmat sidfläsk (300 g)" }],
+    },
+    { searchProducts: async () => [product] },
+  );
+
+  assert.equal(result.matches[0].estimatedCheckoutPriceSek, 29.81);
+  assert.equal(result.approximateTotalSek, 29.81);
+});
+
+test("receipt-informed egg ranking prefers 10P or 15P over 24P", () => {
+  const products = [
+    pricedProduct({
+      id: "eggs-24",
+      productName: "Ägg 24P",
+      priceSek: 59.95,
+      unitLabel: "24 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-10",
+      productName: "Utehönsägg 10P",
+      priceSek: 32.65,
+      unitLabel: "10 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-15",
+      productName: "Ägg 15P Inne Medium",
+      priceSek: 42.95,
+      unitLabel: "15 st",
+      searchTerms: ["ägg"],
+    }),
+  ];
+
+  assert.ok(
+    ["eggs-10", "eggs-15"].includes(
+      matchListItem({ id: "eggs", name: "Ägg" }, products).product?.id ?? "",
+    ),
+  );
+});
+
+test("receipt-informed dairy ranking uses light and lactose-free as tiebreakers", () => {
+  const cremeFraiche = [
+    pricedProduct({
+      id: "regular-cf",
+      productName: "Crème Fraiche 34%",
+      priceSek: 24.95,
+      unitLabel: "2 dl",
+      searchTerms: ["crème fraiche"],
+    }),
+    pricedProduct({
+      id: "light-lf-cf",
+      productName: "L/F Lätt Cr Fraiche",
+      priceSek: 25.95,
+      unitLabel: "2 dl",
+      searchTerms: ["crème fraiche"],
+    }),
+  ];
+  const milk = [
+    pricedProduct({
+      id: "uht-milk",
+      productName: "Mjölk Lång Hållbarhet",
+      priceSek: 22.95,
+      unitLabel: "1 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "light-lf-milk",
+      productName: "Lättmjölk 1,5% LF",
+      priceSek: 19.95,
+      unitLabel: "1,5 l",
+      searchTerms: ["mjölk"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "cf", name: "Crème fraiche" }, cremeFraiche).product?.id,
+    "light-lf-cf",
+  );
+  assert.equal(
+    matchListItem({ id: "milk", name: "Mjölk" }, milk).product?.id,
+    "light-lf-milk",
+  );
+});
+
+test("pasta format ranking rejects ready meals when dry pasta is available", () => {
+  const products = [
+    pricedProduct({
+      id: "ready-penne",
+      productName: "REDO Carbonara med Penne Pasta",
+      priceSek: 54.95,
+      unitLabel: "400 g",
+      searchTerms: ["port penne"],
+    }),
+    pricedProduct({
+      id: "dry-penne",
+      productName: "Penne Pasta 500G",
+      priceSek: 18.95,
+      unitLabel: "500 g",
+      searchTerms: ["port penne"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "penne", name: "Port penne" }, products).product?.id,
+    "dry-penne",
+  );
+});
+
+test("potato ranking follows an explicit floury preference", () => {
+  const products = [
+    pricedProduct({
+      id: "firm-potatoes",
+      productName: "Potatis Fast 2KG",
+      priceSek: 32.95,
+      unitLabel: "2 kg",
+      searchTerms: ["potatis mjölig"],
+    }),
+    pricedProduct({
+      id: "floury-potatoes",
+      productName: "Potatis Mjölig 2KG",
+      priceSek: 32.95,
+      unitLabel: "2 kg",
+      searchTerms: ["potatis mjölig"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "potatoes", name: "Potatis mjölig" }, products).product?.id,
+    "floury-potatoes",
+  );
+});
+
+test("cucumber ranking prefers a Swedish single cucumber", () => {
+  const products = [
+    pricedProduct({
+      id: "cucumber-pack",
+      productName: "Gurka 3-pack",
+      priceSek: 39.95,
+      unitLabel: "3 st",
+      searchTerms: ["gurka"],
+    }),
+    pricedProduct({
+      id: "cucumber-single",
+      productName: "Gurka Sverige ST",
+      priceSek: 14.95,
+      unitLabel: "1 st",
+      searchTerms: ["gurka"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "cucumber", name: "Gurka" }, products).product?.id,
+    "cucumber-single",
+  );
+});
+
+test("falukorv ranking prefers an 800G ring", () => {
+  const products = [
+    pricedProduct({
+      id: "falukorv-small",
+      productName: "Falukorv 500G",
+      priceSek: 31.95,
+      unitLabel: "500 g",
+      searchTerms: ["falukorv"],
+    }),
+    pricedProduct({
+      id: "falukorv-ring",
+      productName: "Falukorv Ring 800G",
+      priceSek: 44.95,
+      unitLabel: "800 g",
+      searchTerms: ["falukorv"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "falukorv", name: "Falukorv" }, products).product?.id,
+    "falukorv-ring",
+  );
+});
+
+test("explicit standard dairy does not automatically prefer light products", () => {
+  const products = [
+    pricedProduct({
+      id: "standard-milk",
+      productName: "Standardmjölk 3%",
+      priceSek: 20.95,
+      unitLabel: "1 l",
+      searchTerms: ["standard mjölk"],
+    }),
+    pricedProduct({
+      id: "light-milk",
+      productName: "Lättmjölk 1,5% LF",
+      priceSek: 19.95,
+      unitLabel: "1 l",
+      searchTerms: ["standard mjölk"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "milk", name: "Standard mjölk" }, products).product?.id,
+    "standard-milk",
+  );
+});
+
+test("household sanity can prefer a reasonable medium-confidence egg product", () => {
+  const products = [
+    pricedProduct({
+      id: "eggs-99-premium",
+      productName: "Premium Ägg 99P",
+      priceSek: 199.95,
+      unitLabel: "99 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-15-household",
+      productName: "Ägg Frigående 15P",
+      priceSek: 42.95,
+      unitLabel: "15 st",
+      searchTerms: [],
+    }),
+  ];
+
+  const match = matchListItem({ id: "eggs", name: "Ägg" }, products, {
+    debug: true,
+  });
+  assert.equal(match.product?.id, "eggs-15-household");
+  assert.equal(match.confidence, "medium");
+  assert.ok(match.preferenceReasons?.includes("egg_normal_pack"));
+});
+
+test("dry pasta can beat an exact search-term match for a prepared meal", () => {
+  const products = [
+    pricedProduct({
+      id: "ready-penne-exact",
+      productName: "REDO Carbonara med Penne Pasta",
+      priceSek: 54.95,
+      unitLabel: "400 g",
+      searchTerms: ["penne"],
+    }),
+    pricedProduct({
+      id: "dry-penne-medium",
+      productName: "Penne Pasta 500G",
+      priceSek: 18.95,
+      unitLabel: "500 g",
+      searchTerms: [],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "penne", name: "Penne" }, products).product?.id,
+    "dry-penne-medium",
+  );
+});
+
+test("ordinary chilled milk can beat an exact long-life search-term match", () => {
+  const products = [
+    pricedProduct({
+      id: "uht-milk-exact",
+      productName: "Mjölk Lång Hållbarhet UHT 1L",
+      priceSek: 29.95,
+      unitLabel: "1 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "household-milk",
+      productName: "Lätt Mjölk 1,5% LF",
+      priceSek: 18.95,
+      unitLabel: "1,5 l",
+      searchTerms: [],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "milk", name: "Mjölk" }, products).product?.id,
+    "household-milk",
+  );
+});
+
+test("explicit frozen bulk chicken keeps requested variants eligible", () => {
+  const products = [
+    pricedProduct({
+      id: "fresh-chicken",
+      productName: "Kycklingfilé Naturell 700G",
+      priceSek: 79.95,
+      unitLabel: "700 g",
+      searchTerms: ["kycklingfilé fryst storpack"],
+    }),
+    pricedProduct({
+      id: "frozen-bulk-chicken",
+      productName: "Kycklingfilé Fryst Storpack 2KG",
+      priceSek: 137.2,
+      unitLabel: "2 kg",
+      searchTerms: ["kycklingfilé fryst storpack"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem(
+      { id: "chicken", name: "Kycklingfilé fryst storpack (2 kg)" },
+      products,
+    ).product?.id,
+    "frozen-bulk-chicken",
+  );
+});
+
+test("preference diagnostics are only included when pricing debug is active", async () => {
+  const request = {
+    chain: "city_gross" as const,
+    items: [{ id: "eggs", name: "Ägg" }],
+  };
+  const product = pricedProduct({
+    id: "eggs-12",
+    productName: "Ägg 12P",
+    priceSek: 34.95,
+    unitLabel: "12 st",
+    searchTerms: ["ägg"],
+  });
+  const searchProducts = async () => [product];
+
+  const regular = await calculateCityGrossBasket(request, { searchProducts });
+  const debug = await calculateCityGrossBasket(request, {
+    searchProducts,
+    debug: true,
+  });
+
+  assert.equal(regular.matches[0].preferenceScore, undefined);
+  assert.equal(regular.matches[0].preferenceReasons, undefined);
+  assert.equal(typeof debug.matches[0].preferenceScore, "number");
+  assert.ok(debug.matches[0].preferenceReasons?.includes("egg_normal_pack"));
+});
+
+test("single pepper ranking prefers a normal approximate piece weight", () => {
+  const products = [
+    pricedProduct({
+      id: "pepper-pack",
+      productName: "Paprika Röd Flerpack",
+      priceSek: 39.95,
+      unitLabel: "3 st",
+      searchTerms: ["röd paprika"],
+    }),
+    pricedProduct({
+      id: "pepper_KG",
+      productName: "Paprika Röd",
+      priceSek: 44.95,
+      unitLabel: "CA200G",
+      comparePrice: "44.95 kr/kg",
+      searchTerms: ["röd paprika"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "pepper", name: "Röd paprika (1 st)" }, products)
+      .product?.id,
+    "pepper_KG",
+  );
+});
+
+test("reasonable price breaks ties between otherwise normal egg packs", () => {
+  const products = [
+    pricedProduct({
+      id: "eggs-expensive",
+      productName: "Ägg 12P Frigående",
+      priceSek: 99.95,
+      unitLabel: "12 st",
+      searchTerms: ["ägg"],
+    }),
+    pricedProduct({
+      id: "eggs-reasonable",
+      productName: "Ägg 12P Inne Medium",
+      priceSek: 34.95,
+      unitLabel: "12 st",
+      searchTerms: ["ägg"],
+    }),
+  ];
+
+  const match = matchListItem({ id: "eggs", name: "Ägg" }, products, {
+    debug: true,
+  });
+  assert.equal(match.product?.id, "eggs-reasonable");
+  assert.ok(match.preferenceReasons?.includes("reasonable_price"));
+});
