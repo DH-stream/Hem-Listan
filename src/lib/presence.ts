@@ -78,6 +78,31 @@ export const mapPresenceState = (
   });
 };
 
+export interface MockPresenceOptions {
+  enabled: boolean;
+  currentUserId: string | null;
+  listId: string | null;
+}
+
+export const DEBUG_PRESENCE_USER_ID = "debug-presence-felicia";
+
+export const withMockPresence = (
+  users: PresentUser[],
+  { enabled, currentUserId, listId }: MockPresenceOptions,
+): PresentUser[] => {
+  if (!enabled || !currentUserId || !listId) return users;
+  if (users.some((user) => user.userId === DEBUG_PRESENCE_USER_ID)) return users;
+
+  return [...users, {
+    userId: DEBUG_PRESENCE_USER_ID,
+    displayName: "Felicia",
+    avatarUrl: null,
+    avatarPath: null,
+    listId,
+    lastSeenAt: new Date().toISOString(),
+  }];
+};
+
 export const shouldShowPresence = (users: PresentUser[]): boolean => users.length > 1;
 
 export const getVisiblePresence = (users: PresentUser[], maxVisible = 3) => ({

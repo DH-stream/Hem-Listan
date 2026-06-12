@@ -14,9 +14,12 @@ type DebugPanelProps = {
   sessionUserId: string | null;
   currentView: "dashboard" | "create" | "detail";
   listsCount: number;
+  mockPresenceEnabled: boolean;
+  onMockPresenceChange: (enabled: boolean) => void;
 };
 
 const DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
+export const MOCK_PRESENCE_STORAGE_KEY = "hem-listan-debug-mock-presence";
 const MAX_LOG_ENTRIES = 100;
 const REDACTED = "[redacted]";
 
@@ -84,6 +87,19 @@ const stringifyLogPart = (part: unknown) => {
 
 const formatLogArgs = (args: unknown[]) => args.map(stringifyLogPart).join(" ");
 
+export const getInitialMockPresenceEnabled = () => {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const debugEnabled = params.get("debug") === "1"
+      || localStorage.getItem(DEBUG_STORAGE_KEY) === "true";
+    return debugEnabled && localStorage.getItem(MOCK_PRESENCE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
 const getInitialDebugEnabled = () => {
   if (typeof window === "undefined") return false;
 
@@ -106,6 +122,8 @@ export default function DebugPanel({
   sessionUserId,
   currentView,
   listsCount,
+  mockPresenceEnabled,
+  onMockPresenceChange,
 }: DebugPanelProps) {
   const [enabled, setEnabled] = useState(getInitialDebugEnabled);
   const [isOpen, setIsOpen] = useState(false);
@@ -198,9 +216,20 @@ export default function DebugPanel({
       // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
     }
 
+    onMockPresenceChange(false);
     setIsOpen(false);
     setEnabled(false);
     setLogs([]);
+  };
+
+  const handleToggleMockPresence = () => {
+    const nextEnabled = !mockPresenceEnabled;
+    try {
+      localStorage.setItem(MOCK_PRESENCE_STORAGE_KEY, String(nextEnabled));
+    } catch {
+      // Debug tooling must remain usable when storage is unavailable.
+    }
+    onMockPresenceChange(nextEnabled);
   };
 
   return (
@@ -269,6 +298,14 @@ export default function DebugPanel({
                 className="rounded-full border border-white/20 px-3 py-2 text-[10px] font-bold text-white"
               >
                 Clear
+              </button>
+              <button
+                type="button"
+                aria-pressed={mockPresenceEnabled}
+                onClick={handleToggleMockPresence}
+                className="rounded-full border border-white/20 px-3 py-2 text-[10px] font-bold text-white active:scale-95"
+              >
+                Mocka presence: {mockPresenceEnabled ? "På" : "Av"}
               </button>
               <button
                 type="button"

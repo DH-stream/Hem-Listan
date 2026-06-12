@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getPresenceInitials, getVisiblePresence, mapPresenceState, shouldShowPresence, type PresentUser } from "./src/lib/presence";
+import { DEBUG_PRESENCE_USER_ID, getPresenceInitials, getVisiblePresence, mapPresenceState, shouldShowPresence, withMockPresence, type PresentUser } from "./src/lib/presence";
 
 test("mapPresenceState deduplicates users and keeps the latest meta", () => {
   const users = mapPresenceState({
@@ -54,3 +54,64 @@ test("shouldShowPresence only reveals presence for multiple unique users", () =>
   assert.equal(shouldShowPresence([user("1")]), false);
   assert.equal(shouldShowPresence([user("1"), user("2")]), true);
 });
+
+test("withMockPresence returns the same users when disabled", () => {
+  const users = [presenceUser("user-1")];
+  assert.equal(withMockPresence(users, {
+    enabled: false,
+    currentUserId: "user-1",
+    listId: "list-1",
+  }), users);
+});
+
+test("withMockPresence returns the same users without a current user or list", () => {
+  const users = [presenceUser("user-1")];
+  assert.equal(withMockPresence(users, {
+    enabled: true,
+    currentUserId: null,
+    listId: "list-1",
+  }), users);
+  assert.equal(withMockPresence(users, {
+    enabled: true,
+    currentUserId: "user-1",
+    listId: null,
+  }), users);
+});
+
+test("withMockPresence adds Felicia and makes presence visible", () => {
+  const users = [presenceUser("user-1")];
+  const displayedUsers = withMockPresence(users, {
+    enabled: true,
+    currentUserId: "user-1",
+    listId: "list-1",
+  });
+
+  assert.equal(displayedUsers.length, 2);
+  assert.equal(displayedUsers[1].userId, DEBUG_PRESENCE_USER_ID);
+  assert.equal(displayedUsers[1].displayName, "Felicia");
+  assert.equal(displayedUsers[1].listId, "list-1");
+  assert.equal(shouldShowPresence(displayedUsers), true);
+});
+
+test("withMockPresence does not duplicate the debug user", () => {
+  const users = [presenceUser("user-1"), presenceUser(DEBUG_PRESENCE_USER_ID)];
+  const displayedUsers = withMockPresence(users, {
+    enabled: true,
+    currentUserId: "user-1",
+    listId: "list-1",
+  });
+
+  assert.equal(displayedUsers, users);
+  assert.equal(displayedUsers.filter((user) => user.userId === DEBUG_PRESENCE_USER_ID).length, 1);
+});
+
+function presenceUser(userId: string): PresentUser {
+  return {
+    userId,
+    displayName: `User ${userId}`,
+    avatarUrl: null,
+    avatarPath: null,
+    listId: "list-1",
+    lastSeenAt: "2026-06-12T10:00:00.000Z",
+  };
+}
