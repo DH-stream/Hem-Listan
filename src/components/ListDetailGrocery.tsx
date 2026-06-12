@@ -527,16 +527,18 @@ export default function ListDetailGrocery({
   return (
     <div className="w-full max-w-[768px] mx-auto pb-[170px]">
       {/* Dynamic Header Toolbar */}
-      <header className="w-full px-5 sticky top-0 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 z-40 mb-3">
-        <button
-          onClick={onBack}
-          className="p-1.5 hover:bg-surface-container text-primary rounded-full transition-all active:scale-95 shrink-0"
-          title="Gå tillbaka"
-        >
-          <LucideIcon name="arrow_back" className="w-6 h-6" />
-        </button>
+      <header className="relative sticky top-0 z-40 mb-3 h-[92px] w-full bg-surface/80 px-5 backdrop-blur-xl">
+        <div className="absolute left-5 top-1/2 flex -translate-y-1/2 items-center">
+          <button
+            onClick={onBack}
+            className="shrink-0 rounded-full p-1.5 text-primary transition-all hover:bg-surface-container active:scale-95"
+            title="Gå tillbaka"
+          >
+            <LucideIcon name="arrow_back" className="h-6 w-6" />
+          </button>
+        </div>
 
-        <div className="flex min-w-0 flex-1 flex-col items-center px-4">
+        <div className="pointer-events-none absolute left-1/2 top-1/2 flex w-[calc(100%_-_17.5rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center sm:w-[calc(100%_-_21.5rem)] [&>div]:pointer-events-auto [&>div]:max-w-full [&>form]:pointer-events-auto [&>form]:max-w-full">
           <ListNameEditor
             name={list.name}
             canRename={list.membershipRole !== "member"}
@@ -565,12 +567,12 @@ export default function ListDetailGrocery({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="absolute right-5 top-1/2 flex -translate-y-1/2 items-center gap-1">
           <div className="flex w-20 shrink-0 justify-end sm:w-28">
             <PresenceAvatarStack users={presentUsers} />
           </div>
-          <button className="p-2 hover:bg-surface-container text-primary rounded-full transition-all shrink-0">
-            <LucideIcon name="shopping_cart" className="w-5 h-5 opacity-80" />
+          <button className="shrink-0 rounded-full p-2 text-primary transition-all hover:bg-surface-container">
+            <LucideIcon name="shopping_cart" className="h-5 w-5 opacity-80" />
           </button>
         </div>
       </header>

@@ -148,34 +148,36 @@ export default function ListDetailRenovation({
   return (
     <div className="w-full max-w-[768px] mx-auto px-5 pb-[180px]">
       {/* Back Navigation Top Header */}
-      <header className="w-full sticky top-0 bg-surface/80 backdrop-blur-xl flex justify-between items-center py-4 z-40 mb-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+      <header className="relative sticky top-0 z-40 mb-3 h-[76px] w-full bg-surface/80 backdrop-blur-xl">
+        <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center">
           <button
             onClick={onBack}
-            className="shrink-0 p-1.5 hover:bg-surface-container text-primary rounded-full transition-all active:scale-90"
+            className="shrink-0 rounded-full p-1.5 text-primary transition-all hover:bg-surface-container active:scale-90"
             title="Gå tillbaka"
           >
-            <LucideIcon name="arrow_back" className="w-6 h-6" />
+            <LucideIcon name="arrow_back" className="h-6 w-6" />
           </button>
-          <div className="flex min-w-0 flex-col">
-            <ListNameEditor
-              name={list.name}
-              canRename={list.membershipRole !== "member"}
-              onRename={(name) => onRenameList(list.id, name)}
-              headingClassName="min-w-0 truncate font-display text-xl font-bold text-text-main"
-            />
-            <SharedListCount count={members?.length ?? list.memberCount} className="mt-1" />
-          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+
+        <div className="pointer-events-none absolute left-1/2 top-1/2 flex w-[calc(100%_-_15rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center sm:w-[calc(100%_-_26.5rem)] [&>div]:pointer-events-auto [&>div]:max-w-full [&>form]:pointer-events-auto [&>form]:max-w-full">
+          <ListNameEditor
+            name={list.name}
+            canRename={list.membershipRole !== "member"}
+            onRename={(name) => onRenameList(list.id, name)}
+            headingClassName="min-w-0 truncate font-display text-xl font-bold text-text-main"
+          />
+          <SharedListCount count={members?.length ?? list.memberCount} className="mt-1" />
+        </div>
+
+        <div className="absolute right-0 top-1/2 flex -translate-y-1/2 items-center gap-2">
           {completedCount > 0 && (
             <button
               onClick={() => onResetList(list.id)}
-              className="px-3 py-1.5 bg-surface-container hover:bg-surface-container-high rounded-full font-sans text-xs font-bold text-outline hover:text-text-main flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="flex cursor-pointer items-center gap-1.5 rounded-full bg-surface-container px-2 py-1.5 font-sans text-xs font-bold text-outline transition-colors hover:bg-surface-container-high hover:text-text-main sm:px-3"
               title="Återställ alla framsteg i listan"
             >
-              <LucideIcon name="refresh" className="w-3.5 h-3.5" />
-              <span>Återställ</span>
+              <LucideIcon name="refresh" className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Återställ</span>
             </button>
           )}
           <div className="flex w-20 shrink-0 justify-end sm:w-28">
