@@ -26,44 +26,80 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+import {
+  getSavedRecipeImageUrl,
+  parseSavedRecipeTipCacheValue,
+  type SavedRecipeTipCacheValue,
+} from "../lib/savedRecipes";
 
-const savedRecipeTipMemoryCache = new Map<string, SavedRecipe | null>();
+const savedRecipeTipMemoryCache = new Map<string, SavedRecipeTipCacheValue>();
 const savedRecipeTipRequests = new Map<string, Promise<SavedRecipe | null>>();
 
 const getSavedRecipeTipCacheKey = (userId: string) =>
   `shopping_tip_saved_recipe:v1:${userId}`;
 
-const isCachedSavedRecipe = (value: unknown, userId: string): value is SavedRecipe => {
-  if (!value || typeof value !== "object") return false;
-  const recipe = value as Partial<SavedRecipe>;
-  return (
-    typeof recipe.id === "string" &&
-    recipe.ownerId === userId &&
-    typeof recipe.title === "string" &&
-    Array.isArray(recipe.ingredients)
-  );
+const isRecipeTipDebugEnabled = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("debug") === "1" ||
+      window.localStorage.getItem("hem-listan-debug-enabled") === "true"
+    );
+  } catch {
+    return false;
+  }
 };
 
-const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
-  if (savedRecipeTipMemoryCache.has(userId)) {
-    return Promise.resolve(savedRecipeTipMemoryCache.get(userId) ?? null);
-  }
+const recipeTipLog = (message: string, details?: unknown) => {
+  if (!isRecipeTipDebugEnabled()) return;
+  console.log(`[recipe-tip] ${message}`, details ?? "");
+};
 
+const readSavedRecipeTipCache = (userId: string): SavedRecipeTipCacheValue | null => {
+  const memoryCache = savedRecipeTipMemoryCache.get(userId);
+  if (memoryCache) return memoryCache;
+
+  let parsedCache: ReturnType<typeof parseSavedRecipeTipCacheValue> | null = null;
   try {
     const cachedValue = sessionStorage.getItem(getSavedRecipeTipCacheKey(userId));
     if (cachedValue) {
-      const cachedRecipe: unknown = JSON.parse(cachedValue);
-      if (cachedRecipe === null) {
-        savedRecipeTipMemoryCache.set(userId, null);
-        return Promise.resolve(null);
-      }
-      if (isCachedSavedRecipe(cachedRecipe, userId)) {
-        savedRecipeTipMemoryCache.set(userId, cachedRecipe);
-        return Promise.resolve(cachedRecipe);
-      }
+      parsedCache = parseSavedRecipeTipCacheValue(JSON.parse(cachedValue));
     }
   } catch {
-    // The memory cache still prevents duplicate fetches when storage is unavailable.
+    // A fresh recipe selection is used when storage is unavailable or malformed.
+  }
+
+  if (!parsedCache?.cache) return null;
+  if (parsedCache.migratedLegacyObject) {
+    recipeTipLog("cached recipe object ignored/migrated", {
+      recipeId: parsedCache.cache.recipeId,
+    });
+  }
+  savedRecipeTipMemoryCache.set(userId, parsedCache.cache);
+  return parsedCache.cache;
+};
+
+const writeSavedRecipeTipCache = (userId: string, recipeId: string) => {
+  const cache = {
+    recipeId,
+    date: new Date().toISOString().slice(0, 10),
+  };
+  savedRecipeTipMemoryCache.set(userId, cache);
+  try {
+    sessionStorage.setItem(
+      getSavedRecipeTipCacheKey(userId),
+      JSON.stringify(cache),
+    );
+    sessionStorage.removeItem("shopping_tip_saved_recipe_id");
+  } catch {
+    // The recipe id remains stable in memory for the app session.
+  }
+};
+
+const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
+  const cached = readSavedRecipeTipCache(userId);
+  if (cached) {
+    recipeTipLog("cached recipeId found", { recipeId: cached.recipeId });
   }
 
   const pendingRequest = savedRecipeTipRequests.get(userId);
@@ -74,29 +110,20 @@ const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> =
       const recommendableRecipes = (recipes ?? []).filter(
         (recipe) => recipe.userRating !== "disliked",
       );
-      let savedRecipeId: string | null = null;
-      try {
-        savedRecipeId = sessionStorage.getItem("shopping_tip_saved_recipe_id");
-      } catch {
-        // A fresh recommendation is used when storage is unavailable.
-      }
-
       const recommendation =
-        recommendableRecipes.find((recipe) => recipe.id === savedRecipeId) ??
+        recommendableRecipes.find((recipe) => recipe.id === cached?.recipeId) ??
         recommendableRecipes[0] ??
         null;
-      savedRecipeTipMemoryCache.set(userId, recommendation);
 
-      try {
-        sessionStorage.setItem(
-          getSavedRecipeTipCacheKey(userId),
-          JSON.stringify(recommendation),
+      if (recommendation) {
+        recipeTipLog("fresh recipe found", { recipeId: recommendation.id });
+        recipeTipLog(
+          `selected recipe image ${
+            getSavedRecipeImageUrl(recommendation) ? "present" : "missing"
+          }`,
+          { recipeId: recommendation.id },
         );
-        if (recommendation) {
-          sessionStorage.setItem("shopping_tip_saved_recipe_id", recommendation.id);
-        }
-      } catch {
-        // The recommendation remains stable in memory for the app session.
+        writeSavedRecipeTipCache(userId, recommendation.id);
       }
 
       return recommendation;
@@ -216,7 +243,10 @@ export default function ListDetailGrocery({
   const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
-  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.tasks);
+  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const recommendedSavedRecipeImageUrl = recommendedSavedRecipe
+    ? getSavedRecipeImageUrl(recommendedSavedRecipe)
+    : null;
 
   const defaultDays = [
     "Måndag",
@@ -999,7 +1029,7 @@ export default function ListDetailGrocery({
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   {approximateTotalSek > 0 && (
-                    <div className="flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
+                    <div className="price-reveal flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
@@ -1091,7 +1121,7 @@ export default function ListDetailGrocery({
 
                               {matchByTaskId[item.id]?.product && (
                                 <div
-                                  className={`mr-2 flex shrink-0 items-center gap-1.5 ${
+                                  className={`price-reveal mr-2 flex shrink-0 items-center gap-1.5 ${
                                     matchByTaskId[item.id].confidence === "high"
                                       ? "text-primary"
                                       : "text-on-surface-variant/65"
@@ -1203,23 +1233,23 @@ export default function ListDetailGrocery({
                   aria-label={`Öppna recepttipset ${recommendedSavedRecipe.title}`}
                   className="group relative block h-44 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container text-left shadow-md transition-transform duration-150 active:scale-[0.98]"
                   style={
-                    recommendedSavedRecipe.imageUrl
+                    recommendedSavedRecipeImageUrl
                       ? {
-                          backgroundImage: `url(${recommendedSavedRecipe.imageUrl})`,
+                          backgroundImage: `url(${recommendedSavedRecipeImageUrl})`,
                           backgroundPosition: "center",
                           backgroundSize: "cover",
                         }
                       : undefined
                   }
                 >
-                  {!recommendedSavedRecipe.imageUrl && (
+                  {!recommendedSavedRecipeImageUrl && (
                     <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
                       <LucideIcon name="eco" className="h-8 w-8 text-white" />
                     </div>
                   )}
                   <div
                     className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t p-5 ${
-                      recommendedSavedRecipe.imageUrl
+                      recommendedSavedRecipeImageUrl
                         ? "from-[#173D2D]/95 via-[#173D2D]/45 to-black/10"
                         : "from-primary/80 to-transparent"
                     }`}
