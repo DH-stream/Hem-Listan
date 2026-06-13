@@ -16,6 +16,7 @@ import RecipeImportPreviewModal, {
 import {
   fetchSavedRecipes,
   getRecipeUrlFeedback,
+  getSupabaseAuthSnapshot,
   touchSavedRecipeLastUsed,
   upsertSavedRecipeFromImport,
 } from "../lib/supabase";
@@ -25,6 +26,86 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+
+const savedRecipeTipMemoryCache = new Map<string, SavedRecipe | null>();
+const savedRecipeTipRequests = new Map<string, Promise<SavedRecipe | null>>();
+
+const getSavedRecipeTipCacheKey = (userId: string) =>
+  `shopping_tip_saved_recipe:v1:${userId}`;
+
+const isCachedSavedRecipe = (value: unknown, userId: string): value is SavedRecipe => {
+  if (!value || typeof value !== "object") return false;
+  const recipe = value as Partial<SavedRecipe>;
+  return (
+    typeof recipe.id === "string" &&
+    recipe.ownerId === userId &&
+    typeof recipe.title === "string" &&
+    Array.isArray(recipe.ingredients)
+  );
+};
+
+const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
+  if (savedRecipeTipMemoryCache.has(userId)) {
+    return Promise.resolve(savedRecipeTipMemoryCache.get(userId) ?? null);
+  }
+
+  try {
+    const cachedValue = sessionStorage.getItem(getSavedRecipeTipCacheKey(userId));
+    if (cachedValue) {
+      const cachedRecipe: unknown = JSON.parse(cachedValue);
+      if (cachedRecipe === null) {
+        savedRecipeTipMemoryCache.set(userId, null);
+        return Promise.resolve(null);
+      }
+      if (isCachedSavedRecipe(cachedRecipe, userId)) {
+        savedRecipeTipMemoryCache.set(userId, cachedRecipe);
+        return Promise.resolve(cachedRecipe);
+      }
+    }
+  } catch {
+    // The memory cache still prevents duplicate fetches when storage is unavailable.
+  }
+
+  const pendingRequest = savedRecipeTipRequests.get(userId);
+  if (pendingRequest) return pendingRequest;
+
+  const request = fetchSavedRecipes()
+    .then((recipes) => {
+      const recommendableRecipes = (recipes ?? []).filter(
+        (recipe) => recipe.userRating !== "disliked",
+      );
+      let savedRecipeId: string | null = null;
+      try {
+        savedRecipeId = sessionStorage.getItem("shopping_tip_saved_recipe_id");
+      } catch {
+        // A fresh recommendation is used when storage is unavailable.
+      }
+
+      const recommendation =
+        recommendableRecipes.find((recipe) => recipe.id === savedRecipeId) ??
+        recommendableRecipes[0] ??
+        null;
+      savedRecipeTipMemoryCache.set(userId, recommendation);
+
+      try {
+        sessionStorage.setItem(
+          getSavedRecipeTipCacheKey(userId),
+          JSON.stringify(recommendation),
+        );
+        if (recommendation) {
+          sessionStorage.setItem("shopping_tip_saved_recipe_id", recommendation.id);
+        }
+      } catch {
+        // The recommendation remains stable in memory for the app session.
+      }
+
+      return recommendation;
+    })
+    .finally(() => savedRecipeTipRequests.delete(userId));
+
+  savedRecipeTipRequests.set(userId, request);
+  return request;
+};
 
 interface ListDetailGroceryProps {
   list: List;
@@ -150,43 +231,18 @@ export default function ListDetailGrocery({
 
   useEffect(() => {
     let isActive = true;
+    const userId = getSupabaseAuthSnapshot().userId;
 
-    if (!isLoggedIn) {
+    if (!isLoggedIn || !userId) {
       setRecommendedSavedRecipe(null);
       return () => {
         isActive = false;
       };
     }
 
-    void fetchSavedRecipes()
-      .then((recipes) => {
-        if (!isActive) return;
-
-        const recommendableRecipes = (recipes ?? []).filter(
-          (recipe) => recipe.userRating !== "disliked",
-        );
-        if (recommendableRecipes.length === 0) {
-          setRecommendedSavedRecipe(null);
-          return;
-        }
-
-        let savedRecipeId: string | null = null;
-        try {
-          savedRecipeId = sessionStorage.getItem("shopping_tip_saved_recipe_id");
-        } catch {
-          // Session storage can be unavailable in privacy-restricted browsers.
-        }
-
-        const recommendation =
-          recommendableRecipes.find((recipe) => recipe.id === savedRecipeId) ??
-          recommendableRecipes[0];
-        setRecommendedSavedRecipe(recommendation);
-
-        try {
-          sessionStorage.setItem("shopping_tip_saved_recipe_id", recommendation.id);
-        } catch {
-          // Keeping the in-memory recommendation is enough for this render session.
-        }
+    void getSessionSavedRecipeTip(userId)
+      .then((recipe) => {
+        if (isActive) setRecommendedSavedRecipe(recipe);
       })
       .catch((error) => {
         console.error("shopping_tip_saved_recipe_fetch_error", error);
