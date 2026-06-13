@@ -28,40 +28,59 @@ import {
 } from "../lib/grocery/categorize";
 import { getSavedRecipeImageUrl } from "../lib/savedRecipes";
 
-const savedRecipeTipMemoryCache = new Map<string, SavedRecipe | null>();
+type SavedRecipeTipCache = {
+  recipeId: string;
+  date: string;
+};
+
+const savedRecipeTipMemoryCache = new Map<string, SavedRecipeTipCache | null>();
 const savedRecipeTipRequests = new Map<string, Promise<SavedRecipe | null>>();
 
 const getSavedRecipeTipCacheKey = (userId: string) =>
   `shopping_tip_saved_recipe:v1:${userId}`;
 
-const isCachedSavedRecipe = (value: unknown, userId: string): value is SavedRecipe => {
+const getSavedRecipeTipDate = () => new Date().toISOString().slice(0, 10);
+
+const isSavedRecipeTipCache = (value: unknown): value is SavedRecipeTipCache => {
   if (!value || typeof value !== "object") return false;
-  const recipe = value as Partial<SavedRecipe>;
+  const cache = value as Partial<SavedRecipeTipCache>;
   return (
-    typeof recipe.id === "string" &&
-    recipe.ownerId === userId &&
-    typeof recipe.title === "string" &&
-    Array.isArray(recipe.ingredients)
+    typeof cache.recipeId === "string" &&
+    typeof cache.date === "string"
   );
 };
 
-const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
-  if (savedRecipeTipMemoryCache.has(userId)) {
-    return Promise.resolve(savedRecipeTipMemoryCache.get(userId) ?? null);
+const isRecipeTipDebugEnabled = () => {
+  try {
+    return (
+      new URLSearchParams(window.location.search).get("debug") === "1" ||
+      window.localStorage.getItem("hem-listan-debug-enabled") === "true"
+    );
+  } catch {
+    return false;
   }
+};
+
+const recipeTipDebugLog = (message: string) => {
+  if (isRecipeTipDebugEnabled()) console.debug(`[recipe-tip] ${message}`);
+};
+
+const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
+  let cachedTip = savedRecipeTipMemoryCache.get(userId) ?? null;
 
   try {
-    const cachedValue = sessionStorage.getItem(getSavedRecipeTipCacheKey(userId));
-    if (cachedValue) {
-      const cachedRecipe: unknown = JSON.parse(cachedValue);
-      if (cachedRecipe === null) {
-        savedRecipeTipMemoryCache.set(userId, null);
-        return Promise.resolve(null);
+    if (!savedRecipeTipMemoryCache.has(userId)) {
+      const cachedValue = sessionStorage.getItem(getSavedRecipeTipCacheKey(userId));
+      if (cachedValue) {
+        const parsedCache: unknown = JSON.parse(cachedValue);
+        if (isSavedRecipeTipCache(parsedCache)) {
+          cachedTip = parsedCache.date === getSavedRecipeTipDate() ? parsedCache : null;
+        } else {
+          recipeTipDebugLog("cached recipe object ignored/migrated");
+          sessionStorage.removeItem(getSavedRecipeTipCacheKey(userId));
+        }
       }
-      if (isCachedSavedRecipe(cachedRecipe, userId)) {
-        savedRecipeTipMemoryCache.set(userId, cachedRecipe);
-        return Promise.resolve(cachedRecipe);
-      }
+      savedRecipeTipMemoryCache.set(userId, cachedTip);
     }
   } catch {
     // The memory cache still prevents duplicate fetches when storage is unavailable.
@@ -75,27 +94,35 @@ const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> =
       const recommendableRecipes = (recipes ?? []).filter(
         (recipe) => recipe.userRating !== "disliked",
       );
-      let savedRecipeId: string | null = null;
-      try {
-        savedRecipeId = sessionStorage.getItem("shopping_tip_saved_recipe_id");
-      } catch {
-        // A fresh recommendation is used when storage is unavailable.
-      }
+      const cachedRecipe = cachedTip
+        ? recommendableRecipes.find((recipe) => recipe.id === cachedTip.recipeId)
+        : null;
+      if (cachedRecipe) recipeTipDebugLog("cached recipeId found");
 
       const recommendation =
-        recommendableRecipes.find((recipe) => recipe.id === savedRecipeId) ??
+        cachedRecipe ??
         recommendableRecipes[0] ??
         null;
-      savedRecipeTipMemoryCache.set(userId, recommendation);
+      if (recommendation) recipeTipDebugLog("fresh recipe found");
+      recipeTipDebugLog(
+        `selected recipe image ${getSavedRecipeImageUrl(recommendation ?? {}) ? "present" : "missing"}`,
+      );
+
+      const nextCache = recommendation
+        ? { recipeId: recommendation.id, date: getSavedRecipeTipDate() }
+        : null;
+      savedRecipeTipMemoryCache.set(userId, nextCache);
 
       try {
-        sessionStorage.setItem(
-          getSavedRecipeTipCacheKey(userId),
-          JSON.stringify(recommendation),
-        );
-        if (recommendation) {
-          sessionStorage.setItem("shopping_tip_saved_recipe_id", recommendation.id);
+        if (nextCache) {
+          sessionStorage.setItem(
+            getSavedRecipeTipCacheKey(userId),
+            JSON.stringify(nextCache),
+          );
+        } else {
+          sessionStorage.removeItem(getSavedRecipeTipCacheKey(userId));
         }
+        sessionStorage.removeItem("shopping_tip_saved_recipe_id");
       } catch {
         // The recommendation remains stable in memory for the app session.
       }
