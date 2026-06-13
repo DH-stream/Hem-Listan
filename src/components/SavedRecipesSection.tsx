@@ -86,7 +86,25 @@ export default function SavedRecipesSection({ isLoggedIn }: { isLoggedIn: boolea
     if (!isLoggedIn) return;
     setLoading(true);
     const saved = await fetchSavedRecipes();
-    if (saved) setRecipes(saved);
+    if (saved) {
+      try {
+        if (
+          new URLSearchParams(window.location.search).get("debug") === "1" ||
+          window.localStorage.getItem("hem-listan-debug-enabled") === "true"
+        ) {
+          saved.forEach((recipe) => {
+            console.log("[saved-recipes] loaded recipe", {
+              recipeId: recipe.id,
+              title: recipe.title,
+              imageUrl: recipe.imageUrl,
+            });
+          });
+        }
+      } catch {
+        // Debug logging must not prevent saved recipes from rendering.
+      }
+      setRecipes(saved);
+    }
     setLoading(false);
   }, [isLoggedIn]);
 
