@@ -7,7 +7,11 @@ import {
 import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
+  BASKET_PRICING_CACHE_TTL_MS,
+  createBasketItemSignature,
+  createBasketPricingCacheKey,
   logBasketPricingResult,
+  readBasketPricingCache,
   selectActiveBasketEstimate,
 } from "./src/lib/pricing/useBasketPriceEstimate";
 
@@ -131,6 +135,76 @@ test("pricing debug result logging includes safe error diagnostics", () => {
     assert.ok(calls.some(([message]) => message === "[pricing] unavailable"));
   } finally {
     console.log = originalConsoleLog;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: originalWindow,
+    });
+  }
+});
+
+test("basket pricing cache key and active item signature are stable", () => {
+  const first = createBasketItemSignature([
+    { id: "b", text: "Mjölk", checked: false },
+    { id: "done", text: "Kaffe", checked: true },
+    { id: "a", text: "Bröd", checked: false },
+  ]);
+  const second = createBasketItemSignature([
+    { id: "a", text: "Bröd", checked: false },
+    { id: "b", text: "Mjölk", checked: false },
+  ]);
+
+  assert.equal(first, second);
+  assert.equal(
+    createBasketPricingCacheKey("city_gross", "list-1", first),
+    `hem-listan-pricing-basket:v1:city_gross:list-1:${first}`,
+  );
+  assert.notEqual(
+    first,
+    createBasketItemSignature([
+      { id: "a", text: "Surdegsbröd", checked: false },
+      { id: "b", text: "Mjölk", checked: false },
+    ]),
+  );
+  assert.notEqual(
+    first,
+    createBasketItemSignature([
+      { id: "a", text: "Bröd", checked: false },
+      { id: "b", text: "Mjölk", checked: true },
+    ]),
+  );
+});
+
+test("basket pricing cache identifies fresh and stale entries", () => {
+  const originalWindow = globalThis.window;
+  const key = "hem-listan-pricing-basket:v1:city_gross:list-cache:items";
+  const fetchedAt = "2026-06-13T00:00:00.000Z";
+  const entry = {
+    result: { matches: [], approximateTotalSek: 42 },
+    fetchedAt,
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: (requestedKey: string) =>
+          requestedKey === key ? JSON.stringify(entry) : null,
+      },
+    },
+  });
+
+  try {
+    assert.deepEqual(
+      readBasketPricingCache(key, Date.parse(fetchedAt) + 1_000),
+      { entry, isStale: false },
+    );
+    assert.deepEqual(
+      readBasketPricingCache(
+        key,
+        Date.parse(fetchedAt) + BASKET_PRICING_CACHE_TTL_MS,
+      ),
+      { entry, isStale: true },
+    );
+  } finally {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: originalWindow,

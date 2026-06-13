@@ -3,7 +3,85 @@ import type { TaskItem } from "../../types";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 
 const BASKET_DEBOUNCE_MS = 3_000;
+export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
+const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v1";
+const basketPricingMemoryCache = new Map<string, BasketPricingCacheEntry>();
+
+interface BasketPricingCacheEntry {
+  result: BasketPriceEstimate;
+  fetchedAt: string;
+}
+
+export const createBasketItemSignature = (
+  tasks: TaskItem[],
+): string =>
+  tasks
+    .filter((task) => !task.checked)
+    .map((task) => `${task.id}:${task.text}`)
+    .sort()
+    .join("|");
+
+export const createBasketPricingCacheKey = (
+  chain: string,
+  listId: string,
+  signature: string,
+): string =>
+  `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${listId}:${signature}`;
+
+const isCacheEntry = (value: unknown): value is BasketPricingCacheEntry => {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Partial<BasketPricingCacheEntry>;
+  return (
+    typeof entry.fetchedAt === "string" &&
+    !!entry.result &&
+    Array.isArray(entry.result.matches) &&
+    typeof entry.result.approximateTotalSek === "number"
+  );
+};
+
+export const readBasketPricingCache = (
+  key: string,
+  now = Date.now(),
+): { entry: BasketPricingCacheEntry | null; isStale: boolean } => {
+  let entry = basketPricingMemoryCache.get(key) ?? null;
+
+  if (!entry && typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(key);
+      const parsed: unknown = stored ? JSON.parse(stored) : null;
+      if (isCacheEntry(parsed)) {
+        entry = parsed;
+        basketPricingMemoryCache.set(key, parsed);
+      }
+    } catch {
+      // Pricing still works when localStorage is unavailable or malformed.
+    }
+  }
+
+  if (!entry) return { entry: null, isStale: false };
+  const fetchedAtMs = Date.parse(entry.fetchedAt);
+  return {
+    entry,
+    isStale:
+      !Number.isFinite(fetchedAtMs) ||
+      now - fetchedAtMs >= BASKET_PRICING_CACHE_TTL_MS,
+  };
+};
+
+const writeBasketPricingCache = (
+  key: string,
+  result: BasketPriceEstimate,
+): void => {
+  const entry = { result, fetchedAt: new Date().toISOString() };
+  basketPricingMemoryCache.set(key, entry);
+  try {
+    window.localStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // The memory cache still avoids duplicate requests in this session.
+  }
+  pricingLog("cache write", { key, fetchedAt: entry.fetchedAt });
+};
 
 const isPricingDebugEnabled = () => {
   if (typeof window === "undefined") return false;
@@ -89,6 +167,7 @@ export const selectActiveBasketEstimate = (
 };
 
 export const useBasketPriceEstimate = (
+  listId: string,
   tasks: TaskItem[],
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
@@ -105,16 +184,29 @@ export const useBasketPriceEstimate = (
     activeItems,
   });
 
-  const itemSignature = activeItems
-    .map((item) => `${item.id}:${item.name}`)
-    .join("|");
+  const itemSignature = createBasketItemSignature(tasks);
 
   useEffect(() => {
-    setEstimate(EMPTY_ESTIMATE);
     if (activeItems.length === 0) {
+      setEstimate(EMPTY_ESTIMATE);
       pricingLog("skip: no active items");
       return;
     }
+
+    const chain = "city_gross";
+    const cacheKey = createBasketPricingCacheKey(chain, listId, itemSignature);
+    const cached = readBasketPricingCache(cacheKey);
+    if (cached.entry && !cached.isStale) {
+      pricingLog("cache hit", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
+      setEstimate(cached.entry.result);
+      return;
+    }
+    if (cached.entry) {
+      pricingLog("cache stale", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
+    } else {
+      pricingLog("cache miss", { key: cacheKey });
+    }
+    setEstimate(EMPTY_ESTIMATE);
 
     const debugEnabled = isPricingDebugEnabled();
     const controller = new AbortController();
@@ -123,7 +215,6 @@ export const useBasketPriceEstimate = (
       activeCount: activeItems.length,
     });
     const timeoutId = window.setTimeout(() => {
-      const chain = "city_gross";
       pricingLog("request basket", { chain, items: activeItems });
       void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
         method: "POST",
@@ -154,6 +245,10 @@ export const useBasketPriceEstimate = (
         })
         .then((result) => {
           logBasketPricingResult(result);
+          if (result.error) {
+            throw new Error(result.error);
+          }
+          writeBasketPricingCache(cacheKey, result);
           setEstimate(result);
         })
         .catch((error: unknown) => {
@@ -162,7 +257,15 @@ export const useBasketPriceEstimate = (
             return;
           }
           pricingLog("request failed", error);
-          setEstimate(EMPTY_ESTIMATE);
+          if (cached.entry) {
+            pricingLog("using stale cache after request failed", {
+              key: cacheKey,
+              fetchedAt: cached.entry.fetchedAt,
+            });
+            setEstimate(cached.entry.result);
+          } else {
+            setEstimate(EMPTY_ESTIMATE);
+          }
         });
     }, BASKET_DEBOUNCE_MS);
 
@@ -170,7 +273,7 @@ export const useBasketPriceEstimate = (
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [itemSignature]);
+  }, [itemSignature, listId]);
 
   return useMemo(
     () => selectActiveBasketEstimate(tasks, estimate),
