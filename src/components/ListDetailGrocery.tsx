@@ -26,7 +26,6 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
-import { getSavedRecipeImageUrl } from "../lib/savedRecipes";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -91,24 +90,35 @@ const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> =
 
   const request = fetchSavedRecipes()
     .then((recipes) => {
-      const recommendableRecipes = (recipes ?? []).filter(
+      const freshRecipes = recipes ?? [];
+      recipeTipDebugLog("fetched saved recipes", {
+        count: freshRecipes.length,
+        withImageCount: freshRecipes.filter((recipe) => Boolean(recipe.imageUrl)).length,
+        first: freshRecipes[0]
+          ? {
+              id: freshRecipes[0].id,
+              title: freshRecipes[0].title,
+              hasImage: Boolean(freshRecipes[0].imageUrl),
+              imageUrl: freshRecipes[0].imageUrl,
+            }
+          : null,
+      });
+
+      const recommendableRecipes = freshRecipes.filter(
         (recipe) => recipe.userRating !== "disliked",
       );
       const cachedRecipe = cachedTip
         ? recommendableRecipes.find((recipe) => recipe.id === cachedTip.recipeId)
         : null;
-      if (cachedRecipe) recipeTipDebugLog("cached recipeId found");
-
       const recommendation =
         cachedRecipe ??
         recommendableRecipes[0] ??
         null;
-      if (recommendation) recipeTipDebugLog("fresh recipe found");
       if (recommendation) {
-        recipeTipDebugLog("selected fresh recipe", {
+        recipeTipDebugLog("selected recipe", {
           recipeId: recommendation.id,
           title: recommendation.title,
-          imageUrlPresent: Boolean(recommendation.imageUrl),
+          hasImage: Boolean(recommendation.imageUrl),
           imageUrl: recommendation.imageUrl,
         });
       }
@@ -250,19 +260,11 @@ export default function ListDetailGrocery({
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
-  const resolvedImageUrl = recommendedSavedRecipe
-    ? getSavedRecipeImageUrl(recommendedSavedRecipe)
-    : null;
-  const recipeTipBackgroundImage = resolvedImageUrl
-    ? `url(${JSON.stringify(resolvedImageUrl)})`
-    : undefined;
   recipeTipDebugLog("render card", {
-    hasRecommendedSavedRecipe: Boolean(recommendedSavedRecipe),
     recipeId: recommendedSavedRecipe?.id,
     title: recommendedSavedRecipe?.title,
+    hasImage: Boolean(recommendedSavedRecipe?.imageUrl),
     imageUrl: recommendedSavedRecipe?.imageUrl,
-    resolvedImageUrl,
-    backgroundImage: recipeTipBackgroundImage,
   });
 
   const defaultDays = [
@@ -1249,24 +1251,22 @@ export default function ListDetailGrocery({
                   onClick={() => handleSelectSavedRecipe(recommendedSavedRecipe)}
                   aria-label={`Öppna recepttipset ${recommendedSavedRecipe.title}`}
                   className="group relative block h-44 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container text-left shadow-md transition-transform duration-150 active:scale-[0.98]"
-                  style={
-                    resolvedImageUrl
-                      ? {
-                          backgroundImage: recipeTipBackgroundImage,
-                          backgroundPosition: "center",
-                          backgroundSize: "cover",
-                        }
-                      : undefined
-                  }
                 >
-                  {!resolvedImageUrl && (
+                  {recommendedSavedRecipe.imageUrl ? (
+                    <img
+                      src={recommendedSavedRecipe.imageUrl}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
                     <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
                       <LucideIcon name="eco" className="h-8 w-8 text-white" />
                     </div>
                   )}
                   <div
                     className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t p-5 ${
-                      resolvedImageUrl
+                      recommendedSavedRecipe.imageUrl
                         ? "from-[#173D2D]/95 via-[#173D2D]/45 to-black/10"
                         : "from-primary/80 to-transparent"
                     }`}
