@@ -84,6 +84,34 @@ const confidenceRank: Record<PriceMatchConfidence, number> = {
   none: 0,
 };
 
+const isClearlyIncompatibleProduct = (
+  query: string,
+  product: ProductPrice,
+) => {
+  const productName = normalizePriceQuery(product.productName);
+  const category = normalizePriceQuery(
+    [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
+  );
+
+  if (
+    query === "citron" &&
+    (/\b(?:dryck|drinkmixer|essens|tonic)\b/.test(category) ||
+      /\b(?:tonic|drinkmixer|essens)\b/.test(productName))
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(?:penne|fusilli|spaghetti|makaron|conchiglie|pasta)\b/.test(query) &&
+    (/\b(?:kyld fardigmat|fardigmat|fardiga ratter|portionsratt)\b/.test(category) ||
+      /\b(?:carbonara|fardigratt|fardigmat|redo)\b/.test(productName))
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 type ParsedAmount = { amount: number; dimension: "mass" | "volume" | "count" };
 
 const parseAmount = (value: string): ParsedAmount | null => {
@@ -248,6 +276,9 @@ export const matchListItem = (
 ): ListItemPriceMatch => {
   const query = normalizePriceQuery(cleanCityGrossSearchQuery(item.name));
   const candidates = products.map((product) => {
+    if (isClearlyIncompatibleProduct(query, product)) {
+      return { product, confidence: "none" as const };
+    }
     const productConfidence = [product.productName, ...product.searchTerms]
       .map(normalizePriceQuery)
       .reduce<PriceMatchConfidence>((best, candidate) => {
