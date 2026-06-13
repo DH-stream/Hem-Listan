@@ -13,13 +13,99 @@ import RecipeImportPreviewModal, {
   RecipeImportPreview,
   RecipeImportSelection,
 } from "./RecipeImportPreviewModal";
-import { getRecipeUrlFeedback, touchSavedRecipeLastUsed, upsertSavedRecipeFromImport } from "../lib/supabase";
+import {
+  fetchSavedRecipes,
+  getRecipeUrlFeedback,
+  getSupabaseAuthSnapshot,
+  touchSavedRecipeLastUsed,
+  upsertSavedRecipeFromImport,
+} from "../lib/supabase";
 import { useBasketPriceEstimate } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
 import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+
+const savedRecipeTipMemoryCache = new Map<string, SavedRecipe | null>();
+const savedRecipeTipRequests = new Map<string, Promise<SavedRecipe | null>>();
+
+const getSavedRecipeTipCacheKey = (userId: string) =>
+  `shopping_tip_saved_recipe:v1:${userId}`;
+
+const isCachedSavedRecipe = (value: unknown, userId: string): value is SavedRecipe => {
+  if (!value || typeof value !== "object") return false;
+  const recipe = value as Partial<SavedRecipe>;
+  return (
+    typeof recipe.id === "string" &&
+    recipe.ownerId === userId &&
+    typeof recipe.title === "string" &&
+    Array.isArray(recipe.ingredients)
+  );
+};
+
+const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
+  if (savedRecipeTipMemoryCache.has(userId)) {
+    return Promise.resolve(savedRecipeTipMemoryCache.get(userId) ?? null);
+  }
+
+  try {
+    const cachedValue = sessionStorage.getItem(getSavedRecipeTipCacheKey(userId));
+    if (cachedValue) {
+      const cachedRecipe: unknown = JSON.parse(cachedValue);
+      if (cachedRecipe === null) {
+        savedRecipeTipMemoryCache.set(userId, null);
+        return Promise.resolve(null);
+      }
+      if (isCachedSavedRecipe(cachedRecipe, userId)) {
+        savedRecipeTipMemoryCache.set(userId, cachedRecipe);
+        return Promise.resolve(cachedRecipe);
+      }
+    }
+  } catch {
+    // The memory cache still prevents duplicate fetches when storage is unavailable.
+  }
+
+  const pendingRequest = savedRecipeTipRequests.get(userId);
+  if (pendingRequest) return pendingRequest;
+
+  const request = fetchSavedRecipes()
+    .then((recipes) => {
+      const recommendableRecipes = (recipes ?? []).filter(
+        (recipe) => recipe.userRating !== "disliked",
+      );
+      let savedRecipeId: string | null = null;
+      try {
+        savedRecipeId = sessionStorage.getItem("shopping_tip_saved_recipe_id");
+      } catch {
+        // A fresh recommendation is used when storage is unavailable.
+      }
+
+      const recommendation =
+        recommendableRecipes.find((recipe) => recipe.id === savedRecipeId) ??
+        recommendableRecipes[0] ??
+        null;
+      savedRecipeTipMemoryCache.set(userId, recommendation);
+
+      try {
+        sessionStorage.setItem(
+          getSavedRecipeTipCacheKey(userId),
+          JSON.stringify(recommendation),
+        );
+        if (recommendation) {
+          sessionStorage.setItem("shopping_tip_saved_recipe_id", recommendation.id);
+        }
+      } catch {
+        // The recommendation remains stable in memory for the app session.
+      }
+
+      return recommendation;
+    })
+    .finally(() => savedRecipeTipRequests.delete(userId));
+
+  savedRecipeTipRequests.set(userId, request);
+  return request;
+};
 
 interface ListDetailGroceryProps {
   list: List;
@@ -98,6 +184,7 @@ export default function ListDetailGrocery({
     useState<RecipeImportPreview | null>(null);
   const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<MealSlot | null>(null);
   const [selectedSavedRecipeId, setSelectedSavedRecipeId] = useState<string | null>(null);
+  const [recommendedSavedRecipe, setRecommendedSavedRecipe] = useState<SavedRecipe | null>(null);
   const [dislikedUrlWarning, setDislikedUrlWarning] = useState<string | null>(null);
 
   // States for adding item / meals
@@ -141,6 +228,31 @@ export default function ListDetailGrocery({
     "Söndag",
   ];
   const currentDay = defaultDays[(new Date().getDay() + 6) % 7];
+
+  useEffect(() => {
+    let isActive = true;
+    const userId = getSupabaseAuthSnapshot().userId;
+
+    if (!isLoggedIn || !userId) {
+      setRecommendedSavedRecipe(null);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    void getSessionSavedRecipeTip(userId)
+      .then((recipe) => {
+        if (isActive) setRecommendedSavedRecipe(recipe);
+      })
+      .catch((error) => {
+        console.error("shopping_tip_saved_recipe_fetch_error", error);
+        if (isActive) setRecommendedSavedRecipe(null);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [isLoggedIn]);
 
   const hasRecipeDetails = (meal: MealSlot) =>
     meal.source === "recipe_import" ||
@@ -1082,21 +1194,59 @@ export default function ListDetailGrocery({
             )}
 
 
-            {/* Inspirational Eco Tip Card */}
+            {/* Shopping tip card */}
             <section className="pt-2">
-              <div className="relative h-44 rounded-2xl overflow-hidden group cursor-pointer shadow-md bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container">
-                <div className="absolute right-5 top-5 w-16 h-16 rounded-full bg-white/20 flex items-center justify-center transition-transform duration-500 group-hover:scale-105">
-                  <LucideIcon name="eco" className="w-8 h-8 text-white" />
+              {recommendedSavedRecipe ? (
+                <button
+                  type="button"
+                  onClick={() => handleSelectSavedRecipe(recommendedSavedRecipe)}
+                  aria-label={`Öppna recepttipset ${recommendedSavedRecipe.title}`}
+                  className="group relative block h-44 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container text-left shadow-md transition-transform duration-150 active:scale-[0.98]"
+                  style={
+                    recommendedSavedRecipe.imageUrl
+                      ? {
+                          backgroundImage: `url(${recommendedSavedRecipe.imageUrl})`,
+                          backgroundPosition: "center",
+                          backgroundSize: "cover",
+                        }
+                      : undefined
+                  }
+                >
+                  {!recommendedSavedRecipe.imageUrl && (
+                    <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
+                      <LucideIcon name="eco" className="h-8 w-8 text-white" />
+                    </div>
+                  )}
+                  <div
+                    className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t p-5 ${
+                      recommendedSavedRecipe.imageUrl
+                        ? "from-[#173D2D]/95 via-[#173D2D]/45 to-black/10"
+                        : "from-primary/80 to-transparent"
+                    }`}
+                  >
+                    <p className="mb-1 font-sans text-[10px] font-bold uppercase leading-none tracking-widest text-white/80">
+                      Recepttips
+                    </p>
+                    <h4 className="line-clamp-2 font-display text-lg font-bold text-white">
+                      {recommendedSavedRecipe.title}
+                    </h4>
+                  </div>
+                </button>
+              ) : (
+                <div className="group relative h-44 cursor-pointer overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container shadow-md">
+                  <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20 transition-transform duration-500 group-hover:scale-105">
+                    <LucideIcon name="eco" className="h-8 w-8 text-white" />
+                  </div>
+                  <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-primary/80 to-transparent p-5">
+                    <p className="mb-1 font-sans text-[10px] font-bold uppercase leading-none tracking-widest text-white/80">
+                      Shopping Tips
+                    </p>
+                    <h4 className="font-display text-lg font-bold text-white">
+                      Ekologiska val denna vecka
+                    </h4>
+                  </div>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-primary/80 to-transparent flex flex-col justify-end p-5">
-                  <p className="text-white font-sans text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1 leading-none">
-                    Shopping Tips
-                  </p>
-                  <h4 className="text-white font-display text-lg font-bold">
-                    Ekologiska val denna vecka
-                  </h4>
-                </div>
-              </div>
+              )}
             </section>
           </motion.div>
         )}
