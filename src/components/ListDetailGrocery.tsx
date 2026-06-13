@@ -26,6 +26,7 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+import { getSavedRecipeImageUrl } from "../lib/savedRecipes";
 
 const savedRecipeTipMemoryCache = new Map<string, SavedRecipe | null>();
 const savedRecipeTipRequests = new Map<string, Promise<SavedRecipe | null>>();
@@ -216,7 +217,10 @@ export default function ListDetailGrocery({
   const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
-  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.tasks);
+  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const recommendedSavedRecipeImageUrl = recommendedSavedRecipe
+    ? getSavedRecipeImageUrl(recommendedSavedRecipe)
+    : null;
 
   const defaultDays = [
     "Måndag",
@@ -999,7 +1003,7 @@ export default function ListDetailGrocery({
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   {approximateTotalSek > 0 && (
-                    <div className="flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
+                    <div className="price-reveal flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
@@ -1091,7 +1095,7 @@ export default function ListDetailGrocery({
 
                               {matchByTaskId[item.id]?.product && (
                                 <div
-                                  className={`mr-2 flex shrink-0 items-center gap-1.5 ${
+                                  className={`price-reveal mr-2 flex shrink-0 items-center gap-1.5 ${
                                     matchByTaskId[item.id].confidence === "high"
                                       ? "text-primary"
                                       : "text-on-surface-variant/65"
@@ -1203,23 +1207,23 @@ export default function ListDetailGrocery({
                   aria-label={`Öppna recepttipset ${recommendedSavedRecipe.title}`}
                   className="group relative block h-44 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container text-left shadow-md transition-transform duration-150 active:scale-[0.98]"
                   style={
-                    recommendedSavedRecipe.imageUrl
+                    recommendedSavedRecipeImageUrl
                       ? {
-                          backgroundImage: `url(${recommendedSavedRecipe.imageUrl})`,
+                          backgroundImage: `url(${recommendedSavedRecipeImageUrl})`,
                           backgroundPosition: "center",
                           backgroundSize: "cover",
                         }
                       : undefined
                   }
                 >
-                  {!recommendedSavedRecipe.imageUrl && (
+                  {!recommendedSavedRecipeImageUrl && (
                     <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
                       <LucideIcon name="eco" className="h-8 w-8 text-white" />
                     </div>
                   )}
                   <div
                     className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t p-5 ${
-                      recommendedSavedRecipe.imageUrl
+                      recommendedSavedRecipeImageUrl
                         ? "from-[#173D2D]/95 via-[#173D2D]/45 to-black/10"
                         : "from-primary/80 to-transparent"
                     }`}
