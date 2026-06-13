@@ -61,8 +61,8 @@ const isRecipeTipDebugEnabled = () => {
   }
 };
 
-const recipeTipDebugLog = (message: string) => {
-  if (isRecipeTipDebugEnabled()) console.debug(`[recipe-tip] ${message}`);
+const recipeTipDebugLog = (message: string, details?: Record<string, unknown>) => {
+  if (isRecipeTipDebugEnabled()) console.log(`[recipe-tip] ${message}`, details);
 };
 
 const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> => {
@@ -104,9 +104,14 @@ const getSessionSavedRecipeTip = (userId: string): Promise<SavedRecipe | null> =
         recommendableRecipes[0] ??
         null;
       if (recommendation) recipeTipDebugLog("fresh recipe found");
-      recipeTipDebugLog(
-        `selected recipe image ${getSavedRecipeImageUrl(recommendation ?? {}) ? "present" : "missing"}`,
-      );
+      if (recommendation) {
+        recipeTipDebugLog("selected fresh recipe", {
+          recipeId: recommendation.id,
+          title: recommendation.title,
+          imageUrlPresent: Boolean(recommendation.imageUrl),
+          imageUrl: recommendation.imageUrl,
+        });
+      }
 
       const nextCache = recommendation
         ? { recipeId: recommendation.id, date: getSavedRecipeTipDate() }
@@ -245,9 +250,20 @@ export default function ListDetailGrocery({
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
-  const recommendedSavedRecipeImageUrl = recommendedSavedRecipe
+  const resolvedImageUrl = recommendedSavedRecipe
     ? getSavedRecipeImageUrl(recommendedSavedRecipe)
     : null;
+  const recipeTipBackgroundImage = resolvedImageUrl
+    ? `url(${JSON.stringify(resolvedImageUrl)})`
+    : undefined;
+  recipeTipDebugLog("render card", {
+    hasRecommendedSavedRecipe: Boolean(recommendedSavedRecipe),
+    recipeId: recommendedSavedRecipe?.id,
+    title: recommendedSavedRecipe?.title,
+    imageUrl: recommendedSavedRecipe?.imageUrl,
+    resolvedImageUrl,
+    backgroundImage: recipeTipBackgroundImage,
+  });
 
   const defaultDays = [
     "Måndag",
@@ -1234,23 +1250,23 @@ export default function ListDetailGrocery({
                   aria-label={`Öppna recepttipset ${recommendedSavedRecipe.title}`}
                   className="group relative block h-44 w-full overflow-hidden rounded-2xl bg-gradient-to-br from-primary/85 via-primary-container to-secondary-container text-left shadow-md transition-transform duration-150 active:scale-[0.98]"
                   style={
-                    recommendedSavedRecipeImageUrl
+                    resolvedImageUrl
                       ? {
-                          backgroundImage: `url(${recommendedSavedRecipeImageUrl})`,
+                          backgroundImage: recipeTipBackgroundImage,
                           backgroundPosition: "center",
                           backgroundSize: "cover",
                         }
                       : undefined
                   }
                 >
-                  {!recommendedSavedRecipeImageUrl && (
+                  {!resolvedImageUrl && (
                     <div className="absolute right-5 top-5 flex h-16 w-16 items-center justify-center rounded-full bg-white/20">
                       <LucideIcon name="eco" className="h-8 w-8 text-white" />
                     </div>
                   )}
                   <div
                     className={`absolute inset-0 flex flex-col justify-end bg-gradient-to-t p-5 ${
-                      recommendedSavedRecipeImageUrl
+                      resolvedImageUrl
                         ? "from-[#173D2D]/95 via-[#173D2D]/45 to-black/10"
                         : "from-primary/80 to-transparent"
                     }`}

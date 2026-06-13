@@ -818,6 +818,42 @@ test("pasta format ranking rejects ready meals when dry pasta is available", () 
   );
 });
 
+test("returns none instead of matching penne to a prepared meal", () => {
+  const products = [
+    pricedProduct({
+      id: "ready-penne",
+      productName: "REDO Carbonara med Penne Pasta",
+      priceSek: 54.95,
+      unitLabel: "400 g",
+      searchTerms: ["port penne"],
+      category: "Kyld färdigmat",
+      categoryPath: ["Färdiga rätter", "Portionsrätter"],
+    }),
+  ];
+
+  const match = matchListItem({ id: "penne", name: "Port penne" }, products);
+  assert.equal(match.product, null);
+  assert.equal(match.confidence, "none");
+});
+
+test("returns none instead of matching a lemon ingredient to a flavored drink", () => {
+  const products = [
+    pricedProduct({
+      id: "lemon-tonic",
+      productName: "SPIRIT OF SWE Hallon&Citron Just Tonic",
+      priceSek: 24.95,
+      unitLabel: "20 cl",
+      searchTerms: ["citron"],
+      category: "Dryck",
+      categoryPath: ["Dryck", "Drinkmixer"],
+    }),
+  ];
+
+  const match = matchListItem({ id: "lemon", name: "Citron" }, products);
+  assert.equal(match.product, null);
+  assert.equal(match.confidence, "none");
+});
+
 test("potato ranking follows an explicit floury preference", () => {
   const products = [
     pricedProduct({
