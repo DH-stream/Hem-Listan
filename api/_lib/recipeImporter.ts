@@ -52,6 +52,27 @@ export type ExtractedRecipe = {
   attemptedMethods: ExtractionAttemptMethod[];
   usedFallback: boolean;
   canRetryWithAi: boolean;
+  debug?: { image: ImageExtractionDebug };
+};
+
+type ArticleImageDebug = {
+  src: string;
+  dataSrc: string;
+  srcset: string;
+  alt: string;
+  widthCandidate: string;
+  rejectedReason: string | null;
+};
+
+type ImageExtractionDebug = {
+  jsonLdImageUrl: string | null;
+  ogImageUrl: string | null;
+  twitterImageUrl: string | null;
+  articleImageUrl: string | null;
+  finalImageUrl: string | null;
+  firstArticleImages: ArticleImageDebug[];
+  selectedCandidateMethod: string | null;
+  extractionMethod: ExtractionMethod;
 };
 
 type ExtractionAttempt = {
@@ -85,7 +106,7 @@ const MAX_HTML_LENGTH = 2_000_000;
 const MAX_REDIRECTS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-type RecipeImportOptions = { requestId?: string };
+type RecipeImportOptions = { requestId?: string; debug?: boolean };
 
 function logRecipeImport(
   event: string,
@@ -458,6 +479,35 @@ function extractArticleImage(
   }
 
   return candidates.sort((left, right) => right.score - left.score)[0]?.url ?? "";
+}
+
+function inspectArticleImages(html: string, sourceUrl: URL): ArticleImageDebug[] {
+  const images: ArticleImageDebug[] = [];
+  const imagePattern = /<img\b([^>]*)>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = imagePattern.exec(html)) && images.length < 10) {
+    const attributes = match[1];
+    const src = extractAttribute(attributes, "src");
+    const dataSrc = extractAttribute(attributes, "data-src");
+    const srcset =
+      extractAttribute(attributes, "data-srcset") ||
+      extractAttribute(attributes, "srcset");
+    const widthCandidate = extractLargestSrcsetUrl(srcset);
+    const candidate = widthCandidate || dataSrc || src;
+    let rejectedReason: string | null = null;
+    if (!candidate) rejectedReason = "missing_src";
+    else if (/\/products\//i.test(candidate)) rejectedReason = "product_image";
+    else if (!resolveImageUrl(candidate, sourceUrl)) rejectedReason = "invalid_url";
+    images.push({
+      src,
+      dataSrc,
+      srcset,
+      alt: extractAttribute(attributes, "alt"),
+      widthCandidate,
+      rejectedReason,
+    });
+  }
+  return images;
 }
 
 function extractFallbackImage(
@@ -971,7 +1021,7 @@ export async function importRecipeFromUrl(
   value: unknown,
   options: RecipeImportOptions = {},
 ): Promise<ExtractedRecipe> {
-  const { requestId } = options;
+  const { requestId, debug = false } = options;
   logRecipeImport("validate_url_start", requestId);
   let currentUrl = validateRecipeUrl(value);
   logRecipeImport("validate_url_success", requestId, {
@@ -1150,5 +1200,46 @@ export async function importRecipeFromUrl(
     confidence: extraction.recipe.confidence,
     qualityWarnings: extraction.recipe.qualityWarnings,
   });
+  if (debug && getHostname(currentUrl).includes("knatteplock.se")) {
+    const jsonLdImageUrl = resolveImageUrl(
+      extractJsonLd(html)?.imageUrl,
+      currentUrl,
+    ) ?? null;
+    const ogImageUrl =
+      resolveImageUrl(extractMetaContent(html, "og:image"), currentUrl) ?? null;
+    const twitterImageUrl =
+      resolveImageUrl(extractMetaContent(html, "twitter:image"), currentUrl) ??
+      null;
+    const articleImageUrl =
+      resolveImageUrl(
+        extractArticleImage(html, currentUrl, extraction.recipe.recipeName),
+        currentUrl,
+      ) ?? null;
+    const imageDebug: ImageExtractionDebug = {
+      jsonLdImageUrl,
+      ogImageUrl,
+      twitterImageUrl,
+      articleImageUrl,
+      finalImageUrl: extraction.recipe.imageUrl ?? null,
+      firstArticleImages: inspectArticleImages(html, currentUrl),
+      selectedCandidateMethod:
+        extraction.recipe.imageUrl === jsonLdImageUrl
+          ? "json_ld"
+          : extraction.recipe.imageUrl === ogImageUrl
+            ? "og:image"
+            : extraction.recipe.imageUrl === twitterImageUrl
+              ? "twitter:image"
+              : extraction.recipe.imageUrl === articleImageUrl
+                ? "article_image"
+                : null,
+      extractionMethod: extraction.recipe.extractionMethod,
+    };
+    console.info("[recipe-import:image] candidates", {
+      url: currentUrl.toString(),
+      recipeName: extraction.recipe.recipeName,
+      ...imageDebug,
+    });
+    extraction.recipe.debug = { image: imageDebug };
+  }
   return extraction.recipe;
 }
