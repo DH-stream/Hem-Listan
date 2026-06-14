@@ -655,3 +655,39 @@ test("prefers a Shopify article srcset image over later product images", () => {
     "https://www.knatteplock.se/cdn/shop/articles/isglass-1600.jpg",
   );
 });
+
+test("applies the fallback image to a selected non-JSON-LD candidate", () => {
+  const html = `
+    <html>
+      <head><title>Isglass med päron och kardemumma</title></head>
+      <body>
+        <main>
+          <h1>Isglass med päron och kardemumma</h1>
+          <img
+            alt="Image of Isglass med päron och kardemumma"
+            src="//cdn.shopify.com/s/files/isglass-400.jpg"
+            srcset="//cdn.shopify.com/s/files/isglass-400.jpg 400w, //cdn.shopify.com/s/files/isglass-1600.jpg 1600w"
+          >
+          <ul>
+            <li itemprop="recipeIngredient">3 st päron</li>
+            <li itemprop="recipeIngredient">1 tsk kardemumma</li>
+            <li itemprop="recipeIngredient">1 dl vatten</li>
+          </ul>
+        </main>
+      </body>
+    </html>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/isglass",
+    ),
+  );
+
+  assert.equal(result?.extractionMethod, "dom_fallback");
+  assert.equal(
+    result?.imageUrl,
+    "https://cdn.shopify.com/s/files/isglass-1600.jpg",
+  );
+});

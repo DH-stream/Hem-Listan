@@ -481,6 +481,19 @@ function extractPageTitle(html: string): string {
   );
 }
 
+function ensureCandidateImage(
+  candidate: RecipeCandidate | null,
+  html: string,
+  sourceUrl: URL,
+): RecipeCandidate | null {
+  if (!candidate || candidate.imageUrl) return candidate;
+
+  const recipeName = cleanText(candidate.recipeName) || extractPageTitle(html);
+  const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
+  if (fallbackImageUrl) candidate.imageUrl = fallbackImageUrl;
+  return candidate;
+}
+
 function extractElementTexts(
   html: string,
   tagPattern = "[a-z\\d]+",
@@ -840,14 +853,11 @@ function attemptRecipeExtraction(
 ): ExtractionAttempt {
   const hostname = getHostname(sourceUrl);
   const attemptedMethods: ExtractionAttemptMethod[] = ["json_ld"];
-  const jsonLdCandidate = extractJsonLd(html);
-  if (jsonLdCandidate && !jsonLdCandidate.imageUrl) {
-    jsonLdCandidate.imageUrl = extractFallbackImage(
-      html,
-      sourceUrl,
-      cleanText(jsonLdCandidate.recipeName) || extractPageTitle(html),
-    );
-  }
+  const jsonLdCandidate = ensureCandidateImage(
+    extractJsonLd(html),
+    html,
+    sourceUrl,
+  );
   const normalizedJsonLd = jsonLdCandidate
     ? normalizeCandidate(jsonLdCandidate, sourceUrl)
     : null;
@@ -869,7 +879,10 @@ function attemptRecipeExtraction(
       attemptedMethods.push(attemptMethod);
     }
     if (!candidate) return null;
-    const normalized = normalizeCandidate(candidate, sourceUrl);
+    const normalized = normalizeCandidate(
+      ensureCandidateImage(candidate, html, sourceUrl)!,
+      sourceUrl,
+    );
     if (!normalized) return null;
     const credibleIngredients = normalized.ingredients.filter(isCredibleIngredient);
     if (credibleIngredients.length < 3) return null;
