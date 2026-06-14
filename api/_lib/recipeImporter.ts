@@ -278,7 +278,7 @@ function extractImageUrl(value: unknown): string {
   }
   if (!value || typeof value !== "object") return "";
   const object = value as Record<string, unknown>;
-  return extractImageUrl(object.url ?? object.contentUrl);
+  return extractImageUrl(object.url) || extractImageUrl(object.contentUrl);
 }
 
 function resolveImageUrl(value: string | undefined, sourceUrl: URL): string | undefined {
@@ -379,6 +379,97 @@ function extractMetaContent(html: string, property: string): string {
     if (match) return cleanText(match[1]);
   }
   return "";
+}
+
+function extractAttribute(attributes: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = attributes.match(
+    new RegExp(`\\b${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>]+))`, "i"),
+  );
+  return cleanText(match?.[1] ?? match?.[2] ?? match?.[3]);
+}
+
+function extractLargestSrcsetUrl(value: string): string {
+  let largest = { url: "", width: 0 };
+  for (const candidate of decodeHtml(value).split(",")) {
+    const match = candidate.trim().match(/^(\S+)(?:\s+(\d+(?:\.\d+)?)(w|x))?$/i);
+    if (!match) continue;
+    const size = match[2] ? Number(match[2]) : 1;
+    if (size >= largest.width) largest = { url: match[1], width: size };
+  }
+  return largest.url;
+}
+
+function extractArticleImage(
+  html: string,
+  sourceUrl: URL,
+  recipeName: string,
+): string {
+  const isKnatteplockBlog =
+    getHostname(sourceUrl) === "knatteplock.se" &&
+    sourceUrl.pathname.startsWith("/blogs/");
+  const articleStart = html.search(
+    /<(?:article|main)\b|class=["'][^"']*(?:article|blog|recipe|wrh-main)[^"']*["']/i,
+  );
+  const productStart = isKnatteplockBlog
+    ? html.search(
+        /class=["'][^"']*(?:product-card|product-grid|featured-products)[^"']*["']|href=["'][^"']*\/products\//i,
+      )
+    : -1;
+  const scopedHtml = isKnatteplockBlog
+    ? html.slice(
+        articleStart >= 0 ? articleStart : 0,
+        productStart > articleStart ? productStart : html.length,
+      )
+    : html;
+  const titleWords = cleanText(recipeName)
+    .toLocaleLowerCase("sv")
+    .split(/\s+/)
+    .filter((word) => word.length >= 4);
+  const candidates: Array<{ url: string; score: number }> = [];
+  const imagePattern = /<img\b([^>]*)>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = imagePattern.exec(scopedHtml))) {
+    const attributes = match[1];
+    const srcset =
+      extractAttribute(attributes, "data-srcset") ||
+      extractAttribute(attributes, "srcset");
+    const url =
+      extractLargestSrcsetUrl(srcset) ||
+      extractAttribute(attributes, "data-src") ||
+      extractAttribute(attributes, "src");
+    if (!url || /\/products\//i.test(url)) continue;
+
+    const label = [
+      extractAttribute(attributes, "alt"),
+      extractAttribute(attributes, "title"),
+    ]
+      .join(" ")
+      .toLocaleLowerCase("sv");
+    const titleMatches = titleWords.filter((word) => label.includes(word)).length;
+    candidates.push({
+      url,
+      score:
+        titleMatches * 10 +
+        (/\/(?:articles|blogs)\//i.test(url) ? 5 : 0) +
+        (isKnatteplockBlog ? 2 : 0),
+    });
+  }
+
+  return candidates.sort((left, right) => right.score - left.score)[0]?.url ?? "";
+}
+
+function extractFallbackImage(
+  html: string,
+  sourceUrl: URL,
+  recipeName: string,
+): string {
+  return (
+    extractMetaContent(html, "og:image") ||
+    extractMetaContent(html, "twitter:image") ||
+    extractArticleImage(html, sourceUrl, recipeName)
+  );
 }
 
 function extractPageTitle(html: string): string {
@@ -750,6 +841,13 @@ function attemptRecipeExtraction(
   const hostname = getHostname(sourceUrl);
   const attemptedMethods: ExtractionAttemptMethod[] = ["json_ld"];
   const jsonLdCandidate = extractJsonLd(html);
+  if (jsonLdCandidate && !jsonLdCandidate.imageUrl) {
+    jsonLdCandidate.imageUrl = extractFallbackImage(
+      html,
+      sourceUrl,
+      cleanText(jsonLdCandidate.recipeName) || extractPageTitle(html),
+    );
+  }
   const normalizedJsonLd = jsonLdCandidate
     ? normalizeCandidate(jsonLdCandidate, sourceUrl)
     : null;

@@ -570,3 +570,88 @@ test("keeps raw ingredient text and extracts recipe image metadata", () => {
   assert.match(result.ingredients[3].note ?? "", /Färska eller frysta/);
   assert.match(result.ingredients[3].note ?? "", /Obs! se tips vid frysta hallon/);
 });
+
+test("extracts JSON-LD Recipe images from strings, arrays, and contentUrl objects", () => {
+  for (const [image, expected] of [
+    ['"/images/string.jpg"', "https://recept.example/images/string.jpg"],
+    ['["", {"contentUrl": "/images/array.jpg"}]', "https://recept.example/images/array.jpg"],
+    [
+      '{"url": "", "contentUrl": "/images/content.jpg"}',
+      "https://recept.example/images/content.jpg",
+    ],
+  ]) {
+    const result = extractRecipeFromHtml(
+      `<script type="application/ld+json">
+        {
+          "@type": "Recipe",
+          "name": "Bildrecept",
+          "image": ${image},
+          "recipeIngredient": ["1 st päron", "1 tsk kardemumma", "1 dl vatten"]
+        }
+      </script>`,
+      new URL("https://recept.example/bildrecept"),
+    );
+
+    assert.equal(result?.imageUrl, expected);
+  }
+});
+
+test("uses og:image and then twitter:image when JSON-LD has no image", () => {
+  const recipe = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Isglass med päron",
+        "recipeIngredient": ["3 st päron", "1 tsk kardemumma", "1 dl vatten"]
+      }
+    </script>
+  `;
+  const ogResult = extractRecipeFromHtml(
+    `<meta name="twitter:image" content="/twitter.jpg">
+     <meta property="og:image" content="/og.jpg">${recipe}`,
+    new URL("https://www.knatteplock.se/blogs/recept/isglass"),
+  );
+  const twitterResult = extractRecipeFromHtml(
+    `<meta name="twitter:image" content="/twitter.jpg">${recipe}`,
+    new URL("https://www.knatteplock.se/blogs/recept/isglass"),
+  );
+
+  assert.equal(ogResult?.imageUrl, "https://www.knatteplock.se/og.jpg");
+  assert.equal(twitterResult?.imageUrl, "https://www.knatteplock.se/twitter.jpg");
+});
+
+test("prefers a Shopify article srcset image over later product images", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Isglass med päron och kardemumma",
+        "recipeIngredient": ["3 st päron", "1 tsk kardemumma", "1 dl vatten"]
+      }
+    </script>
+    <main class="wrh-main">
+      <img
+        alt="Isglass med päron och kardemumma"
+        src="/cdn/shop/articles/isglass-400.jpg"
+        data-srcset="/cdn/shop/articles/isglass-400.jpg 400w, /cdn/shop/articles/isglass-1600.jpg 1600w"
+      >
+    </main>
+    <section class="product-grid">
+      <a href="/products/isglassform">
+        <img alt="Isglassform" src="/cdn/shop/products/isglassform.jpg">
+      </a>
+    </section>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/isglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/articles/isglass-1600.jpg",
+  );
+});
