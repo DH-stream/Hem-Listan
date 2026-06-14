@@ -16,9 +16,12 @@ interface BasketPricingCacheEntry {
 export const createBasketItemSignature = (
   tasks: TaskItem[],
 ): string =>
-  tasks
-    .filter((task) => !task.checked)
-    .map((task) => `${task.id}:${task.text}`)
+  [...new Set(
+    tasks
+      .filter((task) => !task.checked)
+      .map((task) => task.text.trim().toLocaleLowerCase().replace(/\s+/g, " "))
+      .filter(Boolean),
+  )]
     .sort()
     .join("|");
 
@@ -147,15 +150,32 @@ export const selectActiveBasketEstimate = (
   tasks: TaskItem[],
   estimate: BasketPriceEstimate,
 ): BasketPriceEstimateView => {
-  const activeTaskIds = new Set(
-    tasks.filter((task) => !task.checked).map((task) => task.id),
+  const activeTasks = tasks.filter((task) => !task.checked);
+  const allTaskIds = new Set(tasks.map((task) => task.id));
+  const activeTaskIds = new Set(activeTasks.map((task) => task.id));
+  const activeTaskByName = new Map(
+    activeTasks.map((task) => [
+      task.text.trim().toLocaleLowerCase().replace(/\s+/g, " "),
+      task,
+    ]),
   );
   const matchByTaskId: Record<string, ListItemPriceMatch> = {};
   let approximateTotalSek = 0;
 
   estimate.matches.forEach((match) => {
-    if (!activeTaskIds.has(match.listItemId) || !match.product) return;
-    matchByTaskId[match.listItemId] = match;
+    if (!match.product) return;
+    const currentTask = activeTaskIds.has(match.listItemId)
+      ? activeTasks.find((task) => task.id === match.listItemId)
+      : allTaskIds.has(match.listItemId)
+        ? undefined
+        : activeTaskByName.get(
+          match.listItemName.trim().toLocaleLowerCase().replace(/\s+/g, " "),
+          );
+    if (!currentTask) return;
+    matchByTaskId[currentTask.id] =
+      currentTask.id === match.listItemId
+        ? match
+        : { ...match, listItemId: currentTask.id };
     approximateTotalSek +=
       match.estimatedCheckoutPriceSek ?? match.product.priceSek;
   });

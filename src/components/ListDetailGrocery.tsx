@@ -343,13 +343,15 @@ export default function ListDetailGrocery({
     setRecipeImportPreview(null);
 
     try {
+      const debug = isRecipeTipDebugEnabled();
+      console.info("[recipe-import] request", { url, debug });
       const response = await fetch("/api/import-recipe", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-hl-request-id": requestId,
         },
-        body: JSON.stringify({ url, debug: isRecipeTipDebugEnabled() }),
+        body: JSON.stringify({ url, debug }),
       });
       const contentType = response.headers.get("content-type") ?? "";
 
@@ -398,7 +400,7 @@ export default function ListDetailGrocery({
       }
 
       const data = await response.json();
-      if (isRecipeTipDebugEnabled() && data?.debug?.image) {
+      if (debug && data?.debug?.image) {
         console.info("[recipe-import:image] result", data.debug.image);
       }
       if (!Array.isArray(data?.ingredients) || data.ingredients.length === 0) {

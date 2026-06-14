@@ -1200,7 +1200,8 @@ export async function importRecipeFromUrl(
     confidence: extraction.recipe.confidence,
     qualityWarnings: extraction.recipe.qualityWarnings,
   });
-  if (debug && getHostname(currentUrl).includes("knatteplock.se")) {
+  if (debug) {
+    const hostname = getHostname(currentUrl);
     const jsonLdImageUrl = resolveImageUrl(
       extractJsonLd(html)?.imageUrl,
       currentUrl,
@@ -1235,9 +1236,12 @@ export async function importRecipeFromUrl(
       extractionMethod: extraction.recipe.extractionMethod,
     };
     console.info("[recipe-import:image] candidates", {
-      url: currentUrl.toString(),
-      recipeName: extraction.recipe.recipeName,
-      ...imageDebug,
+      hostname,
+      candidates: imageDebug,
+    });
+    console.info("[recipe-import:image] result", {
+      imageUrl: extraction.recipe.imageUrl ?? null,
+      source: imageDebug.selectedCandidateMethod,
     });
     extraction.recipe.debug = { image: imageDebug };
   }

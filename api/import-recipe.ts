@@ -31,6 +31,23 @@ function logImport(
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   const requestId = getRequestId(req);
+  const requestUrl = new URL(req.url ?? "/", "http://localhost");
+  const debug =
+    req.body?.debug === true || requestUrl.searchParams.get("debug") === "1";
+  let hostname: string | undefined;
+  try {
+    hostname =
+      typeof req.body?.url === "string"
+        ? new URL(req.body.url).hostname
+        : undefined;
+  } catch {
+    hostname = undefined;
+  }
+  console.info("[recipe-import] received", {
+    url: req.body?.url,
+    debug,
+    hostname,
+  });
   const hasBody = req.body !== undefined && req.body !== null;
   const hasUrl =
     typeof req.body?.url === "string" && req.body.url.trim() !== "";
@@ -69,21 +86,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
   }
 
   try {
-    let hostname: string | undefined;
-    try {
-      hostname =
-        typeof req.body?.url === "string"
-          ? new URL(req.body.url).hostname
-          : undefined;
-    } catch {
-      hostname = undefined;
-    }
     logImport("info", "import_start", requestId, { hostname });
 
-    const requestUrl = new URL(req.url ?? "/", "http://localhost");
-    const debug =
-      req.body?.debug === true ||
-      requestUrl.searchParams.get("debug") === "1";
     const recipe = await importer.importRecipeFromUrl(req.body?.url, {
       requestId,
       debug,

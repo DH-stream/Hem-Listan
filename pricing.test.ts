@@ -122,6 +122,23 @@ test("basket estimate keeps previous prices for active items during revalidation
   assert.equal(result.matchByTaskId.new, undefined);
 });
 
+test("basket estimate follows an active item when only its id changes", () => {
+  const importedMatch = matchListItem(
+    { id: "task-imported-1", name: "  Kaffe " },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [{ id: "supabase-uuid", text: "kaffe", checked: false }],
+    { matches: [importedMatch], approximateTotalSek: 54.95 },
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.equal(
+    result.matchByTaskId["supabase-uuid"]?.listItemId,
+    "supabase-uuid",
+  );
+});
+
 test("pricing debug result logging includes safe error diagnostics", () => {
   const originalWindow = globalThis.window;
   const originalConsoleLog = console.log;
@@ -175,11 +192,13 @@ test("basket pricing cache key and active item signature are stable", () => {
     { id: "a", text: "Bröd", checked: false },
   ]);
   const second = createBasketItemSignature([
-    { id: "a", text: "Bröd", checked: false },
-    { id: "b", text: "Mjölk", checked: false },
+    { id: "new-a", text: "  BRÖD ", checked: false },
+    { id: "new-b", text: "Mjölk", checked: false },
+    { id: "duplicate", text: "mjölk", checked: false },
   ]);
 
   assert.equal(first, second);
+  assert.equal(first, "bröd|mjölk");
   assert.equal(
     createBasketPricingCacheKey("city_gross", "list-1", first),
     `hem-listan-pricing-basket:v1:city_gross:list-1:${first}`,
