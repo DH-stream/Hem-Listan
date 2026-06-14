@@ -490,8 +490,10 @@ function ensureCandidateImage(
 
   const recipeName = cleanText(candidate.recipeName) || extractPageTitle(html);
   const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
-  if (fallbackImageUrl) candidate.imageUrl = fallbackImageUrl;
-  return candidate;
+
+  return fallbackImageUrl
+    ? { ...candidate, imageUrl: fallbackImageUrl }
+    : candidate;
 }
 
 function extractElementTexts(
@@ -879,10 +881,10 @@ function attemptRecipeExtraction(
       attemptedMethods.push(attemptMethod);
     }
     if (!candidate) return null;
-    const normalized = normalizeCandidate(
-      ensureCandidateImage(candidate, html, sourceUrl)!,
-      sourceUrl,
-    );
+    const candidateWithImage = ensureCandidateImage(candidate, html, sourceUrl);
+    if (!candidateWithImage) return null;
+
+    const normalized = normalizeCandidate(candidateWithImage, sourceUrl);
     if (!normalized) return null;
     const credibleIngredients = normalized.ingredients.filter(isCredibleIngredient);
     if (credibleIngredients.length < 3) return null;
