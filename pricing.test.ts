@@ -96,6 +96,32 @@ test("basket estimate only includes unchecked tasks", () => {
   assert.deepEqual(Object.keys(result.matchByTaskId), ["active"]);
 });
 
+test("basket estimate keeps previous prices for active items during revalidation", () => {
+  const existingMatch = matchListItem(
+    { id: "existing", name: "kaffe" },
+    products,
+  );
+  const completedMatch = matchListItem(
+    { id: "completed", name: "kaffe" },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [
+      { id: "existing", text: "kaffe", checked: false },
+      { id: "completed", text: "kaffe", checked: true },
+      { id: "new", text: "diskmedel", checked: false },
+    ],
+    {
+      matches: [existingMatch, completedMatch],
+      approximateTotalSek: 109.9,
+    },
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.deepEqual(Object.keys(result.matchByTaskId), ["existing"]);
+  assert.equal(result.matchByTaskId.new, undefined);
+});
+
 test("pricing debug result logging includes safe error diagnostics", () => {
   const originalWindow = globalThis.window;
   const originalConsoleLog = console.log;
