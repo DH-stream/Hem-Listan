@@ -196,17 +196,17 @@ export const useBasketPriceEstimate = (
     const chain = "city_gross";
     const cacheKey = createBasketPricingCacheKey(chain, listId, itemSignature);
     const cached = readBasketPricingCache(cacheKey);
+    if (cached.entry) {
+      setEstimate(cached.entry.result);
+    }
     if (cached.entry && !cached.isStale) {
       pricingLog("cache hit", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
-      setEstimate(cached.entry.result);
       return;
-    }
-    if (cached.entry) {
+    } else if (cached.entry) {
       pricingLog("cache stale", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
     } else {
       pricingLog("cache miss", { key: cacheKey });
     }
-    setEstimate(EMPTY_ESTIMATE);
 
     const debugEnabled = isPricingDebugEnabled();
     const controller = new AbortController();
@@ -263,8 +263,6 @@ export const useBasketPriceEstimate = (
               fetchedAt: cached.entry.fetchedAt,
             });
             setEstimate(cached.entry.result);
-          } else {
-            setEstimate(EMPTY_ESTIMATE);
           }
         });
     }, BASKET_DEBOUNCE_MS);
