@@ -349,7 +349,7 @@ export default function ListDetailGrocery({
           "Content-Type": "application/json",
           "x-hl-request-id": requestId,
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, debug: isRecipeTipDebugEnabled() }),
       });
       const contentType = response.headers.get("content-type") ?? "";
 
@@ -398,6 +398,9 @@ export default function ListDetailGrocery({
       }
 
       const data = await response.json();
+      if (isRecipeTipDebugEnabled() && data?.debug?.image) {
+        console.info("[recipe-import:image] result", data.debug.image);
+      }
       if (!Array.isArray(data?.ingredients) || data.ingredients.length === 0) {
         throw new Error("Receptet verkar sakna ingredienser.");
       }

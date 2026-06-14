@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-type ApiRequest = IncomingMessage & { body?: { url?: unknown } };
+type ApiRequest = IncomingMessage & { body?: { url?: unknown; debug?: unknown } };
 type ApiResponse = ServerResponse & {
   status(statusCode: number): ApiResponse;
   json(body: unknown): ApiResponse;
@@ -80,8 +80,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     }
     logImport("info", "import_start", requestId, { hostname });
 
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const debug =
+      req.body?.debug === true ||
+      requestUrl.searchParams.get("debug") === "1";
     const recipe = await importer.importRecipeFromUrl(req.body?.url, {
       requestId,
+      debug,
     });
     logImport("info", "import_success", requestId, {
       recipeName: recipe.recipeName,
