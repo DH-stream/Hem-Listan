@@ -143,6 +143,52 @@ test("basket estimate follows an active item when only its id changes", () => {
   );
 });
 
+test("basket estimate remaps an aggregated temp-id match to persisted shopping rows", () => {
+  const milk15: ProductPrice = {
+    ...products[0],
+    id: "milk-15",
+    productName: "Mjölk 1,5L",
+    priceSek: 18,
+    unitLabel: "1,5 l",
+    searchTerms: ["mjölk"],
+  };
+  const result = selectActiveBasketEstimate(
+    [
+      { id: "uuid-a", text: "Mjölk (1 l)", checked: false },
+      { id: "uuid-b", text: "Standardmjölk (5 dl)", checked: false },
+    ],
+    {
+      matches: [
+        {
+          listItemId: "task-imported-a",
+          listItemName: "mjölk (1,5 l)",
+          sourceTaskIds: ["task-imported-a", "task-imported-b"],
+          product: milk15,
+          confidence: "high",
+          estimatedCheckoutPriceSek: 18,
+          priceBasis: "package_plan",
+          purchasePlan: {
+            totalPriceSek: 18,
+            purchasedAmount: 1500,
+            items: [{ product: milk15, count: 1 }],
+          },
+        },
+      ],
+      approximateTotalSek: 18,
+    },
+  );
+
+  assert.equal(result.approximateTotalSek, 18);
+  assert.equal(
+    result.matchByTaskId["uuid-a"]?.purchasePlan?.purchasedAmount,
+    1500,
+  );
+  assert.equal(
+    result.matchByTaskId["uuid-b"]?.purchasePlan?.purchasedAmount,
+    1500,
+  );
+});
+
 test("basket estimate counts temp and persisted matches for one item once", () => {
   const importedMatch = matchListItem(
     { id: "task-imported-1", name: "kaffe" },

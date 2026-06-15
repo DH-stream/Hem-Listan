@@ -189,6 +189,27 @@ export const createShoppingRowDisplay = (
   };
 };
 
+const createShoppingRowIdentity = (
+  normalizedName: string,
+  dimension?: ActiveShoppingRow["dimension"],
+  amount?: number,
+) =>
+  dimension && amount !== undefined
+    ? `${normalizedName}:${dimension}:${amount}`
+    : normalizedName;
+
+const createMatchShoppingRowIdentity = (match: ListItemPriceMatch) => {
+  const quantity = parseComparableQuantity(match.listItemName);
+  const normalizedName = normalizeGroceryName(
+    match.listItemName.replace(/\s*\([^)]+\)\s*$/, ""),
+  );
+  return createShoppingRowIdentity(
+    normalizedName,
+    quantity?.dimension,
+    quantity?.amount,
+  );
+};
+
 export const createActivePricingItems = (
   tasks: TaskItem[],
 ): Array<{ id: string; name: string; sourceTaskIds: string[] }> =>
@@ -349,6 +370,22 @@ export const selectActiveBasketEstimate = (
   estimate: BasketPriceEstimate,
 ): BasketPriceEstimateView => {
   const activeTasks = tasks.filter((task) => !task.checked);
+  const activeShoppingRows = createActiveShoppingRows(tasks);
+  const shoppingRowByIdentity = new Map(
+    activeShoppingRows.map((row) => [
+      createShoppingRowIdentity(
+        row.normalizedName,
+        row.dimension,
+        row.amount,
+      ),
+      row,
+    ]),
+  );
+  const shoppingRowBySourceTaskId = new Map(
+    activeShoppingRows.flatMap((row) =>
+      row.sourceTaskIds.map((taskId) => [taskId, row] as const),
+    ),
+  );
   const allTaskIds = new Set(tasks.map((task) => task.id));
   const activeTaskIds = new Set(activeTasks.map((task) => task.id));
   const activeTaskByName = new Map(
@@ -359,15 +396,43 @@ export const selectActiveBasketEstimate = (
   );
   const matchByTaskId: Record<string, ListItemPriceMatch> = {};
   const seenTaskIds = new Set<string>();
+  const seenShoppingRowIds = new Set<string>();
   let approximateTotalSek = 0;
 
   estimate.matches.forEach((match) => {
     if (!match.product) return;
-    const sourceTasks = (match.sourceTaskIds ?? [])
+    let sourceTasks = (match.sourceTaskIds ?? [])
       .filter((id) => activeTaskIds.has(id))
       .map((id) => activeTasks.find((task) => task.id === id))
       .filter((task): task is TaskItem => Boolean(task));
+    let shoppingRowId: string | undefined;
+    const directShoppingRow = sourceTasks
+      .map((task) => shoppingRowBySourceTaskId.get(task.id))
+      .find(Boolean);
+    if (
+      directShoppingRow &&
+      sourceTasks.length < (match.sourceTaskIds?.length ?? 0)
+    ) {
+      shoppingRowId = directShoppingRow.id;
+      sourceTasks = directShoppingRow.sourceTaskIds
+        .map((id) => activeTasks.find((task) => task.id === id))
+        .filter((task): task is TaskItem => Boolean(task));
+    }
+    if (sourceTasks.length === 0) {
+      const shoppingRow = shoppingRowByIdentity.get(
+        createMatchShoppingRowIdentity(match),
+      );
+      if (shoppingRow) {
+        shoppingRowId = shoppingRow.id;
+        sourceTasks = shoppingRow.sourceTaskIds
+          .map((id) => activeTasks.find((task) => task.id === id))
+          .filter((task): task is TaskItem => Boolean(task));
+      }
+    }
     if (sourceTasks.length > 0) {
+      const rowId = shoppingRowId ?? sourceTasks[0].id;
+      if (seenShoppingRowIds.has(rowId)) return;
+      seenShoppingRowIds.add(rowId);
       sourceTasks.forEach((task) => {
         matchByTaskId[task.id] =
           task.id === match.listItemId
