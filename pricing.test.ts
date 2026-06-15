@@ -9,6 +9,7 @@ import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   BASKET_PRICING_CACHE_TTL_MS,
   createBasketItemSignature,
+  createActivePricingItems,
   createBasketPricingCacheKey,
   logBasketPricingResult,
   readBasketPricingCache,
@@ -215,7 +216,6 @@ test("basket pricing cache key and active item signature are stable", () => {
   const second = createBasketItemSignature([
     { id: "new-a", text: "  BRÖD ", checked: false },
     { id: "new-b", text: "Mjölk", checked: false },
-    { id: "duplicate", text: "mjölk", checked: false },
   ]);
 
   assert.equal(first, second);
@@ -296,6 +296,46 @@ test("basket pricing signature ignores temp-id reconciliation duplicates", () =>
 
   assert.equal(optimistic, reconciling);
   assert.equal(reconciling, persisted);
+});
+
+test("pricing input aggregates quantities before the API request", () => {
+  assert.deepEqual(
+    createActivePricingItems([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+      { id: "done", text: "Mjölk (2 l)", checked: true },
+    ]),
+    [{ id: "milk-1", name: "mjölk (1,5 l)" }],
+  );
+});
+
+test("pricing input aggregates count requirements", () => {
+  assert.deepEqual(
+    createActivePricingItems([
+      { id: "lemon-1", text: "Citron (1 st)", checked: false },
+      { id: "lemon-2", text: "Citron (1 st)", checked: false },
+    ]),
+    [{ id: "lemon-1", name: "citron (2 st)" }],
+  );
+});
+
+test("pricing input preserves separate unquantified requirements", () => {
+  const items = createActivePricingItems([
+    { id: "milk-1", text: "Mjölk", checked: false },
+    { id: "milk-2", text: "Mjölk", checked: false },
+  ]);
+
+  assert.deepEqual(items, [
+    { id: "milk-1", name: "mjölk" },
+    { id: "milk-2", name: "mjölk" },
+  ]);
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk", checked: false },
+      { id: "milk-2", text: "Mjölk", checked: false },
+    ]),
+    "mjölk:unquantified:2",
+  );
 });
 
 test("basket pricing cache identifies fresh and stale entries", () => {

@@ -15,9 +15,34 @@ interface BasketPricingCacheEntry {
   fetchedAt: string;
 }
 
-export const createBasketItemSignature = (
-  tasks: TaskItem[],
-): string => {
+type BasketRequirement = {
+  id: string;
+  name: string;
+  normalizedName: string;
+  dimension?: "mass" | "volume" | "count";
+  amount?: number;
+};
+
+const formatRequirementAmount = (
+  amount: number,
+  dimension: BasketRequirement["dimension"],
+) => {
+  const format = (value: number) =>
+    Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
+  if (dimension === "volume") {
+    if (amount >= 1000) return `${format(amount / 1000)} l`;
+    if (amount >= 100 && amount % 100 === 0) return `${format(amount / 100)} dl`;
+    return `${format(amount)} ml`;
+  }
+  if (dimension === "mass") {
+    return amount >= 1000
+      ? `${format(amount / 1000)} kg`
+      : `${format(amount)} g`;
+  }
+  return `${format(amount)} st`;
+};
+
+const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
   const requirements = tasks
     .filter((task) => !task.checked)
     .map((task) => {
@@ -46,7 +71,11 @@ export const createBasketItemSignature = (
   });
 
   const totals = new Map<string, number>();
-  const unquantifiedNames = new Set<string>();
+  const quantified = new Map<
+    string,
+    { id: string; normalizedName: string; dimension: "mass" | "volume" | "count" }
+  >();
+  const unquantified: BasketRequirement[] = [];
   requirements.forEach((requirement) => {
     if (requirement.id.startsWith("task-imported-")) {
       const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
@@ -56,17 +85,67 @@ export const createBasketItemSignature = (
       }
     }
     if (!requirement.quantity) {
-      unquantifiedNames.add(requirement.name);
+      unquantified.push({
+        id: requirement.id,
+        name: requirement.name,
+        normalizedName: requirement.name,
+      });
       return;
     }
     const key = `${requirement.name}:${requirement.quantity.dimension}`;
     totals.set(key, (totals.get(key) ?? 0) + requirement.quantity.amount);
+    const current = quantified.get(key);
+    if (!current || current.id.startsWith("task-imported-")) {
+      quantified.set(key, {
+        id: requirement.id,
+        normalizedName: requirement.name,
+        dimension: requirement.quantity.dimension,
+      });
+    }
   });
 
   return [
-    ...unquantifiedNames,
-    ...Array.from(totals, ([key, amount]) => `${key}:${amount}`),
-  ]
+    ...unquantified,
+    ...Array.from(totals, ([key, amount]) => {
+      const requirement = quantified.get(key)!;
+      return {
+        ...requirement,
+        amount,
+        name: `${requirement.normalizedName} (${formatRequirementAmount(
+          amount,
+          requirement.dimension,
+        )})`,
+      };
+    }),
+  ];
+};
+
+export const createActivePricingItems = (
+  tasks: TaskItem[],
+): Array<{ id: string; name: string }> =>
+  createBasketRequirements(tasks).map(({ id, name }) => ({ id, name }));
+
+export const createBasketItemSignature = (tasks: TaskItem[]): string => {
+  const unquantifiedCounts = new Map<string, number>();
+  const parts: string[] = [];
+  createBasketRequirements(tasks).forEach((requirement) => {
+    if (requirement.dimension && requirement.amount !== undefined) {
+      parts.push(
+        `${requirement.normalizedName}:${requirement.dimension}:${requirement.amount}`,
+      );
+      return;
+    }
+    unquantifiedCounts.set(
+      requirement.normalizedName,
+      (unquantifiedCounts.get(requirement.normalizedName) ?? 0) + 1,
+    );
+  });
+  parts.push(
+    ...Array.from(unquantifiedCounts, ([name, count]) =>
+      count === 1 ? name : `${name}:unquantified:${count}`,
+    ),
+  );
+  return parts
     .sort()
     .join("|");
 };
@@ -241,10 +320,7 @@ export const useBasketPriceEstimate = (
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
   const activeItems = useMemo(
-    () =>
-      tasks
-        .filter((task) => !task.checked)
-        .map((task) => ({ id: task.id, name: task.text })),
+    () => createActivePricingItems(tasks),
     [tasks],
   );
   pricingLog("hook input", {
