@@ -20,7 +20,10 @@ import {
   touchSavedRecipeLastUsed,
   upsertSavedRecipeFromImport,
 } from "../lib/supabase";
-import { useBasketPriceEstimate } from "../lib/pricing/useBasketPriceEstimate";
+import {
+  createActiveShoppingRows,
+  useBasketPriceEstimate,
+} from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
 import {
   categorizeGroceryItem,
@@ -265,6 +268,12 @@ export default function ListDetailGrocery({
   const completedTasks = list.tasks.filter((t) => t.checked);
   const completedCount = completedTasks.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const activeShoppingRows = createActiveShoppingRows(list.tasks);
+  const shoppingRowByTaskId = new Map(
+    activeShoppingRows.flatMap((row) =>
+      row.sourceTaskIds.map((taskId) => [taskId, row] as const),
+    ),
+  );
   recipeTipDebugLog("render card", {
     recipeId: recommendedSavedRecipe?.id,
     title: recommendedSavedRecipe?.title,
@@ -647,15 +656,9 @@ export default function ListDetailGrocery({
       Övrigt: [],
     };
 
-    const activeTaskIds = new Set(
-      list.tasks.filter((task) => !task.checked).map((task) => task.id),
-    );
-    const activeTasks = list.tasks.filter((task) => {
-      if (task.checked) return false;
-      const sourceTaskIds = matchByTaskId[task.id]?.sourceTaskIds;
-      if (!sourceTaskIds?.length) return true;
-      return sourceTaskIds.find((id) => activeTaskIds.has(id)) === task.id;
-    });
+    const activeTasks = activeShoppingRows
+      .map((row) => list.tasks.find((task) => task.id === row.id))
+      .filter((task): task is TaskItem => Boolean(task));
 
     activeTasks.forEach((t) => {
       const matchedProduct = matchByTaskId[t.id]?.product;
@@ -681,20 +684,29 @@ export default function ListDetailGrocery({
   const categorized = getCategorizedTasks();
 
   const getShoppingRowSourceIds = (item: TaskItem) =>
-    matchByTaskId[item.id]?.sourceTaskIds?.filter((id) =>
-      list.tasks.some((task) => task.id === id && !task.checked),
-    ) ?? [item.id];
+    shoppingRowByTaskId.get(item.id)?.sourceTaskIds ?? [item.id];
 
   const getShoppingRowText = (item: TaskItem) => {
+    const shoppingRow = shoppingRowByTaskId.get(item.id);
     const match = matchByTaskId[item.id];
-    const required = parseComparableQuantity(match?.listItemName ?? item.text);
-    if (!match?.purchasePlan || !required) return item.text;
-    const normalizedName = match.listItemName
-      .replace(/\s*\([^)]+\)\s*$/, "")
-      .trim();
+    const required =
+      shoppingRow?.dimension && shoppingRow.amount !== undefined
+        ? {
+            amount: shoppingRow.amount,
+            dimension: shoppingRow.dimension,
+          }
+        : parseComparableQuantity(match?.listItemName ?? item.text);
+    const normalizedName =
+      shoppingRow?.normalizedName ??
+      match?.listItemName.replace(/\s*\([^)]+\)\s*$/, "").trim();
     const name = normalizedName
       ? normalizedName[0].toLocaleUpperCase("sv-SE") + normalizedName.slice(1)
       : item.text;
+    if (!match?.purchasePlan || !required) {
+      return required
+        ? `${name} (${formatComparableQuantity(required)})`
+        : name;
+    }
     return `${name} (${formatComparableQuantity({
       amount: match.purchasePlan.purchasedAmount,
       dimension: required.dimension,
@@ -1208,7 +1220,7 @@ export default function ListDetailGrocery({
                                   }`}
                                   title={
                                     matchByTaskId[item.id].purchasePlan
-                                      ? `Köp: ${formatPurchasePlanLabel(
+                                      ? `Mängd: ${formatPurchasePlanLabel(
                                           matchByTaskId[item.id].purchasePlan!,
                                         )}. Ungefärligt totalpris.`
                                       : `Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`

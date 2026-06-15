@@ -15,7 +15,7 @@ interface BasketPricingCacheEntry {
   fetchedAt: string;
 }
 
-type BasketRequirement = {
+export type ActiveShoppingRow = {
   id: string;
   name: string;
   normalizedName: string;
@@ -26,7 +26,7 @@ type BasketRequirement = {
 
 const formatRequirementAmount = (
   amount: number,
-  dimension: BasketRequirement["dimension"],
+  dimension: ActiveShoppingRow["dimension"],
 ) => {
   const format = (value: number) =>
     Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
@@ -43,7 +43,9 @@ const formatRequirementAmount = (
   return `${format(amount)} st`;
 };
 
-const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
+export const createActiveShoppingRows = (
+  tasks: TaskItem[],
+): ActiveShoppingRow[] => {
   const requirements = tasks
     .filter((task) => !task.checked)
     .map((task) => {
@@ -81,7 +83,7 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
       sourceTaskIds: string[];
     }
   >();
-  const unquantified: BasketRequirement[] = [];
+  const unquantified: ActiveShoppingRow[] = [];
   requirements.forEach((requirement) => {
     if (requirement.id.startsWith("task-imported-")) {
       const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
@@ -136,7 +138,7 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
 export const createActivePricingItems = (
   tasks: TaskItem[],
 ): Array<{ id: string; name: string; sourceTaskIds: string[] }> =>
-  createBasketRequirements(tasks).map(({ id, name, sourceTaskIds }) => ({
+  createActiveShoppingRows(tasks).map(({ id, name, sourceTaskIds }) => ({
     id,
     name,
     sourceTaskIds,
@@ -145,7 +147,7 @@ export const createActivePricingItems = (
 export const createBasketItemSignature = (tasks: TaskItem[]): string => {
   const unquantifiedCounts = new Map<string, number>();
   const parts: string[] = [];
-  createBasketRequirements(tasks).forEach((requirement) => {
+  createActiveShoppingRows(tasks).forEach((requirement) => {
     if (requirement.dimension && requirement.amount !== undefined) {
       parts.push(
         `${requirement.normalizedName}:${requirement.dimension}:${requirement.amount}`,

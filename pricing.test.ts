@@ -8,6 +8,7 @@ import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   BASKET_PRICING_CACHE_TTL_MS,
+  createActiveShoppingRows,
   createBasketItemSignature,
   createActivePricingItems,
   createBasketPricingCacheKey,
@@ -325,6 +326,38 @@ test("pricing input aggregates count requirements", () => {
       sourceTaskIds: ["lemon-1", "lemon-2"],
     }],
   );
+});
+
+test("shopping rows expose aggregated count before pricing", () => {
+  const rows = createActiveShoppingRows([
+    { id: "pepper-1", text: "Paprika (1 st)", checked: false },
+    { id: "pepper-2", text: "Paprika (1 st)", checked: false },
+  ]);
+
+  assert.deepEqual(rows, [
+    {
+      id: "pepper-1",
+      name: "paprika (2 st)",
+      normalizedName: "paprika",
+      sourceTaskIds: ["pepper-1", "pepper-2"],
+      dimension: "count",
+      amount: 2,
+    },
+  ]);
+});
+
+test("shopping rows stay stable through temp-id reconciliation and checked tasks", () => {
+  const reconciling = createActiveShoppingRows([
+    { id: "task-imported-1", text: "Paprika (1 st)", checked: false },
+    { id: "supabase-uuid", text: "Paprika (1 st)", checked: false },
+    { id: "checked", text: "Paprika (1 st)", checked: true },
+  ]);
+  const persisted = createActiveShoppingRows([
+    { id: "supabase-uuid", text: "Paprika (1 st)", checked: false },
+  ]);
+
+  assert.deepEqual(reconciling, persisted);
+  assert.equal(reconciling[0]?.name, "paprika (1 st)");
 });
 
 test("pricing input preserves separate unquantified requirements", () => {
