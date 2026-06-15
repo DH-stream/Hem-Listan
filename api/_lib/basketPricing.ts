@@ -111,6 +111,7 @@ export async function calculateCityGrossBasket(
     const currentSearchQuery =
       searchQueryByNormalizedQuery.get(normalizedQuery);
     queryByItemId.set(item.id, normalizedQuery);
+    if (!normalizedQuery) return;
     if (!currentSearchQuery || searchQuery.length < currentSearchQuery.length) {
       searchQueryByNormalizedQuery.set(normalizedQuery, searchQuery);
     }

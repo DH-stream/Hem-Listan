@@ -462,7 +462,7 @@ test("basket pricing deduplicates normalized item queries", async () => {
 
   assert.deepEqual(queries, ["Mjölk"]);
   assert.equal(result.matches.length, 2);
-  assert.equal(result.approximateTotalSek, 31.9);
+  assert.equal(result.approximateTotalSek, 47.85);
 });
 
 test("failed City Gross fetch is negative-cached briefly", async () => {
@@ -659,6 +659,65 @@ test("package ranking prefers a right-sized chicken product over a 2 kg pack", (
     matchListItem({ id: "chicken", name: "Kycklingfilé (ca 500 g)" }, products)
       .product?.id,
     "chicken-700g",
+  );
+});
+
+test("milk quantity chooses the cheapest reasonable package plan", () => {
+  const products = [
+    pricedProduct({
+      id: "milk-1l",
+      productName: "Mjölk 1L",
+      priceSek: 14,
+      unitLabel: "1 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "milk-15l",
+      productName: "Mjölk 1,5L",
+      priceSek: 18,
+      unitLabel: "1,5 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "milk-2l",
+      productName: "Mjölk 2L",
+      priceSek: 25,
+      unitLabel: "2 l",
+      searchTerms: ["mjölk"],
+    }),
+  ];
+
+  const match = matchListItem({ id: "milk", name: "Mjölk (2 l)" }, products);
+  assert.equal(match.product?.id, "milk-2l");
+  assert.equal(match.estimatedCheckoutPriceSek, 25);
+  assert.equal(match.priceBasis, "package_plan");
+});
+
+test("piece-priced CA150G lemons use whole-item checkout prices", () => {
+  const product = pricedProduct({
+    id: "lemon-piece",
+    productName: "Citron",
+    priceSek: 7.95,
+    unitLabel: "CA150G",
+    searchTerms: ["citron"],
+  });
+
+  const one = matchListItem({ id: "lemon-1", name: "Citron (1 st)" }, [product]);
+  const two = matchListItem({ id: "lemon-2", name: "Citron (2 st)" }, [product]);
+  assert.equal(one.estimatedCheckoutPriceSek, 7.95);
+  assert.equal(two.estimatedCheckoutPriceSek, 15.9);
+});
+
+test("pricing search removes obvious imported recipe noise", () => {
+  assert.equal(cleanCityGrossSearchQuery("Port penne"), "penne");
+  assert.equal(cleanCityGrossSearchQuery("Sesamfrön på toppen"), "Sesamfrön");
+  assert.equal(
+    cleanCityGrossSearchQuery("Finhackad röd paprika (1 dl)"),
+    "röd paprika",
+  );
+  assert.equal(
+    cleanCityGrossSearchQuery("Valbart dl hackad valfri färsk krydda"),
+    "",
   );
 });
 

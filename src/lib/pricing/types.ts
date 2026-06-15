@@ -43,7 +43,7 @@ export interface ListItemPriceMatch {
   product: ProductPrice | null;
   confidence: PriceMatchConfidence;
   estimatedCheckoutPriceSek?: number;
-  priceBasis?: "product_price" | "weighted_item_estimate";
+  priceBasis?: "product_price" | "weighted_item_estimate" | "package_plan";
   preferenceScore?: number;
   preferenceReasons?: string[];
 }

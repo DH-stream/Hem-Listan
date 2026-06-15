@@ -18,9 +18,16 @@ export const normalizePriceQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export const cleanCityGrossSearchQuery = (value: string) =>
-  value
+export const cleanCityGrossSearchQuery = (value: string) => {
+  if (/^\s*valbart\b.*\bvalfri\b/i.test(value)) return "";
+  return value
     .normalize("NFKC")
+    .replace(/^port\s+(?=penne\b)/i, "")
+    .replace(
+      /^(?:finhackad|finhackade|hackad|hackade|skivad|skivade|tärnad|tärnade)\s+/i,
+      "",
+    )
+    .replace(/\s+på toppen\b.*$/i, "")
     .replace(/\([^)]*\)/g, " ")
     .replace(
       /\b(?:ca|cirka)?\s*\d+(?:[.,]\d+)?\s*(?:st|stycken|pack|paket|förp|kg|g|l|dl|cl|ml|klase|klasar|burk|flaska|påse)\b/gi,
@@ -29,6 +36,7 @@ export const cleanCityGrossSearchQuery = (value: string) =>
     .replace(/\s*[,;]\s*.*$/, "")
     .replace(/\s+/g, " ")
     .trim();
+};
 
 const editDistance = (left: string, right: string) => {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -163,6 +171,26 @@ const weightedCheckoutPrice = (itemName: string, product: ProductPrice) => {
   );
 };
 
+const packageCheckoutPrice = (itemName: string, product: ProductPrice) => {
+  if (isWeightedProduct(product)) return undefined;
+  const requested = parseAmount(itemName);
+  if (!requested) return undefined;
+  const packageAmount = productPackageAmount(product);
+
+  if (requested.dimension === "count" && packageAmount?.dimension === "mass") {
+    return Math.round(product.priceSek * requested.amount * 100) / 100;
+  }
+  if (!packageAmount || requested.dimension !== packageAmount.dimension) {
+    return undefined;
+  }
+
+  const packageCount = Math.max(1, Math.ceil(requested.amount / packageAmount.amount));
+  const coveredAmount = packageCount * packageAmount.amount;
+  const overbuyRatio = coveredAmount / requested.amount;
+  if (overbuyRatio > 2.5) return undefined;
+  return Math.round(product.priceSek * packageCount * 100) / 100;
+};
+
 const productPreferenceScore = (
   itemName: string,
   product: ProductPrice,
@@ -186,14 +214,10 @@ const productPreferenceScore = (
     requested.dimension !== "count" &&
     !isWeightedProduct(product)
   ) {
-    const ratio = packageAmount.amount / requested.amount;
-    if (ratio >= 1) {
-      score += Math.max(0, 20 - Math.log2(ratio) * 6);
-      if (ratio <= 2) reasons.push("requested_pack_size");
-    } else {
-      score -= 12 + (1 - ratio) * 8;
-      reasons.push("package_too_small");
-    }
+    const packages = Math.max(1, Math.ceil(requested.amount / packageAmount.amount));
+    const ratio = (packages * packageAmount.amount) / requested.amount;
+    score += Math.max(0, 20 - Math.log2(ratio) * 8);
+    reasons.push(packages > 1 ? "multi_package_plan" : "requested_pack_size");
   }
 
   if (!requested && packageAmount) {
@@ -295,6 +319,12 @@ export const matchListItem = (
       .filter((candidate) => candidate.confidence !== "none")
       .map((candidate) => candidate.product),
   );
+  const plannedPrices = candidates
+    .filter((candidate) => candidate.confidence !== "none")
+    .map((candidate) => packageCheckoutPrice(item.name, candidate.product))
+    .filter((price): price is number => price !== undefined);
+  const cheapestPlannedPrice =
+    plannedPrices.length > 0 ? Math.min(...plannedPrices) : undefined;
 
   let best:
     | {
@@ -314,7 +344,13 @@ export const matchListItem = (
       comparableMedianPrice,
     );
     const preferenceScore = preference.score + pricePreference.score;
-    const rankingScore = confidenceScore[candidate.confidence] + preferenceScore;
+    const plannedPrice = packageCheckoutPrice(item.name, candidate.product);
+    const planScore =
+      plannedPrice && cheapestPlannedPrice
+        ? Math.max(0, 50 - ((plannedPrice / cheapestPlannedPrice) - 1) * 100)
+        : 0;
+    const rankingScore =
+      confidenceScore[candidate.confidence] + preferenceScore + planScore;
 
     if (!best || rankingScore > best.rankingScore) {
       best = {
@@ -329,9 +365,13 @@ export const matchListItem = (
   }
 
   const product = best?.product ?? null;
-  const estimatedCheckoutPriceSek = product
+  const weightedPrice = product
     ? weightedCheckoutPrice(item.name, product)
     : undefined;
+  const packagePrice = product
+    ? packageCheckoutPrice(item.name, product)
+    : undefined;
+  const estimatedCheckoutPriceSek = weightedPrice ?? packagePrice;
 
   return {
     listItemId: item.id,
@@ -348,7 +388,10 @@ export const matchListItem = (
       ? {}
       : {
           estimatedCheckoutPriceSek,
-          priceBasis: "weighted_item_estimate" as const,
+          priceBasis:
+            weightedPrice !== undefined
+              ? ("weighted_item_estimate" as const)
+              : ("package_plan" as const),
         }),
   };
 };

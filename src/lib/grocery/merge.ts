@@ -13,12 +13,9 @@ const parseTask = (task: TaskItem): CanonicalGroceryItem => {
   const nameText = task.text.replace(/\s*\([^)]+\)\s*$/, "");
   const name = normalizeGroceryName(nameText);
   const normalized = normalizeRecipeIngredient({ text: name, quantity: quantityText || "", category: task.notes || "" });
-  const hasPersistedPackageSuggestion = normalized.policy === "package_round" && Boolean(quantityText);
   return {
     ...normalized,
-    // Persisted package-rounded text is a shopping suggestion, not the raw recipe need.
-    quantity: hasPersistedPackageSuggestion ? null : parseQuantity(quantityText),
-    policy: hasPersistedPackageSuggestion ? "hide" : normalized.policy,
+    quantity: parseQuantity(quantityText),
   };
 };
 

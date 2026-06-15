@@ -71,7 +71,7 @@ test("calculates a demo basket and keeps missing items visible", async () => {
   assert.equal(result.uncertainOrMissingItemCount, 1);
   assert.equal(result.matches.at(-1)?.confidence, "none");
   assert.equal(result.matches.at(-1)?.product, null);
-  assert.equal(result.approximateTotalSek, 75.85);
+  assert.equal(result.approximateTotalSek, 92.8);
   assert.equal(result.isEstimate, true);
 });
 

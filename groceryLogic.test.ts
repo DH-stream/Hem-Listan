@@ -63,29 +63,28 @@ test("uses store-friendly names when recipe ingredients become list items", () =
   assert.equal(plan([], [ingredient("Skivad gurka")]).tasks[0].text, "Gurka");
 });
 
-test("Arla Standardmjölk merges into existing milk and package-rounds", () => {
+test("Arla Standardmjölk merges into existing milk and keeps required quantity", () => {
   const result = plan([task("Mjölk", false, "Mejeri")], [ingredient("Arla Ko® Standardmjölk", "6 dl")]);
   assert.equal(result.tasks.length, 1);
-  assert.equal(result.tasks[0].text, "Mjölk (1 l)");
+  assert.equal(result.tasks[0].text, "Mjölk (6 dl)");
   assert.equal(result.updates.length, 1);
 });
 
-test("does not reuse a package-rounded milk display as exact recipe need", () => {
-  const result = plan([task("Mjölk (1 l)", false, "Mejeri")], [ingredient("Mjölk", "2 dl")]);
+test("merges persisted milk quantities into the required shopping amount", () => {
+  const result = plan([task("Mjölk (1 l)", false, "Mejeri")], [ingredient("Mjölk", "1 l")]);
   assert.equal(result.tasks.length, 1);
-  assert.equal(result.tasks[0].text, "Mjölk");
-  assert.notEqual(result.tasks[0].text, "Mjölk (2 l)");
+  assert.equal(result.tasks[0].text, "Mjölk (2 l)");
 });
 
-test("does not over-round an existing cream shopping suggestion", () => {
+test("merges persisted cream quantities", () => {
   const result = plan([task("Vispgrädde (5 dl)", false, "Mejeri")], [ingredient("Vispgrädde", "1 dl")]);
   assert.equal(result.tasks.length, 1);
-  assert.equal(result.tasks[0].text, "Vispgrädde");
+  assert.equal(result.tasks[0].text, "Vispgrädde (6 dl)");
 });
 
-test("treats persisted package-rounded text as display rather than recipe-needed quantity", () => {
+test("keeps persisted package quantities when adding more of the same item", () => {
   const result = plan([task("Mjölk (2 l)", false, "Mejeri")], [ingredient("Mjölk", "2 dl")]);
-  assert.equal(result.tasks[0].text, "Mjölk");
+  assert.equal(result.tasks[0].text, "Mjölk (2,2 l)");
 });
 
 test("normalizes Arla Smör- & rapsolja", () => {
@@ -104,10 +103,10 @@ test("ground black pepper merges and hides quantities", () => {
   assert.equal(result.tasks[0].text, "Svartpeppar");
 });
 
-test("cream quantities sum and package-round", () => {
+test("cream quantities sum to the exact required amount", () => {
   const result = plan([], [ingredient("Vispgrädde", "2 dl"), ingredient("Vispgrädde", "2 1/2 dl")]);
   assert.equal(result.tasks.length, 1);
-  assert.equal(result.tasks[0].text, "Vispgrädde (5 dl)");
+  assert.equal(result.tasks[0].text, "Vispgrädde (450 ml)");
 });
 
 test("salt quantities are hidden", () => {
