@@ -17,23 +17,59 @@ interface BasketPricingCacheEntry {
 
 export const createBasketItemSignature = (
   tasks: TaskItem[],
-): string =>
-  [...new Set(
-    tasks
-      .filter((task) => !task.checked)
-      .map((task) => {
-        const name = normalizeGroceryName(
-          task.text.replace(/\s*\([^)]+\)\s*$/, ""),
-        );
-        const quantity = parseComparableQuantity(task.text);
-        return quantity
+): string => {
+  const requirements = tasks
+    .filter((task) => !task.checked)
+    .map((task) => {
+      const name = normalizeGroceryName(
+        task.text.replace(/\s*\([^)]+\)\s*$/, ""),
+      );
+      const quantity = parseComparableQuantity(task.text);
+      return {
+        id: task.id,
+        name,
+        quantity,
+        identity: quantity
           ? `${name}:${quantity.dimension}:${quantity.amount}`
-          : name;
-      })
-      .filter(Boolean),
-  )]
+          : name,
+      };
+    })
+    .filter((requirement) => requirement.name);
+
+  const persistedByIdentity = new Map<string, number>();
+  requirements.forEach((requirement) => {
+    if (requirement.id.startsWith("task-imported-")) return;
+    persistedByIdentity.set(
+      requirement.identity,
+      (persistedByIdentity.get(requirement.identity) ?? 0) + 1,
+    );
+  });
+
+  const totals = new Map<string, number>();
+  const unquantifiedNames = new Set<string>();
+  requirements.forEach((requirement) => {
+    if (requirement.id.startsWith("task-imported-")) {
+      const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
+      if (persistedCount > 0) {
+        persistedByIdentity.set(requirement.identity, persistedCount - 1);
+        return;
+      }
+    }
+    if (!requirement.quantity) {
+      unquantifiedNames.add(requirement.name);
+      return;
+    }
+    const key = `${requirement.name}:${requirement.quantity.dimension}`;
+    totals.set(key, (totals.get(key) ?? 0) + requirement.quantity.amount);
+  });
+
+  return [
+    ...unquantifiedNames,
+    ...Array.from(totals, ([key, amount]) => `${key}:${amount}`),
+  ]
     .sort()
     .join("|");
+};
 
 export const createBasketPricingCacheKey = (
   chain: string,

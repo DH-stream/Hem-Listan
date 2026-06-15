@@ -252,6 +252,52 @@ test("basket pricing signature normalizes equivalent quantity formatting", () =>
   assert.equal(first, "mjölk:volume:1500");
 });
 
+test("basket pricing signature aggregates identical quantities", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Mjölk (1 l)", checked: false },
+    ]),
+    "mjölk:volume:2000",
+  );
+});
+
+test("basket pricing signature aggregates equivalent units", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+    ]),
+    "mjölk:volume:1500",
+  );
+});
+
+test("basket pricing signature aggregates count requirements", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "lemon-1", text: "Citron (1 st)", checked: false },
+      { id: "lemon-2", text: "Citron (1 st)", checked: false },
+    ]),
+    "citron:count:2",
+  );
+});
+
+test("basket pricing signature ignores temp-id reconciliation duplicates", () => {
+  const optimistic = createBasketItemSignature([
+    { id: "task-imported-1", text: "Mjölk (1 l)", checked: false },
+  ]);
+  const reconciling = createBasketItemSignature([
+    { id: "task-imported-1", text: "Mjölk (1 l)", checked: false },
+    { id: "supabase-uuid", text: "Mjölk (1 l)", checked: false },
+  ]);
+  const persisted = createBasketItemSignature([
+    { id: "supabase-uuid", text: "Mjölk (1 l)", checked: false },
+  ]);
+
+  assert.equal(optimistic, reconciling);
+  assert.equal(reconciling, persisted);
+});
+
 test("basket pricing cache identifies fresh and stale entries", () => {
   const originalWindow = globalThis.window;
   const key = "hem-listan-pricing-basket:v1:city_gross:list-cache:items";
