@@ -13,12 +13,9 @@ const parseTask = (task: TaskItem): CanonicalGroceryItem => {
   const nameText = task.text.replace(/\s*\([^)]+\)\s*$/, "");
   const name = normalizeGroceryName(nameText);
   const normalized = normalizeRecipeIngredient({ text: name, quantity: quantityText || "", category: task.notes || "" });
-  const hasPersistedPackageSuggestion = normalized.policy === "package_round" && Boolean(quantityText);
   return {
     ...normalized,
-    // Persisted package-rounded text is a shopping suggestion, not the raw recipe need.
-    quantity: hasPersistedPackageSuggestion ? null : parseQuantity(quantityText),
-    policy: hasPersistedPackageSuggestion ? "hide" : normalized.policy,
+    quantity: parseQuantity(quantityText),
   };
 };
 
@@ -30,7 +27,15 @@ const canSafelyMerge = (left: CanonicalGroceryItem, right: CanonicalGroceryItem)
 };
 
 const combine = (existing: CanonicalGroceryItem, incoming: CanonicalGroceryItem): CanonicalGroceryItem => {
-  const quantity = addQuantities(existing.quantity, incoming.quantity);
+  const existingQuantity =
+    !existing.quantity && incoming.quantity?.dimension === "count"
+      ? { ...incoming.quantity, amount: 1 }
+      : existing.quantity;
+  const incomingQuantity =
+    !incoming.quantity && existing.quantity?.dimension === "count"
+      ? { ...existing.quantity, amount: 1 }
+      : incoming.quantity;
+  const quantity = addQuantities(existingQuantity, incomingQuantity);
   return {
     ...incoming,
     quantity: quantity ?? existing.quantity ?? incoming.quantity,

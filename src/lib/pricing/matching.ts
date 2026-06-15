@@ -3,6 +3,14 @@ import type {
   PriceMatchConfidence,
   ProductPrice,
 } from "./types";
+import {
+  estimateWeightedCheckoutPrice,
+  isApproximatePieceMassProduct,
+  isWeightPricedProduct,
+  parseComparableQuantity,
+  parseProductPackageQuantity,
+  selectPackagePurchasePlan,
+} from "../../../shared/pricingQuantity";
 import { evaluateReceiptInformedPreference } from "./productPreferenceRules";
 
 export const normalizePriceQuery = (value: string) =>
@@ -18,9 +26,16 @@ export const normalizePriceQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export const cleanCityGrossSearchQuery = (value: string) =>
-  value
+export const cleanCityGrossSearchQuery = (value: string) => {
+  if (/^\s*valbart\b.*\bvalfri\b/i.test(value)) return "";
+  return value
     .normalize("NFKC")
+    .replace(/^port\s+(?=penne\b)/i, "")
+    .replace(
+      /^(?:finhackad|finhackade|hackad|hackade|skivad|skivade|tärnad|tärnade)\s+/i,
+      "",
+    )
+    .replace(/\s+på toppen\b.*$/i, "")
     .replace(/\([^)]*\)/g, " ")
     .replace(
       /\b(?:ca|cirka)?\s*\d+(?:[.,]\d+)?\s*(?:st|stycken|pack|paket|förp|kg|g|l|dl|cl|ml|klase|klasar|burk|flaska|påse)\b/gi,
@@ -29,6 +44,7 @@ export const cleanCityGrossSearchQuery = (value: string) =>
     .replace(/\s*[,;]\s*.*$/, "")
     .replace(/\s+/g, " ")
     .trim();
+};
 
 const editDistance = (left: string, right: string) => {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -112,56 +128,8 @@ const isClearlyIncompatibleProduct = (
   return false;
 };
 
-type ParsedAmount = { amount: number; dimension: "mass" | "volume" | "count" };
-
-const parseAmount = (value: string): ParsedAmount | null => {
-  const match = value.match(/(?:ca\s*)?(\d+(?:[.,]\d+)?)\s*(kg|g|l|dl|cl|ml|st)\b/i);
-  if (!match) return null;
-
-  const amount = Number(match[1].replace(",", "."));
-  const unit = match[2].toLocaleLowerCase("sv-SE");
-  if (!Number.isFinite(amount)) return null;
-  if (unit === "kg") return { amount: amount * 1000, dimension: "mass" };
-  if (unit === "g") return { amount, dimension: "mass" };
-  if (unit === "l") return { amount: amount * 1000, dimension: "volume" };
-  if (unit === "dl") return { amount: amount * 100, dimension: "volume" };
-  if (unit === "cl") return { amount: amount * 10, dimension: "volume" };
-  if (unit === "ml") return { amount, dimension: "volume" };
-  return { amount, dimension: "count" };
-};
-
-const productPackageAmount = (product: ProductPrice) =>
-  parseAmount(product.unitLabel) ?? parseAmount(product.productName);
-
-const isWeightedProduct = (product: ProductPrice) =>
-  /_kg$/i.test(product.id) ||
-  (/kr\s*\/\s*kg/i.test(product.comparePrice ?? "") &&
-    /\bca\s*\d+(?:[.,]\d+)?\s*(?:kg|g)\b/i.test(product.unitLabel));
-
-const weightedCheckoutPrice = (itemName: string, product: ProductPrice) => {
-  if (!isWeightedProduct(product)) return undefined;
-
-  const requested = parseAmount(itemName);
-  const averageUnit = parseAmount(product.unitLabel);
-  let weightGrams: number | undefined;
-
-  if (requested?.dimension === "mass") {
-    weightGrams = requested.amount;
-  } else if (
-    requested?.dimension === "count" &&
-    averageUnit?.dimension === "mass"
-  ) {
-    weightGrams = requested.amount * averageUnit.amount;
-  } else if (averageUnit?.dimension === "mass") {
-    weightGrams = averageUnit.amount;
-  }
-
-  if (weightGrams === undefined) return undefined;
-  return (
-    Math.round((product.priceSek * (weightGrams / 1000) + 1e-9) * 100) /
-    100
-  );
-};
+const parseAmount = parseComparableQuantity;
+const productPackageAmount = parseProductPackageQuantity;
 
 const productPreferenceScore = (
   itemName: string,
@@ -184,16 +152,12 @@ const productPreferenceScore = (
     packageAmount &&
     requested.dimension === packageAmount.dimension &&
     requested.dimension !== "count" &&
-    !isWeightedProduct(product)
+    !isWeightPricedProduct(product)
   ) {
-    const ratio = packageAmount.amount / requested.amount;
-    if (ratio >= 1) {
-      score += Math.max(0, 20 - Math.log2(ratio) * 6);
-      if (ratio <= 2) reasons.push("requested_pack_size");
-    } else {
-      score -= 12 + (1 - ratio) * 8;
-      reasons.push("package_too_small");
-    }
+    const packages = Math.max(1, Math.ceil(requested.amount / packageAmount.amount));
+    const ratio = (packages * packageAmount.amount) / requested.amount;
+    score += Math.max(0, 20 - Math.log2(ratio) * 8);
+    reasons.push(packages > 1 ? "multi_package_plan" : "requested_pack_size");
   }
 
   if (!requested && packageAmount) {
@@ -270,7 +234,7 @@ const confidenceScore: Record<PriceMatchConfidence, number> = {
 };
 
 export const matchListItem = (
-  item: { id: string; name: string },
+  item: { id: string; name: string; sourceTaskIds?: string[] },
   products: ProductPrice[],
   options: { debug?: boolean } = {},
 ): ListItemPriceMatch => {
@@ -295,6 +259,18 @@ export const matchListItem = (
       .filter((candidate) => candidate.confidence !== "none")
       .map((candidate) => candidate.product),
   );
+  const requested = parseAmount(item.name);
+  const packagePlan = requested
+    ? selectPackagePurchasePlan(
+        requested,
+        candidates
+          .filter((candidate) => candidate.confidence !== "none")
+          .map((candidate) => candidate.product),
+      )
+    : null;
+  const plannedProductIds = new Set(
+    packagePlan?.items.map((item) => item.product.id) ?? [],
+  );
 
   let best:
     | {
@@ -314,7 +290,9 @@ export const matchListItem = (
       comparableMedianPrice,
     );
     const preferenceScore = preference.score + pricePreference.score;
-    const rankingScore = confidenceScore[candidate.confidence] + preferenceScore;
+    const planScore = plannedProductIds.has(candidate.product.id) ? 100 : 0;
+    const rankingScore =
+      confidenceScore[candidate.confidence] + preferenceScore + planScore;
 
     if (!best || rankingScore > best.rankingScore) {
       best = {
@@ -329,13 +307,32 @@ export const matchListItem = (
   }
 
   const product = best?.product ?? null;
-  const estimatedCheckoutPriceSek = product
-    ? weightedCheckoutPrice(item.name, product)
+  const weightedPrice = product
+    ? estimateWeightedCheckoutPrice(requested, product)
     : undefined;
+  const piecePrice =
+    product &&
+    requested?.dimension === "count" &&
+    isApproximatePieceMassProduct(product)
+      ? Math.round(product.priceSek * requested.amount * 100) / 100
+      : undefined;
+  const selectedPurchasePlan =
+    packagePlan && product && plannedProductIds.has(product.id)
+      ? packagePlan
+      : piecePrice !== undefined && product && requested
+        ? {
+            totalPriceSek: piecePrice,
+            purchasedAmount: requested.amount,
+            items: [{ product, count: requested.amount }],
+          }
+        : undefined;
+  const packagePrice = selectedPurchasePlan?.totalPriceSek;
+  const estimatedCheckoutPriceSek = weightedPrice ?? packagePrice;
 
   return {
     listItemId: item.id,
     listItemName: item.name,
+    ...(item.sourceTaskIds ? { sourceTaskIds: item.sourceTaskIds } : {}),
     product,
     confidence: best?.confidence ?? "none",
     ...(options.debug && best
@@ -348,7 +345,13 @@ export const matchListItem = (
       ? {}
       : {
           estimatedCheckoutPriceSek,
-          priceBasis: "weighted_item_estimate" as const,
+          priceBasis:
+            weightedPrice !== undefined
+              ? ("weighted_item_estimate" as const)
+              : ("package_plan" as const),
+          ...(weightedPrice === undefined && selectedPurchasePlan
+            ? { purchasePlan: selectedPurchasePlan }
+            : {}),
         }),
   };
 };

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -20,12 +20,21 @@ import {
   touchSavedRecipeLastUsed,
   upsertSavedRecipeFromImport,
 } from "../lib/supabase";
-import { useBasketPriceEstimate } from "../lib/pricing/useBasketPriceEstimate";
+import {
+  createActiveShoppingRows,
+  createShoppingRowDisplay,
+  createShoppingProgressRows,
+  useBasketPriceEstimate,
+} from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
 import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+import {
+  formatPurchasePlanLabel,
+} from "../../shared/pricingQuantity";
+import type { ListItemPriceMatch } from "../lib/pricing/types";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -256,10 +265,21 @@ export default function ListDetailGrocery({
     return () => window.clearTimeout(timeoutId);
   }, [highlightedMealClientId, list.meals]);
 
-  const totalTasks = list.tasks.length;
-  const completedTasks = list.tasks.filter((t) => t.checked);
-  const completedCount = completedTasks.length;
+  const progressRows = createShoppingProgressRows(list.tasks);
+  const completedShoppingRows = progressRows.filter((row) => row.checked);
+  const totalTasks = progressRows.length;
+  const completedCount = completedShoppingRows.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const shoppingMatchHistory = useRef<Record<string, ListItemPriceMatch>>({});
+  Object.entries(matchByTaskId).forEach(([taskId, match]) => {
+    if (match.purchasePlan) shoppingMatchHistory.current[taskId] = match;
+  });
+  const activeShoppingRows = createActiveShoppingRows(list.tasks);
+  const shoppingRowByTaskId = new Map(
+    activeShoppingRows.flatMap((row) =>
+      row.sourceTaskIds.map((taskId) => [taskId, row] as const),
+    ),
+  );
   recipeTipDebugLog("render card", {
     recipeId: recommendedSavedRecipe?.id,
     title: recommendedSavedRecipe?.title,
@@ -343,13 +363,15 @@ export default function ListDetailGrocery({
     setRecipeImportPreview(null);
 
     try {
+      const debug = isRecipeTipDebugEnabled();
+      console.info("[recipe-import] request", { url, debug });
       const response = await fetch("/api/import-recipe", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-hl-request-id": requestId,
         },
-        body: JSON.stringify({ url, debug: isRecipeTipDebugEnabled() }),
+        body: JSON.stringify({ url, debug }),
       });
       const contentType = response.headers.get("content-type") ?? "";
 
@@ -398,7 +420,7 @@ export default function ListDetailGrocery({
       }
 
       const data = await response.json();
-      if (isRecipeTipDebugEnabled() && data?.debug?.image) {
+      if (debug && data?.debug?.image) {
         console.info("[recipe-import:image] result", data.debug.image);
       }
       if (!Array.isArray(data?.ingredients) || data.ingredients.length === 0) {
@@ -640,7 +662,9 @@ export default function ListDetailGrocery({
       Övrigt: [],
     };
 
-    const activeTasks = list.tasks.filter((t) => !t.checked);
+    const activeTasks = activeShoppingRows
+      .map((row) => list.tasks.find((task) => task.id === row.id))
+      .filter((task): task is TaskItem => Boolean(task));
 
     activeTasks.forEach((t) => {
       const matchedProduct = matchByTaskId[t.id]?.product;
@@ -664,6 +688,23 @@ export default function ListDetailGrocery({
   };
 
   const categorized = getCategorizedTasks();
+
+  const getShoppingRowSourceIds = (item: TaskItem) =>
+    shoppingRowByTaskId.get(item.id)?.sourceTaskIds ?? [item.id];
+
+  const getShoppingRowText = (item: TaskItem) => {
+    const shoppingRow = shoppingRowByTaskId.get(item.id);
+    return shoppingRow
+      ? createShoppingRowDisplay(shoppingRow, matchByTaskId[item.id]).text
+      : item.text;
+  };
+
+  const getShoppingRowParts = (item: TaskItem) => {
+    const shoppingRow = shoppingRowByTaskId.get(item.id);
+    return shoppingRow
+      ? createShoppingRowDisplay(shoppingRow, matchByTaskId[item.id]).parts
+      : null;
+  };
 
   const getCatIcon = (name: string) => {
     switch (name) {
@@ -1113,7 +1154,11 @@ export default function ListDetailGrocery({
                               layoutId={`grocery-item-${item.id}`}
                             >
                               <div
-                                onClick={() => onToggleTask(list.id, item.id)}
+                                onClick={() =>
+                                  getShoppingRowSourceIds(item).forEach((id) =>
+                                    onToggleTask(list.id, id),
+                                  )
+                                }
                                 className="flex items-center gap-3.5 flex-1 min-w-0"
                               >
                                 <div
@@ -1130,15 +1175,22 @@ export default function ListDetailGrocery({
                                     />
                                   )}
                                 </div>
-                                <span
-                                  className={`font-sans text-sm text-text-main font-medium truncate ${
-                                    item.checked
-                                      ? "line-through opacity-70"
-                                      : ""
-                                  }`}
-                                >
-                                  {item.text}
-                                </span>
+                                <div className="min-w-0">
+                                  <div
+                                    className={`font-sans text-sm text-text-main font-medium truncate ${
+                                      item.checked
+                                        ? "line-through opacity-70"
+                                        : ""
+                                    }`}
+                                  >
+                                    {getShoppingRowText(item)}
+                                  </div>
+                                  {getShoppingRowParts(item) && (
+                                    <div className="font-sans text-xs text-on-surface-variant truncate">
+                                      {getShoppingRowParts(item)}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
                               {matchByTaskId[item.id]?.product && (
@@ -1148,7 +1200,13 @@ export default function ListDetailGrocery({
                                       ? "text-primary"
                                       : "text-on-surface-variant/65"
                                   }`}
-                                  title={`Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`}
+                                  title={
+                                    matchByTaskId[item.id].purchasePlan
+                                      ? `Mängd: ${formatPurchasePlanLabel(
+                                          matchByTaskId[item.id].purchasePlan!,
+                                        )}. Ungefärligt totalpris.`
+                                      : `Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`
+                                  }
                                 >
                                   <span className="font-sans text-xs font-semibold tabular-nums">
                                     {(
@@ -1165,7 +1223,11 @@ export default function ListDetailGrocery({
                               )}
 
                               <button
-                                onClick={() => onDeleteTask(list.id, item.id)}
+                                onClick={() =>
+                                  getShoppingRowSourceIds(item).forEach((id) =>
+                                    onDeleteTask(list.id, id),
+                                  )
+                                }
                                 className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
                                 title="Ta bort"
                               >
@@ -1182,7 +1244,7 @@ export default function ListDetailGrocery({
             )}
 
             {/* Completed items collapsible panel */}
-            {completedTasks.length > 0 && (
+            {completedShoppingRows.length > 0 && (
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <button
                   type="button"
@@ -1194,7 +1256,7 @@ export default function ListDetailGrocery({
                       name={showCompleted ? "chevron_down" : "chevron_right"}
                       className="w-4 h-4 text-outline"
                     />
-                    <span>Handlade varor ({completedTasks.length})</span>
+                    <span>Handlade varor ({completedShoppingRows.length})</span>
                   </div>
                   <span className="text-[10px] bg-surface-container-high px-2.5 py-0.5 rounded-full text-outline font-semibold">
                     {showCompleted ? "DÖLJ" : "VISA"}
@@ -1210,13 +1272,25 @@ export default function ListDetailGrocery({
                       transition={{ duration: 0.2 }}
                       className="overflow-hidden space-y-2.5 mt-3"
                     >
-                      {completedTasks.map((item) => (
+                      {completedShoppingRows.map((row) => {
+                        const historicalMatch = row.sourceTaskIds
+                          .map((id) => shoppingMatchHistory.current[id])
+                          .find((match) => match?.purchasePlan);
+                        const display = createShoppingRowDisplay(
+                          row,
+                          historicalMatch,
+                        );
+                        return (
                         <div
-                          key={item.id}
+                          key={row.id}
                           className="flex items-center justify-between p-3.5 bg-surface-container-lowest/70 rounded-xl border border-surface-container/20 opacity-70 group cursor-pointer hover:opacity-100 transition-opacity"
                         >
                           <div
-                            onClick={() => onToggleTask(list.id, item.id)}
+                            onClick={() =>
+                              row.sourceTaskIds.forEach((id) =>
+                                onToggleTask(list.id, id),
+                              )
+                            }
                             className="flex items-center gap-3.5 flex-1 min-w-0"
                           >
                             <div className="w-5 h-5 rounded-full border border-primary bg-primary flex items-center justify-center shrink-0">
@@ -1225,20 +1299,32 @@ export default function ListDetailGrocery({
                                 className="w-3.5 h-3.5 text-white"
                               />
                             </div>
-                            <span className="font-sans text-sm text-text-main font-medium line-through truncate">
-                              {item.text}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="font-sans text-sm text-text-main font-medium line-through truncate">
+                                {display.text}
+                              </div>
+                              {display.parts && (
+                                <div className="font-sans text-xs text-on-surface-variant truncate">
+                                  {display.parts}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <button
-                            onClick={() => onDeleteTask(list.id, item.id)}
+                            onClick={() =>
+                              row.sourceTaskIds.forEach((id) =>
+                                onDeleteTask(list.id, id),
+                              )
+                            }
                             className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
                             title="Ta bort"
                           >
                             <LucideIcon name="close" className="w-4 h-4" />
                           </button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </motion.div>
                   )}
                 </AnimatePresence>

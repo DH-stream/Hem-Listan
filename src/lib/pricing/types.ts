@@ -37,13 +37,21 @@ export interface ProductPrice {
   fetchedAt?: string;
 }
 
+export interface PurchasePlan {
+  totalPriceSek: number;
+  purchasedAmount: number;
+  items: Array<{ product: ProductPrice; count: number }>;
+}
+
 export interface ListItemPriceMatch {
   listItemId: string;
   listItemName: string;
+  sourceTaskIds?: string[];
   product: ProductPrice | null;
   confidence: PriceMatchConfidence;
   estimatedCheckoutPriceSek?: number;
-  priceBasis?: "product_price" | "weighted_item_estimate";
+  priceBasis?: "product_price" | "weighted_item_estimate" | "package_plan";
+  purchasePlan?: PurchasePlan;
   preferenceScore?: number;
   preferenceReasons?: string[];
 }

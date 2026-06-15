@@ -8,7 +8,11 @@ import { matchListItem } from "./src/lib/pricing/matching";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   BASKET_PRICING_CACHE_TTL_MS,
+  createActiveShoppingRows,
+  createShoppingRowDisplay,
+  createShoppingProgressRows,
   createBasketItemSignature,
+  createActivePricingItems,
   createBasketPricingCacheKey,
   logBasketPricingResult,
   readBasketPricingCache,
@@ -71,7 +75,7 @@ test("calculates a demo basket and keeps missing items visible", async () => {
   assert.equal(result.uncertainOrMissingItemCount, 1);
   assert.equal(result.matches.at(-1)?.confidence, "none");
   assert.equal(result.matches.at(-1)?.product, null);
-  assert.equal(result.approximateTotalSek, 75.85);
+  assert.equal(result.approximateTotalSek, 92.8);
   assert.equal(result.isEstimate, true);
 });
 
@@ -120,6 +124,90 @@ test("basket estimate keeps previous prices for active items during revalidation
   assert.equal(result.approximateTotalSek, 54.95);
   assert.deepEqual(Object.keys(result.matchByTaskId), ["existing"]);
   assert.equal(result.matchByTaskId.new, undefined);
+});
+
+test("basket estimate follows an active item when only its id changes", () => {
+  const importedMatch = matchListItem(
+    { id: "task-imported-1", name: "  Kaffe " },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [{ id: "supabase-uuid", text: "kaffe", checked: false }],
+    { matches: [importedMatch], approximateTotalSek: 54.95 },
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.equal(
+    result.matchByTaskId["supabase-uuid"]?.listItemId,
+    "supabase-uuid",
+  );
+});
+
+test("basket estimate remaps an aggregated temp-id match to persisted shopping rows", () => {
+  const milk15: ProductPrice = {
+    ...products[0],
+    id: "milk-15",
+    productName: "Mjölk 1,5L",
+    priceSek: 18,
+    unitLabel: "1,5 l",
+    searchTerms: ["mjölk"],
+  };
+  const result = selectActiveBasketEstimate(
+    [
+      { id: "uuid-a", text: "Mjölk (1 l)", checked: false },
+      { id: "uuid-b", text: "Standardmjölk (5 dl)", checked: false },
+    ],
+    {
+      matches: [
+        {
+          listItemId: "task-imported-a",
+          listItemName: "mjölk (1,5 l)",
+          sourceTaskIds: ["task-imported-a", "task-imported-b"],
+          product: milk15,
+          confidence: "high",
+          estimatedCheckoutPriceSek: 18,
+          priceBasis: "package_plan",
+          purchasePlan: {
+            totalPriceSek: 18,
+            purchasedAmount: 1500,
+            items: [{ product: milk15, count: 1 }],
+          },
+        },
+      ],
+      approximateTotalSek: 18,
+    },
+  );
+
+  assert.equal(result.approximateTotalSek, 18);
+  assert.equal(
+    result.matchByTaskId["uuid-a"]?.purchasePlan?.purchasedAmount,
+    1500,
+  );
+  assert.equal(
+    result.matchByTaskId["uuid-b"]?.purchasePlan?.purchasedAmount,
+    1500,
+  );
+});
+
+test("basket estimate counts temp and persisted matches for one item once", () => {
+  const importedMatch = matchListItem(
+    { id: "task-imported-1", name: "kaffe" },
+    products,
+  );
+  const persistedMatch = matchListItem(
+    { id: "supabase-uuid", name: "kaffe" },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [{ id: "supabase-uuid", text: "kaffe", checked: false }],
+    {
+      matches: [importedMatch, persistedMatch],
+      approximateTotalSek: 109.9,
+    },
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.ok(result.matchByTaskId["supabase-uuid"]);
 });
 
 test("pricing debug result logging includes safe error diagnostics", () => {
@@ -175,11 +263,12 @@ test("basket pricing cache key and active item signature are stable", () => {
     { id: "a", text: "Bröd", checked: false },
   ]);
   const second = createBasketItemSignature([
-    { id: "a", text: "Bröd", checked: false },
-    { id: "b", text: "Mjölk", checked: false },
+    { id: "new-a", text: "  BRÖD ", checked: false },
+    { id: "new-b", text: "Mjölk", checked: false },
   ]);
 
   assert.equal(first, second);
+  assert.equal(first, "bröd|mjölk");
   assert.equal(
     createBasketPricingCacheKey("city_gross", "list-1", first),
     `hem-listan-pricing-basket:v1:city_gross:list-1:${first}`,
@@ -197,6 +286,259 @@ test("basket pricing cache key and active item signature are stable", () => {
       { id: "a", text: "Bröd", checked: false },
       { id: "b", text: "Mjölk", checked: true },
     ]),
+  );
+});
+
+test("basket pricing signature normalizes equivalent quantity formatting", () => {
+  const first = createBasketItemSignature([
+    { id: "temp", text: "Mjölk (1,5 l)", checked: false },
+  ]);
+  const second = createBasketItemSignature([
+    { id: "uuid", text: "Standardmjölk (15 dl)", checked: false },
+  ]);
+
+  assert.equal(first, second);
+  assert.equal(first, "mjölk:volume:1500");
+});
+
+test("basket pricing signature aggregates identical quantities", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Mjölk (1 l)", checked: false },
+    ]),
+    "mjölk:volume:2000",
+  );
+});
+
+test("basket pricing signature aggregates equivalent units", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+    ]),
+    "mjölk:volume:1500",
+  );
+});
+
+test("basket pricing signature aggregates count requirements", () => {
+  assert.equal(
+    createBasketItemSignature([
+      { id: "lemon-1", text: "Citron (1 st)", checked: false },
+      { id: "lemon-2", text: "Citron (1 st)", checked: false },
+    ]),
+    "citron:count:2",
+  );
+});
+
+test("basket pricing signature ignores temp-id reconciliation duplicates", () => {
+  const optimistic = createBasketItemSignature([
+    { id: "task-imported-1", text: "Mjölk (1 l)", checked: false },
+  ]);
+  const reconciling = createBasketItemSignature([
+    { id: "task-imported-1", text: "Mjölk (1 l)", checked: false },
+    { id: "supabase-uuid", text: "Mjölk (1 l)", checked: false },
+  ]);
+  const persisted = createBasketItemSignature([
+    { id: "supabase-uuid", text: "Mjölk (1 l)", checked: false },
+  ]);
+
+  assert.equal(optimistic, reconciling);
+  assert.equal(reconciling, persisted);
+});
+
+test("pricing input aggregates quantities before the API request", () => {
+  assert.deepEqual(
+    createActivePricingItems([
+      { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+      { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+      { id: "done", text: "Mjölk (2 l)", checked: true },
+    ]),
+    [{
+      id: "milk-1",
+      name: "mjölk (1,5 l)",
+      sourceTaskIds: ["milk-1", "milk-2"],
+    }],
+  );
+});
+
+test("pricing input aggregates count requirements", () => {
+  assert.deepEqual(
+    createActivePricingItems([
+      { id: "lemon-1", text: "Citron (1 st)", checked: false },
+      { id: "lemon-2", text: "Citron (1 st)", checked: false },
+    ]),
+    [{
+      id: "lemon-1",
+      name: "citron (2 st)",
+      sourceTaskIds: ["lemon-1", "lemon-2"],
+    }],
+  );
+});
+
+test("shopping rows expose aggregated count before pricing", () => {
+  const rows = createActiveShoppingRows([
+    { id: "pepper-1", text: "Paprika (1 st)", checked: false },
+    { id: "pepper-2", text: "Paprika (1 st)", checked: false },
+  ]);
+
+  assert.deepEqual(rows, [
+    {
+      id: "pepper-1",
+      name: "paprika (2 st)",
+      normalizedName: "paprika",
+      sourceTaskIds: ["pepper-1", "pepper-2"],
+      dimension: "count",
+      amount: 2,
+    },
+  ]);
+});
+
+test("shopping rows stay stable through temp-id reconciliation and checked tasks", () => {
+  const reconciling = createActiveShoppingRows([
+    { id: "task-imported-1", text: "Paprika (1 st)", checked: false },
+    { id: "supabase-uuid", text: "Paprika (1 st)", checked: false },
+    { id: "checked", text: "Paprika (1 st)", checked: true },
+  ]);
+  const persisted = createActiveShoppingRows([
+    { id: "supabase-uuid", text: "Paprika (1 st)", checked: false },
+  ]);
+
+  assert.deepEqual(reconciling, persisted);
+  assert.equal(reconciling[0]?.name, "paprika (1 st)");
+});
+
+test("progress rows aggregate quantified requirements and count completion once", () => {
+  const active = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+    { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+  ]);
+  const completed = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk (1 l)", checked: true },
+    { id: "milk-2", text: "Standardmjölk (5 dl)", checked: true },
+  ]);
+
+  assert.equal(active.length, 1);
+  assert.equal(active[0]?.name, "mjölk (1,5 l)");
+  assert.equal(active[0]?.checked, false);
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0]?.checked, true);
+  assert.deepEqual(completed[0]?.sourceTaskIds, ["milk-1", "milk-2"]);
+});
+
+test("completed shopping display keeps the purchasable quantity and package parts", () => {
+  const milk1 = {
+    ...products[0],
+    id: "milk-1",
+    productName: "Mjölk 1L",
+    priceSek: 12,
+    unitLabel: "1 l",
+  };
+  const milk15 = {
+    ...products[0],
+    id: "milk-15",
+    productName: "Mjölk 1,5L",
+    priceSek: 18,
+    unitLabel: "1,5 l",
+  };
+  const row = createShoppingProgressRows([
+    { id: "milk-a", text: "Mjölk (1 l)", checked: true },
+    { id: "milk-b", text: "Mjölk (1,2 l)", checked: true },
+  ])[0]!;
+  const display = createShoppingRowDisplay(row, {
+    listItemId: row.id,
+    listItemName: row.name,
+    sourceTaskIds: row.sourceTaskIds,
+    product: milk15,
+    confidence: "high",
+    estimatedCheckoutPriceSek: 30,
+    priceBasis: "package_plan",
+    purchasePlan: {
+      totalPriceSek: 30,
+      purchasedAmount: 2500,
+      items: [
+        { product: milk1, count: 1 },
+        { product: milk15, count: 1 },
+      ],
+    },
+  });
+
+  assert.deepEqual(display, {
+    text: "Mjölk (2,5 l)",
+    parts: "1 l + 1,5 l",
+  });
+});
+
+test("progress rows preserve unquantified rows and ignore temp duplicates", () => {
+  const rows = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk", checked: false },
+    { id: "milk-2", text: "Mjölk", checked: true },
+    { id: "task-imported-1", text: "Citron (1 st)", checked: false },
+    { id: "supabase-uuid", text: "Citron (1 st)", checked: false },
+  ]);
+
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.filter((row) => row.normalizedName === "mjölk").map((row) => row.checked),
+    [false, true],
+  );
+  assert.deepEqual(
+    rows
+      .filter((row) => row.normalizedName === "mjölk")
+      .map((row) => row.sourceTaskIds),
+    [["milk-1"], ["milk-2"]],
+  );
+  assert.deepEqual(
+    rows.find((row) => row.normalizedName === "citron")?.sourceTaskIds,
+    ["supabase-uuid"],
+  );
+});
+
+test("pricing input preserves separate unquantified requirements", () => {
+  const items = createActivePricingItems([
+    { id: "milk-1", text: "Mjölk", checked: false },
+    { id: "milk-2", text: "Mjölk", checked: false },
+  ]);
+
+  assert.deepEqual(items, [
+    { id: "milk-1", name: "mjölk", sourceTaskIds: ["milk-1"] },
+    { id: "milk-2", name: "mjölk", sourceTaskIds: ["milk-2"] },
+  ]);
+  assert.equal(
+    createBasketItemSignature([
+      { id: "milk-1", text: "Mjölk", checked: false },
+      { id: "milk-2", text: "Mjölk", checked: false },
+    ]),
+    "mjölk:unquantified:2",
+  );
+});
+
+test("aggregated pricing matches map back to every contributing visible task", () => {
+  const match = matchListItem(
+    {
+      id: "coffee-1",
+      name: "kaffe",
+      sourceTaskIds: ["coffee-1", "coffee-2"],
+    },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [
+      { id: "coffee-1", text: "Kaffe", checked: false },
+      { id: "coffee-2", text: "Kaffe", checked: false },
+    ],
+    {
+      matches: [match],
+      approximateTotalSek:
+        match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0,
+    },
+  );
+
+  assert.equal(result.matchByTaskId["coffee-1"]?.listItemId, "coffee-1");
+  assert.equal(result.matchByTaskId["coffee-2"]?.listItemId, "coffee-2");
+  assert.equal(
+    result.approximateTotalSek,
+    match.estimatedCheckoutPriceSek ?? match.product?.priceSek,
   );
 });
 

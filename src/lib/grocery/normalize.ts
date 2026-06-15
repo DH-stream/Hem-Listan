@@ -30,7 +30,10 @@ const preserveInitialCasing = (source: string, value: string): string => {
 };
 
 export const normalizeShoppingItemNameForStore = (name: string): string => {
-  const trimmed = name.trim();
+  const trimmed = name
+    .trim()
+    .replace(/^port\s+(?=penne\b)/i, "")
+    .replace(/\s+på toppen$/i, "");
   const match = trimmed.match(STORE_PREPARATION_PREFIX);
   if (!match) return trimmed;
 

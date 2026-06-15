@@ -57,8 +57,23 @@ app.post(
 app.post(
   "/api/import-recipe",
   async (req: express.Request, res: express.Response) => {
+    const debug = req.body?.debug === true || req.query.debug === "1";
+    let hostname: string | undefined;
     try {
-      const recipe = await importRecipeFromUrl(req.body?.url);
+      hostname =
+        typeof req.body?.url === "string"
+          ? new URL(req.body.url).hostname
+          : undefined;
+    } catch {
+      hostname = undefined;
+    }
+    console.info("[recipe-import] received", {
+      url: req.body?.url,
+      debug,
+      hostname,
+    });
+    try {
+      const recipe = await importRecipeFromUrl(req.body?.url, { debug });
       return res.json(recipe);
     } catch (error) {
       const importError =

@@ -8,7 +8,7 @@ const formatNumber = (value: number) => Number.isInteger(value) ? String(value) 
 const formatExact = (quantity: ParsedQuantity): string => {
   const prefix = quantity.approximate ? "ca " : "";
   if (quantity.unit === "ml") {
-    if (quantity.amount >= 1000 && quantity.amount % 1000 === 0) return `${prefix}${formatNumber(quantity.amount / 1000)} l`;
+    if (quantity.amount >= 1000) return `${prefix}${formatNumber(quantity.amount / 1000)} l`;
     if (quantity.amount >= 100 && quantity.amount % 100 === 0) return `${prefix}${formatNumber(quantity.amount / 100)} dl`;
     return `${prefix}${formatNumber(quantity.amount)} ml`;
   }
@@ -22,15 +22,7 @@ const formatExact = (quantity: ParsedQuantity): string => {
 
 const formatPackageRound = (item: CanonicalGroceryItem): string | null => {
   const quantity = item.quantity;
-  if (!quantity || item.name === "ägg") return null;
-  if (quantity.unit === "förp") return `${formatNumber(quantity.amount)} förp`;
-  if (quantity.unit !== "ml") return formatExact(quantity);
-  if (item.name === "mjölk") {
-    const liters = Math.ceil(quantity.amount / 1000);
-    return `${liters} l`;
-  }
-  const deciliters = Math.ceil((quantity.amount / 100) / 5) * 5;
-  return `${formatNumber(deciliters)} dl`;
+  return quantity ? formatExact(quantity) : null;
 };
 
 export const displayGroceryItem = (item: CanonicalGroceryItem): string => {

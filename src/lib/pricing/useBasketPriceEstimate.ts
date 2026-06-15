@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
+import {
+  formatComparableQuantity,
+  formatPurchasePlanLabel,
+  parseComparableQuantity,
+} from "../../../shared/pricingQuantity";
+import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 
 const BASKET_DEBOUNCE_MS = 3_000;
@@ -13,14 +19,230 @@ interface BasketPricingCacheEntry {
   fetchedAt: string;
 }
 
-export const createBasketItemSignature = (
+export type ActiveShoppingRow = {
+  id: string;
+  name: string;
+  normalizedName: string;
+  sourceTaskIds: string[];
+  dimension?: "mass" | "volume" | "count";
+  amount?: number;
+};
+
+export type ShoppingProgressRow = ActiveShoppingRow & {
+  checked: boolean;
+};
+
+const formatRequirementAmount = (
+  amount: number,
+  dimension: ActiveShoppingRow["dimension"],
+) => {
+  const format = (value: number) =>
+    Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
+  if (dimension === "volume") {
+    if (amount >= 1000) return `${format(amount / 1000)} l`;
+    if (amount >= 100 && amount % 100 === 0) return `${format(amount / 100)} dl`;
+    return `${format(amount)} ml`;
+  }
+  if (dimension === "mass") {
+    return amount >= 1000
+      ? `${format(amount / 1000)} kg`
+      : `${format(amount)} g`;
+  }
+  return `${format(amount)} st`;
+};
+
+const createShoppingRows = (
   tasks: TaskItem[],
-): string =>
-  tasks
-    .filter((task) => !task.checked)
-    .map((task) => `${task.id}:${task.text}`)
+  includeChecked: boolean,
+): ShoppingProgressRow[] => {
+  const requirements = tasks
+    .filter((task) => includeChecked || !task.checked)
+    .map((task) => {
+      const name = normalizeGroceryName(
+        task.text.replace(/\s*\([^)]+\)\s*$/, ""),
+      );
+      const quantity = parseComparableQuantity(task.text);
+      return {
+        id: task.id,
+        name,
+        checked: task.checked,
+        quantity,
+        identity: quantity
+          ? `${name}:${quantity.dimension}:${quantity.amount}`
+          : name,
+      };
+    })
+    .filter((requirement) => requirement.name);
+
+  const persistedByIdentity = new Map<string, number>();
+  requirements.forEach((requirement) => {
+    if (requirement.id.startsWith("task-imported-")) return;
+    persistedByIdentity.set(
+      requirement.identity,
+      (persistedByIdentity.get(requirement.identity) ?? 0) + 1,
+    );
+  });
+
+  const totals = new Map<string, number>();
+  const quantified = new Map<
+    string,
+    {
+      id: string;
+      normalizedName: string;
+      dimension: "mass" | "volume" | "count";
+      sourceTaskIds: string[];
+      checked: boolean;
+    }
+  >();
+  const unquantified: ShoppingProgressRow[] = [];
+  requirements.forEach((requirement) => {
+    if (requirement.id.startsWith("task-imported-")) {
+      const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
+      if (persistedCount > 0) {
+        persistedByIdentity.set(requirement.identity, persistedCount - 1);
+        return;
+      }
+    }
+    if (!requirement.quantity) {
+      unquantified.push({
+        id: requirement.id,
+        name: requirement.name,
+        normalizedName: requirement.name,
+        sourceTaskIds: [requirement.id],
+        checked: requirement.checked,
+      });
+      return;
+    }
+    const key = `${requirement.name}:${requirement.quantity.dimension}`;
+    totals.set(key, (totals.get(key) ?? 0) + requirement.quantity.amount);
+    const current = quantified.get(key);
+    if (!current || current.id.startsWith("task-imported-")) {
+      quantified.set(key, {
+        id: requirement.id,
+        normalizedName: requirement.name,
+        dimension: requirement.quantity.dimension,
+        checked:
+          (current?.checked ?? true) && requirement.checked,
+        sourceTaskIds: [
+          ...(current?.sourceTaskIds ?? []),
+          requirement.id,
+        ],
+      });
+    } else {
+      current.sourceTaskIds.push(requirement.id);
+      current.checked = current.checked && requirement.checked;
+    }
+  });
+
+  return [
+    ...unquantified,
+    ...Array.from(totals, ([key, amount]) => {
+      const requirement = quantified.get(key)!;
+      return {
+        ...requirement,
+        amount,
+        name: `${requirement.normalizedName} (${formatRequirementAmount(
+          amount,
+          requirement.dimension,
+        )})`,
+      };
+    }),
+  ];
+};
+
+export const createActiveShoppingRows = (
+  tasks: TaskItem[],
+): ActiveShoppingRow[] =>
+  createShoppingRows(tasks, false).map(({ checked: _checked, ...row }) => row);
+
+export const createShoppingProgressRows = (
+  tasks: TaskItem[],
+): ShoppingProgressRow[] => createShoppingRows(tasks, true);
+
+export const createShoppingRowDisplay = (
+  row: ActiveShoppingRow,
+  match?: ListItemPriceMatch,
+): { text: string; parts: string | null } => {
+  const normalizedName =
+    row.normalizedName ||
+    match?.listItemName.replace(/\s*\([^)]+\)\s*$/, "").trim() ||
+    row.name;
+  const name = normalizedName
+    ? normalizedName[0].toLocaleUpperCase("sv-SE") + normalizedName.slice(1)
+    : normalizedName;
+  const quantity =
+    row.dimension && row.amount !== undefined
+      ? {
+          amount: match?.purchasePlan?.purchasedAmount ?? row.amount,
+          dimension: row.dimension,
+        }
+      : null;
+  const plan = match?.purchasePlan;
+  return {
+    text: quantity
+      ? `${name} (${formatComparableQuantity(quantity)})`
+      : name,
+    parts:
+      plan && (plan.items.length > 1 || plan.items[0]?.count > 1)
+        ? formatPurchasePlanLabel(plan)
+        : null,
+  };
+};
+
+const createShoppingRowIdentity = (
+  normalizedName: string,
+  dimension?: ActiveShoppingRow["dimension"],
+  amount?: number,
+) =>
+  dimension && amount !== undefined
+    ? `${normalizedName}:${dimension}:${amount}`
+    : normalizedName;
+
+const createMatchShoppingRowIdentity = (match: ListItemPriceMatch) => {
+  const quantity = parseComparableQuantity(match.listItemName);
+  const normalizedName = normalizeGroceryName(
+    match.listItemName.replace(/\s*\([^)]+\)\s*$/, ""),
+  );
+  return createShoppingRowIdentity(
+    normalizedName,
+    quantity?.dimension,
+    quantity?.amount,
+  );
+};
+
+export const createActivePricingItems = (
+  tasks: TaskItem[],
+): Array<{ id: string; name: string; sourceTaskIds: string[] }> =>
+  createActiveShoppingRows(tasks).map(({ id, name, sourceTaskIds }) => ({
+    id,
+    name,
+    sourceTaskIds,
+  }));
+
+export const createBasketItemSignature = (tasks: TaskItem[]): string => {
+  const unquantifiedCounts = new Map<string, number>();
+  const parts: string[] = [];
+  createActiveShoppingRows(tasks).forEach((requirement) => {
+    if (requirement.dimension && requirement.amount !== undefined) {
+      parts.push(
+        `${requirement.normalizedName}:${requirement.dimension}:${requirement.amount}`,
+      );
+      return;
+    }
+    unquantifiedCounts.set(
+      requirement.normalizedName,
+      (unquantifiedCounts.get(requirement.normalizedName) ?? 0) + 1,
+    );
+  });
+  parts.push(
+    ...Array.from(unquantifiedCounts, ([name, count]) =>
+      count === 1 ? name : `${name}:unquantified:${count}`,
+    ),
+  );
+  return parts
     .sort()
     .join("|");
+};
 
 export const createBasketPricingCacheKey = (
   chain: string,
@@ -147,15 +369,94 @@ export const selectActiveBasketEstimate = (
   tasks: TaskItem[],
   estimate: BasketPriceEstimate,
 ): BasketPriceEstimateView => {
-  const activeTaskIds = new Set(
-    tasks.filter((task) => !task.checked).map((task) => task.id),
+  const activeTasks = tasks.filter((task) => !task.checked);
+  const activeShoppingRows = createActiveShoppingRows(tasks);
+  const shoppingRowByIdentity = new Map(
+    activeShoppingRows.map((row) => [
+      createShoppingRowIdentity(
+        row.normalizedName,
+        row.dimension,
+        row.amount,
+      ),
+      row,
+    ]),
+  );
+  const shoppingRowBySourceTaskId = new Map(
+    activeShoppingRows.flatMap((row) =>
+      row.sourceTaskIds.map((taskId) => [taskId, row] as const),
+    ),
+  );
+  const allTaskIds = new Set(tasks.map((task) => task.id));
+  const activeTaskIds = new Set(activeTasks.map((task) => task.id));
+  const activeTaskByName = new Map(
+    activeTasks.map((task) => [
+      task.text.trim().toLocaleLowerCase().replace(/\s+/g, " "),
+      task,
+    ]),
   );
   const matchByTaskId: Record<string, ListItemPriceMatch> = {};
+  const seenTaskIds = new Set<string>();
+  const seenShoppingRowIds = new Set<string>();
   let approximateTotalSek = 0;
 
   estimate.matches.forEach((match) => {
-    if (!activeTaskIds.has(match.listItemId) || !match.product) return;
-    matchByTaskId[match.listItemId] = match;
+    if (!match.product) return;
+    let sourceTasks = (match.sourceTaskIds ?? [])
+      .filter((id) => activeTaskIds.has(id))
+      .map((id) => activeTasks.find((task) => task.id === id))
+      .filter((task): task is TaskItem => Boolean(task));
+    let shoppingRowId: string | undefined;
+    const directShoppingRow = sourceTasks
+      .map((task) => shoppingRowBySourceTaskId.get(task.id))
+      .find(Boolean);
+    if (
+      directShoppingRow &&
+      sourceTasks.length < (match.sourceTaskIds?.length ?? 0)
+    ) {
+      shoppingRowId = directShoppingRow.id;
+      sourceTasks = directShoppingRow.sourceTaskIds
+        .map((id) => activeTasks.find((task) => task.id === id))
+        .filter((task): task is TaskItem => Boolean(task));
+    }
+    if (sourceTasks.length === 0) {
+      const shoppingRow = shoppingRowByIdentity.get(
+        createMatchShoppingRowIdentity(match),
+      );
+      if (shoppingRow) {
+        shoppingRowId = shoppingRow.id;
+        sourceTasks = shoppingRow.sourceTaskIds
+          .map((id) => activeTasks.find((task) => task.id === id))
+          .filter((task): task is TaskItem => Boolean(task));
+      }
+    }
+    if (sourceTasks.length > 0) {
+      const rowId = shoppingRowId ?? sourceTasks[0].id;
+      if (seenShoppingRowIds.has(rowId)) return;
+      seenShoppingRowIds.add(rowId);
+      sourceTasks.forEach((task) => {
+        matchByTaskId[task.id] =
+          task.id === match.listItemId
+            ? match
+            : { ...match, listItemId: task.id };
+      });
+      approximateTotalSek +=
+        match.estimatedCheckoutPriceSek ?? match.product.priceSek;
+      return;
+    }
+    const currentTask = activeTaskIds.has(match.listItemId)
+      ? activeTasks.find((task) => task.id === match.listItemId)
+      : allTaskIds.has(match.listItemId)
+        ? undefined
+        : activeTaskByName.get(
+          match.listItemName.trim().toLocaleLowerCase().replace(/\s+/g, " "),
+          );
+    if (!currentTask) return;
+    if (seenTaskIds.has(currentTask.id)) return;
+    seenTaskIds.add(currentTask.id);
+    matchByTaskId[currentTask.id] =
+      currentTask.id === match.listItemId
+        ? match
+        : { ...match, listItemId: currentTask.id };
     approximateTotalSek +=
       match.estimatedCheckoutPriceSek ?? match.product.priceSek;
   });
@@ -172,10 +473,7 @@ export const useBasketPriceEstimate = (
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
   const activeItems = useMemo(
-    () =>
-      tasks
-        .filter((task) => !task.checked)
-        .map((task) => ({ id: task.id, name: task.text })),
+    () => createActivePricingItems(tasks),
     [tasks],
   );
   pricingLog("hook input", {
