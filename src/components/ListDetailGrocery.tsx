@@ -26,6 +26,7 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
+import { formatPurchasePlanLabel } from "../../shared/pricingQuantity";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -1132,15 +1133,25 @@ export default function ListDetailGrocery({
                                     />
                                   )}
                                 </div>
-                                <span
-                                  className={`font-sans text-sm text-text-main font-medium truncate ${
-                                    item.checked
-                                      ? "line-through opacity-70"
-                                      : ""
-                                  }`}
-                                >
-                                  {item.text}
-                                </span>
+                                <div className="min-w-0">
+                                  <div
+                                    className={`font-sans text-sm text-text-main font-medium truncate ${
+                                      item.checked
+                                        ? "line-through opacity-70"
+                                        : ""
+                                    }`}
+                                  >
+                                    {item.text}
+                                  </div>
+                                  {matchByTaskId[item.id]?.purchasePlan && (
+                                    <div className="font-sans text-xs text-on-surface-variant truncate">
+                                      Köp{" "}
+                                      {formatPurchasePlanLabel(
+                                        matchByTaskId[item.id].purchasePlan!,
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
                               {matchByTaskId[item.id]?.product && (
@@ -1152,12 +1163,9 @@ export default function ListDetailGrocery({
                                   }`}
                                   title={
                                     matchByTaskId[item.id].purchasePlan
-                                      ? `Köp: ${matchByTaskId[item.id].purchasePlan!.items
-                                          .map(
-                                            ({ product, count }) =>
-                                              `${count} × ${product.productName}`,
-                                          )
-                                          .join(" + ")}. Ungefärligt totalpris.`
+                                      ? `Köp: ${formatPurchasePlanLabel(
+                                          matchByTaskId[item.id].purchasePlan!,
+                                        )}. Ungefärligt totalpris.`
                                       : `Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`
                                   }
                                 >

@@ -14,6 +14,44 @@ export type PackagePurchasePlan = PurchasePlan;
 const roundPrice = (value: number) =>
   Math.round((value + 1e-9) * 100) / 100;
 
+const formatNumber = (value: number) =>
+  value.toLocaleString("sv-SE", { maximumFractionDigits: 2 });
+
+export const formatComparableQuantity = (
+  quantity: Pick<ComparableQuantity, "amount" | "dimension">,
+) => {
+  if (quantity.dimension === "volume") {
+    return quantity.amount >= 1000
+      ? `${formatNumber(quantity.amount / 1000)} l`
+      : `${formatNumber(quantity.amount / 100)} dl`;
+  }
+  if (quantity.dimension === "mass") {
+    return quantity.amount >= 1000
+      ? `${formatNumber(quantity.amount / 1000)} kg`
+      : `${formatNumber(quantity.amount)} g`;
+  }
+  return `${formatNumber(quantity.amount)} st`;
+};
+
+export const formatPurchasePlanLabel = (plan: PurchasePlan) =>
+  plan.items
+    .map(({ product, count }) => {
+      if (isApproximatePieceMassProduct(product)) {
+        return `${formatNumber(count)} st`;
+      }
+      const quantity = parseProductPackageQuantity(product);
+      if (!quantity) {
+        return count === 1
+          ? product.unitLabel
+          : `${formatNumber(count)} × ${product.unitLabel}`;
+      }
+      const packageLabel = formatComparableQuantity(quantity);
+      return count === 1
+        ? packageLabel
+        : `${formatNumber(count)} × ${packageLabel}`;
+    })
+    .join(" + ");
+
 export const parseComparableQuantity = (
   value: string,
 ): ComparableQuantity | null => {

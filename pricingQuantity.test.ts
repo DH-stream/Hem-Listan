@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  formatPurchasePlanLabel,
   parseComparableQuantity,
   selectPackagePurchasePlan,
 } from "./shared/pricingQuantity";
@@ -58,6 +59,35 @@ test("combines package sizes when that is the cheapest covering plan", () => {
     result?.items.map((item) => [item.product.id, item.count]),
     [["milk-1", 1], ["milk-15", 1]],
   );
+});
+
+test("rounds a two-liter need up to two purchasable 1.5 liter packages", () => {
+  const result = plan("2 l", [product("milk-15", "1,5L", 15)]);
+  assert.equal(result?.totalPriceSek, 30);
+  assert.equal(result?.purchasedAmount, 3000);
+  assert.deepEqual(
+    result?.items.map((item) => [item.product.id, item.count]),
+    [["milk-15", 2]],
+  );
+  assert.equal(result && formatPurchasePlanLabel(result), "2 × 1,5 l");
+});
+
+test("formats a mixed mass purchase plan as real package sizes", () => {
+  const result = plan("2,5 kg", [
+    product("potato-2", "2KG", 28),
+    product("potato-09", "900G", 15),
+    product("potato-5", "5KG", 70),
+  ]);
+  assert.equal(result?.totalPriceSek, 43);
+  assert.equal(result?.purchasedAmount, 2900);
+  assert.deepEqual(
+    result?.items.map((item) => [item.product.id, item.count]),
+    [
+      ["potato-2", 1],
+      ["potato-09", 1],
+    ],
+  );
+  assert.equal(result && formatPurchasePlanLabel(result), "2 kg + 900 g");
 });
 
 test("builds generic mass and volume package plans", () => {
