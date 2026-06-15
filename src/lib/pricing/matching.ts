@@ -316,10 +316,17 @@ export const matchListItem = (
     isApproximatePieceMassProduct(product)
       ? Math.round(product.priceSek * requested.amount * 100) / 100
       : undefined;
-  const packagePrice =
+  const selectedPurchasePlan =
     packagePlan && product && plannedProductIds.has(product.id)
-      ? packagePlan.totalPriceSek
-      : piecePrice;
+      ? packagePlan
+      : piecePrice !== undefined && product && requested
+        ? {
+            totalPriceSek: piecePrice,
+            purchasedAmount: requested.amount,
+            items: [{ product, count: requested.amount }],
+          }
+        : undefined;
+  const packagePrice = selectedPurchasePlan?.totalPriceSek;
   const estimatedCheckoutPriceSek = weightedPrice ?? packagePrice;
 
   return {
@@ -341,6 +348,9 @@ export const matchListItem = (
             weightedPrice !== undefined
               ? ("weighted_item_estimate" as const)
               : ("package_plan" as const),
+          ...(weightedPrice === undefined && selectedPurchasePlan
+            ? { purchasePlan: selectedPurchasePlan }
+            : {}),
         }),
   };
 };

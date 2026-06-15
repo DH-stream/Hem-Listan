@@ -1,4 +1,7 @@
-import type { ProductPrice } from "../src/lib/pricing/types";
+import type {
+  ProductPrice,
+  PurchasePlan,
+} from "../src/lib/pricing/types";
 
 export type ComparableQuantity = {
   amount: number;
@@ -6,11 +9,7 @@ export type ComparableQuantity = {
   approximate: boolean;
 };
 
-export type PackagePurchasePlan = {
-  totalPriceSek: number;
-  purchasedAmount: number;
-  items: Array<{ product: ProductPrice; count: number }>;
-};
+export type PackagePurchasePlan = PurchasePlan;
 
 const roundPrice = (value: number) =>
   Math.round((value + 1e-9) * 100) / 100;

@@ -1150,7 +1150,16 @@ export default function ListDetailGrocery({
                                       ? "text-primary"
                                       : "text-on-surface-variant/65"
                                   }`}
-                                  title={`Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`}
+                                  title={
+                                    matchByTaskId[item.id].purchasePlan
+                                      ? `Köp: ${matchByTaskId[item.id].purchasePlan!.items
+                                          .map(
+                                            ({ product, count }) =>
+                                              `${count} × ${product.productName}`,
+                                          )
+                                          .join(" + ")}. Ungefärligt totalpris.`
+                                      : `Ungefärligt pris: ${matchByTaskId[item.id].product?.productName}`
+                                  }
                                 >
                                   <span className="font-sans text-xs font-semibold tabular-nums">
                                     {(

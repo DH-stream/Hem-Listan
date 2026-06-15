@@ -693,6 +693,61 @@ test("milk quantity chooses the cheapest reasonable package plan", () => {
   assert.equal(match.priceBasis, "package_plan");
 });
 
+test("milk package plans expose the products represented by the checkout total", () => {
+  const products = [
+    pricedProduct({
+      id: "milk-1l",
+      productName: "Mjölk 1L",
+      priceSek: 14,
+      unitLabel: "1 l",
+      searchTerms: ["mjölk"],
+    }),
+    pricedProduct({
+      id: "milk-15l",
+      productName: "Mjölk 1,5L",
+      priceSek: 18,
+      unitLabel: "1,5 l",
+      searchTerms: ["mjölk"],
+    }),
+  ];
+
+  const onePackage = matchListItem(
+    { id: "milk-11", name: "Mjölk (1,1 l)" },
+    products,
+  );
+  assert.equal(onePackage.product?.id, "milk-15l");
+  assert.equal(onePackage.estimatedCheckoutPriceSek, 18);
+  assert.deepEqual(
+    onePackage.purchasePlan?.items.map(({ product, count }) => [
+      product.id,
+      count,
+    ]),
+    [["milk-15l", 1]],
+  );
+
+  const mixedPackages = matchListItem(
+    { id: "milk-22", name: "Mjölk (2,2 l)" },
+    products,
+  );
+  assert.equal(mixedPackages.estimatedCheckoutPriceSek, 32);
+  assert.equal(mixedPackages.purchasePlan?.purchasedAmount, 2500);
+  assert.deepEqual(
+    mixedPackages.purchasePlan?.items.map(({ product, count }) => [
+      product.id,
+      count,
+    ]),
+    [
+      ["milk-1l", 1],
+      ["milk-15l", 1],
+    ],
+  );
+  assert.ok(
+    mixedPackages.purchasePlan?.items.some(
+      ({ product }) => product.id === mixedPackages.product?.id,
+    ),
+  );
+});
+
 test("piece-priced CA150G lemons use whole-item checkout prices", () => {
   const product = pricedProduct({
     id: "lemon-piece",
@@ -707,6 +762,13 @@ test("piece-priced CA150G lemons use whole-item checkout prices", () => {
   assert.equal(one.estimatedCheckoutPriceSek, 7.95);
   assert.equal(two.estimatedCheckoutPriceSek, 15.9);
   assert.equal(two.priceBasis, "package_plan");
+  assert.deepEqual(
+    two.purchasePlan?.items.map(({ product: plannedProduct, count }) => [
+      plannedProduct.id,
+      count,
+    ]),
+    [["lemon-piece", 2]],
+  );
 });
 
 test("count requests do not multiply ordinary mass packages", () => {
