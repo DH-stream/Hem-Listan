@@ -146,6 +146,11 @@ const isWeightedProduct = (product: ProductPrice) =>
   (/kr\s*\/\s*kg/i.test(product.comparePrice ?? "") &&
     /\bca\s*\d+(?:[.,]\d+)?\s*(?:kg|g)\b/i.test(product.unitLabel));
 
+const isApproximatePieceMassProduct = (product: ProductPrice) => {
+  const unit = product.unitLabel.normalize("NFKC").toLocaleLowerCase("sv-SE");
+  return /^ca\s*\d+(?:[.,]\d+)?\s*g\b/.test(unit) && !/_kg$/i.test(product.id);
+};
+
 const weightedCheckoutPrice = (itemName: string, product: ProductPrice) => {
   if (!isWeightedProduct(product)) return undefined;
 
@@ -177,7 +182,11 @@ const packageCheckoutPrice = (itemName: string, product: ProductPrice) => {
   if (!requested) return undefined;
   const packageAmount = productPackageAmount(product);
 
-  if (requested.dimension === "count" && packageAmount?.dimension === "mass") {
+  if (
+    requested.dimension === "count" &&
+    packageAmount?.dimension === "mass" &&
+    isApproximatePieceMassProduct(product)
+  ) {
     return Math.round(product.priceSek * requested.amount * 100) / 100;
   }
   if (!packageAmount || requested.dimension !== packageAmount.dimension) {

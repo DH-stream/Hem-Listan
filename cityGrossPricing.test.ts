@@ -706,6 +706,25 @@ test("piece-priced CA150G lemons use whole-item checkout prices", () => {
   const two = matchListItem({ id: "lemon-2", name: "Citron (2 st)" }, [product]);
   assert.equal(one.estimatedCheckoutPriceSek, 7.95);
   assert.equal(two.estimatedCheckoutPriceSek, 15.9);
+  assert.equal(two.priceBasis, "package_plan");
+});
+
+test("count requests do not multiply ordinary mass packages", () => {
+  const product = pricedProduct({
+    id: "apple-bag",
+    productName: "Äpple 1KG",
+    priceSek: 24.95,
+    unitLabel: "1KG",
+    searchTerms: ["äpple"],
+  });
+
+  const match = matchListItem(
+    { id: "apple", name: "Äpple (2 st)" },
+    [product],
+  );
+  assert.equal(match.product?.id, "apple-bag");
+  assert.equal(match.estimatedCheckoutPriceSek, undefined);
+  assert.equal(match.priceBasis, undefined);
 });
 
 test("pricing search removes obvious imported recipe noise", () => {
