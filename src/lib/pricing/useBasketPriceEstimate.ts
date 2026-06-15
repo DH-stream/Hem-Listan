@@ -160,6 +160,7 @@ export const selectActiveBasketEstimate = (
     ]),
   );
   const matchByTaskId: Record<string, ListItemPriceMatch> = {};
+  const seenTaskIds = new Set<string>();
   let approximateTotalSek = 0;
 
   estimate.matches.forEach((match) => {
@@ -172,6 +173,8 @@ export const selectActiveBasketEstimate = (
           match.listItemName.trim().toLocaleLowerCase().replace(/\s+/g, " "),
           );
     if (!currentTask) return;
+    if (seenTaskIds.has(currentTask.id)) return;
+    seenTaskIds.add(currentTask.id);
     matchByTaskId[currentTask.id] =
       currentTask.id === match.listItemId
         ? match

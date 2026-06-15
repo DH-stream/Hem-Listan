@@ -139,6 +139,27 @@ test("basket estimate follows an active item when only its id changes", () => {
   );
 });
 
+test("basket estimate counts temp and persisted matches for one item once", () => {
+  const importedMatch = matchListItem(
+    { id: "task-imported-1", name: "kaffe" },
+    products,
+  );
+  const persistedMatch = matchListItem(
+    { id: "supabase-uuid", name: "kaffe" },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [{ id: "supabase-uuid", text: "kaffe", checked: false }],
+    {
+      matches: [importedMatch, persistedMatch],
+      approximateTotalSek: 109.9,
+    },
+  );
+
+  assert.equal(result.approximateTotalSek, 54.95);
+  assert.ok(result.matchByTaskId["supabase-uuid"]);
+});
+
 test("pricing debug result logging includes safe error diagnostics", () => {
   const originalWindow = globalThis.window;
   const originalConsoleLog = console.log;
