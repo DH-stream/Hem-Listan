@@ -9,6 +9,7 @@ import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   BASKET_PRICING_CACHE_TTL_MS,
   createActiveShoppingRows,
+  createShoppingRowDisplay,
   createShoppingProgressRows,
   createBasketItemSignature,
   createActivePricingItems,
@@ -377,6 +378,49 @@ test("progress rows aggregate quantified requirements and count completion once"
   assert.equal(completed.length, 1);
   assert.equal(completed[0]?.checked, true);
   assert.deepEqual(completed[0]?.sourceTaskIds, ["milk-1", "milk-2"]);
+});
+
+test("completed shopping display keeps the purchasable quantity and package parts", () => {
+  const milk1 = {
+    ...products[0],
+    id: "milk-1",
+    productName: "Mjölk 1L",
+    priceSek: 12,
+    unitLabel: "1 l",
+  };
+  const milk15 = {
+    ...products[0],
+    id: "milk-15",
+    productName: "Mjölk 1,5L",
+    priceSek: 18,
+    unitLabel: "1,5 l",
+  };
+  const row = createShoppingProgressRows([
+    { id: "milk-a", text: "Mjölk (1 l)", checked: true },
+    { id: "milk-b", text: "Mjölk (1,2 l)", checked: true },
+  ])[0]!;
+  const display = createShoppingRowDisplay(row, {
+    listItemId: row.id,
+    listItemName: row.name,
+    sourceTaskIds: row.sourceTaskIds,
+    product: milk15,
+    confidence: "high",
+    estimatedCheckoutPriceSek: 30,
+    priceBasis: "package_plan",
+    purchasePlan: {
+      totalPriceSek: 30,
+      purchasedAmount: 2500,
+      items: [
+        { product: milk1, count: 1 },
+        { product: milk15, count: 1 },
+      ],
+    },
+  });
+
+  assert.deepEqual(display, {
+    text: "Mjölk (2,5 l)",
+    parts: "1 l + 1,5 l",
+  });
 });
 
 test("progress rows preserve unquantified rows and ignore temp duplicates", () => {

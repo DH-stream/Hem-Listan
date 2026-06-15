@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
-import { parseComparableQuantity } from "../../../shared/pricingQuantity";
+import {
+  formatComparableQuantity,
+  formatPurchasePlanLabel,
+  parseComparableQuantity,
+} from "../../../shared/pricingQuantity";
 import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 
@@ -154,6 +158,36 @@ export const createActiveShoppingRows = (
 export const createShoppingProgressRows = (
   tasks: TaskItem[],
 ): ShoppingProgressRow[] => createShoppingRows(tasks, true);
+
+export const createShoppingRowDisplay = (
+  row: ActiveShoppingRow,
+  match?: ListItemPriceMatch,
+): { text: string; parts: string | null } => {
+  const normalizedName =
+    row.normalizedName ||
+    match?.listItemName.replace(/\s*\([^)]+\)\s*$/, "").trim() ||
+    row.name;
+  const name = normalizedName
+    ? normalizedName[0].toLocaleUpperCase("sv-SE") + normalizedName.slice(1)
+    : normalizedName;
+  const quantity =
+    row.dimension && row.amount !== undefined
+      ? {
+          amount: match?.purchasePlan?.purchasedAmount ?? row.amount,
+          dimension: row.dimension,
+        }
+      : null;
+  const plan = match?.purchasePlan;
+  return {
+    text: quantity
+      ? `${name} (${formatComparableQuantity(quantity)})`
+      : name,
+    parts:
+      plan && (plan.items.length > 1 || plan.items[0]?.count > 1)
+        ? formatPurchasePlanLabel(plan)
+        : null,
+  };
+};
 
 export const createActivePricingItems = (
   tasks: TaskItem[],

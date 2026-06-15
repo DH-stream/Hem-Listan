@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -22,6 +22,7 @@ import {
 } from "../lib/supabase";
 import {
   createActiveShoppingRows,
+  createShoppingRowDisplay,
   createShoppingProgressRows,
   useBasketPriceEstimate,
 } from "../lib/pricing/useBasketPriceEstimate";
@@ -31,10 +32,9 @@ import {
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
 import {
-  formatComparableQuantity,
   formatPurchasePlanLabel,
-  parseComparableQuantity,
 } from "../../shared/pricingQuantity";
+import type { ListItemPriceMatch } from "../lib/pricing/types";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -270,6 +270,10 @@ export default function ListDetailGrocery({
   const totalTasks = progressRows.length;
   const completedCount = completedShoppingRows.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const shoppingMatchHistory = useRef<Record<string, ListItemPriceMatch>>({});
+  Object.entries(matchByTaskId).forEach(([taskId, match]) => {
+    if (match.purchasePlan) shoppingMatchHistory.current[taskId] = match;
+  });
   const activeShoppingRows = createActiveShoppingRows(list.tasks);
   const shoppingRowByTaskId = new Map(
     activeShoppingRows.flatMap((row) =>
@@ -690,40 +694,16 @@ export default function ListDetailGrocery({
 
   const getShoppingRowText = (item: TaskItem) => {
     const shoppingRow = shoppingRowByTaskId.get(item.id);
-    const match = matchByTaskId[item.id];
-    const required =
-      shoppingRow?.dimension && shoppingRow.amount !== undefined
-        ? {
-            amount: shoppingRow.amount,
-            dimension: shoppingRow.dimension,
-          }
-        : parseComparableQuantity(match?.listItemName ?? item.text);
-    const normalizedName =
-      shoppingRow?.normalizedName ??
-      match?.listItemName.replace(/\s*\([^)]+\)\s*$/, "").trim();
-    const name = normalizedName
-      ? normalizedName[0].toLocaleUpperCase("sv-SE") + normalizedName.slice(1)
+    return shoppingRow
+      ? createShoppingRowDisplay(shoppingRow, matchByTaskId[item.id]).text
       : item.text;
-    if (!match?.purchasePlan || !required) {
-      return required
-        ? `${name} (${formatComparableQuantity(required)})`
-        : name;
-    }
-    return `${name} (${formatComparableQuantity({
-      amount: match.purchasePlan.purchasedAmount,
-      dimension: required.dimension,
-    })})`;
   };
 
   const getShoppingRowParts = (item: TaskItem) => {
-    const plan = matchByTaskId[item.id]?.purchasePlan;
-    if (
-      !plan ||
-      (plan.items.length === 1 && plan.items[0]?.count === 1)
-    ) {
-      return null;
-    }
-    return formatPurchasePlanLabel(plan);
+    const shoppingRow = shoppingRowByTaskId.get(item.id);
+    return shoppingRow
+      ? createShoppingRowDisplay(shoppingRow, matchByTaskId[item.id]).parts
+      : null;
   };
 
   const getCatIcon = (name: string) => {
@@ -1292,7 +1272,15 @@ export default function ListDetailGrocery({
                       transition={{ duration: 0.2 }}
                       className="overflow-hidden space-y-2.5 mt-3"
                     >
-                      {completedShoppingRows.map((row) => (
+                      {completedShoppingRows.map((row) => {
+                        const historicalMatch = row.sourceTaskIds
+                          .map((id) => shoppingMatchHistory.current[id])
+                          .find((match) => match?.purchasePlan);
+                        const display = createShoppingRowDisplay(
+                          row,
+                          historicalMatch,
+                        );
+                        return (
                         <div
                           key={row.id}
                           className="flex items-center justify-between p-3.5 bg-surface-container-lowest/70 rounded-xl border border-surface-container/20 opacity-70 group cursor-pointer hover:opacity-100 transition-opacity"
@@ -1311,12 +1299,16 @@ export default function ListDetailGrocery({
                                 className="w-3.5 h-3.5 text-white"
                               />
                             </div>
-                            <span className="font-sans text-sm text-text-main font-medium line-through truncate">
-                              {row.name
-                                ? row.name[0].toLocaleUpperCase("sv-SE") +
-                                  row.name.slice(1)
-                                : row.name}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="font-sans text-sm text-text-main font-medium line-through truncate">
+                                {display.text}
+                              </div>
+                              {display.parts && (
+                                <div className="font-sans text-xs text-on-surface-variant truncate">
+                                  {display.parts}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <button
@@ -1331,7 +1323,8 @@ export default function ListDetailGrocery({
                             <LucideIcon name="close" className="w-4 h-4" />
                           </button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </motion.div>
                   )}
                 </AnimatePresence>
