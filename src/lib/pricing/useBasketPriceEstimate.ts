@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
+import { parseComparableQuantity } from "../../../shared/pricingQuantity";
+import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 
 const BASKET_DEBOUNCE_MS = 3_000;
@@ -19,7 +21,15 @@ export const createBasketItemSignature = (
   [...new Set(
     tasks
       .filter((task) => !task.checked)
-      .map((task) => task.text.trim().toLocaleLowerCase().replace(/\s+/g, " "))
+      .map((task) => {
+        const name = normalizeGroceryName(
+          task.text.replace(/\s*\([^)]+\)\s*$/, ""),
+        );
+        const quantity = parseComparableQuantity(task.text);
+        return quantity
+          ? `${name}:${quantity.dimension}:${quantity.amount}`
+          : name;
+      })
       .filter(Boolean),
   )]
     .sort()

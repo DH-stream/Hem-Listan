@@ -76,6 +76,15 @@ test("merges persisted milk quantities into the required shopping amount", () =>
   assert.equal(result.tasks[0].text, "Mjölk (2 l)");
 });
 
+test("merges a bare lemon with one imported lemon as two pieces", () => {
+  const result = plan(
+    [task("Citron", false, "Frukt & Grönt")],
+    [ingredient("Citron", "1 st")],
+  );
+  assert.equal(result.tasks.length, 1);
+  assert.equal(result.tasks[0].text, "Citron (2 st)");
+});
+
 test("merges persisted cream quantities", () => {
   const result = plan([task("Vispgrädde (5 dl)", false, "Mejeri")], [ingredient("Vispgrädde", "1 dl")]);
   assert.equal(result.tasks.length, 1);

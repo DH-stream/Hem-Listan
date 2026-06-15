@@ -240,6 +240,18 @@ test("basket pricing cache key and active item signature are stable", () => {
   );
 });
 
+test("basket pricing signature normalizes equivalent quantity formatting", () => {
+  const first = createBasketItemSignature([
+    { id: "temp", text: "Mjölk (1,5 l)", checked: false },
+  ]);
+  const second = createBasketItemSignature([
+    { id: "uuid", text: "Standardmjölk (15 dl)", checked: false },
+  ]);
+
+  assert.equal(first, second);
+  assert.equal(first, "mjölk:volume:1500");
+});
+
 test("basket pricing cache identifies fresh and stale entries", () => {
   const originalWindow = globalThis.window;
   const key = "hem-listan-pricing-basket:v1:city_gross:list-cache:items";

@@ -27,7 +27,15 @@ const canSafelyMerge = (left: CanonicalGroceryItem, right: CanonicalGroceryItem)
 };
 
 const combine = (existing: CanonicalGroceryItem, incoming: CanonicalGroceryItem): CanonicalGroceryItem => {
-  const quantity = addQuantities(existing.quantity, incoming.quantity);
+  const existingQuantity =
+    !existing.quantity && incoming.quantity?.dimension === "count"
+      ? { ...incoming.quantity, amount: 1 }
+      : existing.quantity;
+  const incomingQuantity =
+    !incoming.quantity && existing.quantity?.dimension === "count"
+      ? { ...existing.quantity, amount: 1 }
+      : incoming.quantity;
+  const quantity = addQuantities(existingQuantity, incomingQuantity);
   return {
     ...incoming,
     quantity: quantity ?? existing.quantity ?? incoming.quantity,
