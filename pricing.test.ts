@@ -9,6 +9,7 @@ import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   BASKET_PRICING_CACHE_TTL_MS,
   createActiveShoppingRows,
+  createShoppingProgressRows,
   createBasketItemSignature,
   createActivePricingItems,
   createBasketPricingCacheKey,
@@ -358,6 +359,42 @@ test("shopping rows stay stable through temp-id reconciliation and checked tasks
 
   assert.deepEqual(reconciling, persisted);
   assert.equal(reconciling[0]?.name, "paprika (1 st)");
+});
+
+test("progress rows aggregate quantified requirements and count completion once", () => {
+  const active = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk (1 l)", checked: false },
+    { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
+  ]);
+  const completed = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk (1 l)", checked: true },
+    { id: "milk-2", text: "Standardmjölk (5 dl)", checked: true },
+  ]);
+
+  assert.equal(active.length, 1);
+  assert.equal(active[0]?.name, "mjölk (1,5 l)");
+  assert.equal(active[0]?.checked, false);
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0]?.checked, true);
+});
+
+test("progress rows preserve unquantified rows and ignore temp duplicates", () => {
+  const rows = createShoppingProgressRows([
+    { id: "milk-1", text: "Mjölk", checked: false },
+    { id: "milk-2", text: "Mjölk", checked: true },
+    { id: "task-imported-1", text: "Citron (1 st)", checked: false },
+    { id: "supabase-uuid", text: "Citron (1 st)", checked: false },
+  ]);
+
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.filter((row) => row.normalizedName === "mjölk").map((row) => row.checked),
+    [false, true],
+  );
+  assert.deepEqual(
+    rows.find((row) => row.normalizedName === "citron")?.sourceTaskIds,
+    ["supabase-uuid"],
+  );
 });
 
 test("pricing input preserves separate unquantified requirements", () => {

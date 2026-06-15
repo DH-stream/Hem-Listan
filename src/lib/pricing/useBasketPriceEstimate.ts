@@ -24,6 +24,10 @@ export type ActiveShoppingRow = {
   amount?: number;
 };
 
+export type ShoppingProgressRow = ActiveShoppingRow & {
+  checked: boolean;
+};
+
 const formatRequirementAmount = (
   amount: number,
   dimension: ActiveShoppingRow["dimension"],
@@ -43,11 +47,12 @@ const formatRequirementAmount = (
   return `${format(amount)} st`;
 };
 
-export const createActiveShoppingRows = (
+const createShoppingRows = (
   tasks: TaskItem[],
-): ActiveShoppingRow[] => {
+  includeChecked: boolean,
+): ShoppingProgressRow[] => {
   const requirements = tasks
-    .filter((task) => !task.checked)
+    .filter((task) => includeChecked || !task.checked)
     .map((task) => {
       const name = normalizeGroceryName(
         task.text.replace(/\s*\([^)]+\)\s*$/, ""),
@@ -56,6 +61,7 @@ export const createActiveShoppingRows = (
       return {
         id: task.id,
         name,
+        checked: task.checked,
         quantity,
         identity: quantity
           ? `${name}:${quantity.dimension}:${quantity.amount}`
@@ -81,9 +87,10 @@ export const createActiveShoppingRows = (
       normalizedName: string;
       dimension: "mass" | "volume" | "count";
       sourceTaskIds: string[];
+      checked: boolean;
     }
   >();
-  const unquantified: ActiveShoppingRow[] = [];
+  const unquantified: ShoppingProgressRow[] = [];
   requirements.forEach((requirement) => {
     if (requirement.id.startsWith("task-imported-")) {
       const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
@@ -98,6 +105,7 @@ export const createActiveShoppingRows = (
         name: requirement.name,
         normalizedName: requirement.name,
         sourceTaskIds: [requirement.id],
+        checked: requirement.checked,
       });
       return;
     }
@@ -109,6 +117,8 @@ export const createActiveShoppingRows = (
         id: requirement.id,
         normalizedName: requirement.name,
         dimension: requirement.quantity.dimension,
+        checked:
+          (current?.checked ?? true) && requirement.checked,
         sourceTaskIds: [
           ...(current?.sourceTaskIds ?? []),
           requirement.id,
@@ -116,6 +126,7 @@ export const createActiveShoppingRows = (
       });
     } else {
       current.sourceTaskIds.push(requirement.id);
+      current.checked = current.checked && requirement.checked;
     }
   });
 
@@ -134,6 +145,15 @@ export const createActiveShoppingRows = (
     }),
   ];
 };
+
+export const createActiveShoppingRows = (
+  tasks: TaskItem[],
+): ActiveShoppingRow[] =>
+  createShoppingRows(tasks, false).map(({ checked: _checked, ...row }) => row);
+
+export const createShoppingProgressRows = (
+  tasks: TaskItem[],
+): ShoppingProgressRow[] => createShoppingRows(tasks, true);
 
 export const createActivePricingItems = (
   tasks: TaskItem[],

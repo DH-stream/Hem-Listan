@@ -22,6 +22,7 @@ import {
 } from "../lib/supabase";
 import {
   createActiveShoppingRows,
+  createShoppingProgressRows,
   useBasketPriceEstimate,
 } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
@@ -264,9 +265,10 @@ export default function ListDetailGrocery({
     return () => window.clearTimeout(timeoutId);
   }, [highlightedMealClientId, list.meals]);
 
-  const totalTasks = list.tasks.length;
   const completedTasks = list.tasks.filter((t) => t.checked);
-  const completedCount = completedTasks.length;
+  const progressRows = createShoppingProgressRows(list.tasks);
+  const totalTasks = progressRows.length;
+  const completedCount = progressRows.filter((row) => row.checked).length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
   const activeShoppingRows = createActiveShoppingRows(list.tasks);
   const shoppingRowByTaskId = new Map(
