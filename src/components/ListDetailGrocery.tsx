@@ -265,10 +265,10 @@ export default function ListDetailGrocery({
     return () => window.clearTimeout(timeoutId);
   }, [highlightedMealClientId, list.meals]);
 
-  const completedTasks = list.tasks.filter((t) => t.checked);
   const progressRows = createShoppingProgressRows(list.tasks);
+  const completedShoppingRows = progressRows.filter((row) => row.checked);
   const totalTasks = progressRows.length;
-  const completedCount = progressRows.filter((row) => row.checked).length;
+  const completedCount = completedShoppingRows.length;
   const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
   const activeShoppingRows = createActiveShoppingRows(list.tasks);
   const shoppingRowByTaskId = new Map(
@@ -1264,7 +1264,7 @@ export default function ListDetailGrocery({
             )}
 
             {/* Completed items collapsible panel */}
-            {completedTasks.length > 0 && (
+            {completedShoppingRows.length > 0 && (
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <button
                   type="button"
@@ -1276,7 +1276,7 @@ export default function ListDetailGrocery({
                       name={showCompleted ? "chevron_down" : "chevron_right"}
                       className="w-4 h-4 text-outline"
                     />
-                    <span>Handlade varor ({completedTasks.length})</span>
+                    <span>Handlade varor ({completedShoppingRows.length})</span>
                   </div>
                   <span className="text-[10px] bg-surface-container-high px-2.5 py-0.5 rounded-full text-outline font-semibold">
                     {showCompleted ? "DÖLJ" : "VISA"}
@@ -1292,13 +1292,17 @@ export default function ListDetailGrocery({
                       transition={{ duration: 0.2 }}
                       className="overflow-hidden space-y-2.5 mt-3"
                     >
-                      {completedTasks.map((item) => (
+                      {completedShoppingRows.map((row) => (
                         <div
-                          key={item.id}
+                          key={row.id}
                           className="flex items-center justify-between p-3.5 bg-surface-container-lowest/70 rounded-xl border border-surface-container/20 opacity-70 group cursor-pointer hover:opacity-100 transition-opacity"
                         >
                           <div
-                            onClick={() => onToggleTask(list.id, item.id)}
+                            onClick={() =>
+                              row.sourceTaskIds.forEach((id) =>
+                                onToggleTask(list.id, id),
+                              )
+                            }
                             className="flex items-center gap-3.5 flex-1 min-w-0"
                           >
                             <div className="w-5 h-5 rounded-full border border-primary bg-primary flex items-center justify-center shrink-0">
@@ -1308,12 +1312,19 @@ export default function ListDetailGrocery({
                               />
                             </div>
                             <span className="font-sans text-sm text-text-main font-medium line-through truncate">
-                              {item.text}
+                              {row.name
+                                ? row.name[0].toLocaleUpperCase("sv-SE") +
+                                  row.name.slice(1)
+                                : row.name}
                             </span>
                           </div>
 
                           <button
-                            onClick={() => onDeleteTask(list.id, item.id)}
+                            onClick={() =>
+                              row.sourceTaskIds.forEach((id) =>
+                                onDeleteTask(list.id, id),
+                              )
+                            }
                             className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
                             title="Ta bort"
                           >

@@ -376,6 +376,7 @@ test("progress rows aggregate quantified requirements and count completion once"
   assert.equal(active[0]?.checked, false);
   assert.equal(completed.length, 1);
   assert.equal(completed[0]?.checked, true);
+  assert.deepEqual(completed[0]?.sourceTaskIds, ["milk-1", "milk-2"]);
 });
 
 test("progress rows preserve unquantified rows and ignore temp duplicates", () => {
@@ -390,6 +391,12 @@ test("progress rows preserve unquantified rows and ignore temp duplicates", () =
   assert.deepEqual(
     rows.filter((row) => row.normalizedName === "mjölk").map((row) => row.checked),
     [false, true],
+  );
+  assert.deepEqual(
+    rows
+      .filter((row) => row.normalizedName === "mjölk")
+      .map((row) => row.sourceTaskIds),
+    [["milk-1"], ["milk-2"]],
   );
   assert.deepEqual(
     rows.find((row) => row.normalizedName === "citron")?.sourceTaskIds,
