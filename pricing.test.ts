@@ -305,7 +305,11 @@ test("pricing input aggregates quantities before the API request", () => {
       { id: "milk-2", text: "Standardmjölk (5 dl)", checked: false },
       { id: "done", text: "Mjölk (2 l)", checked: true },
     ]),
-    [{ id: "milk-1", name: "mjölk (1,5 l)" }],
+    [{
+      id: "milk-1",
+      name: "mjölk (1,5 l)",
+      sourceTaskIds: ["milk-1", "milk-2"],
+    }],
   );
 });
 
@@ -315,7 +319,11 @@ test("pricing input aggregates count requirements", () => {
       { id: "lemon-1", text: "Citron (1 st)", checked: false },
       { id: "lemon-2", text: "Citron (1 st)", checked: false },
     ]),
-    [{ id: "lemon-1", name: "citron (2 st)" }],
+    [{
+      id: "lemon-1",
+      name: "citron (2 st)",
+      sourceTaskIds: ["lemon-1", "lemon-2"],
+    }],
   );
 });
 
@@ -326,8 +334,8 @@ test("pricing input preserves separate unquantified requirements", () => {
   ]);
 
   assert.deepEqual(items, [
-    { id: "milk-1", name: "mjölk" },
-    { id: "milk-2", name: "mjölk" },
+    { id: "milk-1", name: "mjölk", sourceTaskIds: ["milk-1"] },
+    { id: "milk-2", name: "mjölk", sourceTaskIds: ["milk-2"] },
   ]);
   assert.equal(
     createBasketItemSignature([
@@ -335,6 +343,35 @@ test("pricing input preserves separate unquantified requirements", () => {
       { id: "milk-2", text: "Mjölk", checked: false },
     ]),
     "mjölk:unquantified:2",
+  );
+});
+
+test("aggregated pricing matches map back to every contributing visible task", () => {
+  const match = matchListItem(
+    {
+      id: "coffee-1",
+      name: "kaffe",
+      sourceTaskIds: ["coffee-1", "coffee-2"],
+    },
+    products,
+  );
+  const result = selectActiveBasketEstimate(
+    [
+      { id: "coffee-1", text: "Kaffe", checked: false },
+      { id: "coffee-2", text: "Kaffe", checked: false },
+    ],
+    {
+      matches: [match],
+      approximateTotalSek:
+        match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0,
+    },
+  );
+
+  assert.equal(result.matchByTaskId["coffee-1"]?.listItemId, "coffee-1");
+  assert.equal(result.matchByTaskId["coffee-2"]?.listItemId, "coffee-2");
+  assert.equal(
+    result.approximateTotalSek,
+    match.estimatedCheckoutPriceSek ?? match.product?.priceSek,
   );
 });
 

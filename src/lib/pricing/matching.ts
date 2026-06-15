@@ -234,7 +234,7 @@ const confidenceScore: Record<PriceMatchConfidence, number> = {
 };
 
 export const matchListItem = (
-  item: { id: string; name: string },
+  item: { id: string; name: string; sourceTaskIds?: string[] },
   products: ProductPrice[],
   options: { debug?: boolean } = {},
 ): ListItemPriceMatch => {
@@ -332,6 +332,7 @@ export const matchListItem = (
   return {
     listItemId: item.id,
     listItemName: item.name,
+    ...(item.sourceTaskIds ? { sourceTaskIds: item.sourceTaskIds } : {}),
     product,
     confidence: best?.confidence ?? "none",
     ...(options.debug && best

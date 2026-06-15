@@ -14,6 +14,7 @@ export const MAX_BASKET_ITEMS = 100;
 export interface PricingBasketItem {
   id: string;
   name: string;
+  sourceTaskIds?: string[];
 }
 
 export interface PricingBasketRequest {
@@ -76,6 +77,15 @@ export const validateBasketPricingRequest = (
     items.push({
       id: candidate.id.slice(0, 128),
       name: candidate.name,
+      sourceTaskIds: Array.isArray(candidate.sourceTaskIds)
+        ? candidate.sourceTaskIds
+            .filter(
+              (id): id is string =>
+                typeof id === "string" && id.trim() !== "",
+            )
+            .map((id) => id.slice(0, 128))
+            .slice(0, MAX_BASKET_ITEMS)
+        : undefined,
     });
   }
 

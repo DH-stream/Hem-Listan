@@ -19,6 +19,7 @@ type BasketRequirement = {
   id: string;
   name: string;
   normalizedName: string;
+  sourceTaskIds: string[];
   dimension?: "mass" | "volume" | "count";
   amount?: number;
 };
@@ -73,7 +74,12 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
   const totals = new Map<string, number>();
   const quantified = new Map<
     string,
-    { id: string; normalizedName: string; dimension: "mass" | "volume" | "count" }
+    {
+      id: string;
+      normalizedName: string;
+      dimension: "mass" | "volume" | "count";
+      sourceTaskIds: string[];
+    }
   >();
   const unquantified: BasketRequirement[] = [];
   requirements.forEach((requirement) => {
@@ -89,6 +95,7 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
         id: requirement.id,
         name: requirement.name,
         normalizedName: requirement.name,
+        sourceTaskIds: [requirement.id],
       });
       return;
     }
@@ -100,7 +107,13 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
         id: requirement.id,
         normalizedName: requirement.name,
         dimension: requirement.quantity.dimension,
+        sourceTaskIds: [
+          ...(current?.sourceTaskIds ?? []),
+          requirement.id,
+        ],
       });
+    } else {
+      current.sourceTaskIds.push(requirement.id);
     }
   });
 
@@ -122,8 +135,12 @@ const createBasketRequirements = (tasks: TaskItem[]): BasketRequirement[] => {
 
 export const createActivePricingItems = (
   tasks: TaskItem[],
-): Array<{ id: string; name: string }> =>
-  createBasketRequirements(tasks).map(({ id, name }) => ({ id, name }));
+): Array<{ id: string; name: string; sourceTaskIds: string[] }> =>
+  createBasketRequirements(tasks).map(({ id, name, sourceTaskIds }) => ({
+    id,
+    name,
+    sourceTaskIds,
+  }));
 
 export const createBasketItemSignature = (tasks: TaskItem[]): string => {
   const unquantifiedCounts = new Map<string, number>();
@@ -290,6 +307,21 @@ export const selectActiveBasketEstimate = (
 
   estimate.matches.forEach((match) => {
     if (!match.product) return;
+    const sourceTasks = (match.sourceTaskIds ?? [])
+      .filter((id) => activeTaskIds.has(id))
+      .map((id) => activeTasks.find((task) => task.id === id))
+      .filter((task): task is TaskItem => Boolean(task));
+    if (sourceTasks.length > 0) {
+      sourceTasks.forEach((task) => {
+        matchByTaskId[task.id] =
+          task.id === match.listItemId
+            ? match
+            : { ...match, listItemId: task.id };
+      });
+      approximateTotalSek +=
+        match.estimatedCheckoutPriceSek ?? match.product.priceSek;
+      return;
+    }
     const currentTask = activeTaskIds.has(match.listItemId)
       ? activeTasks.find((task) => task.id === match.listItemId)
       : allTaskIds.has(match.listItemId)

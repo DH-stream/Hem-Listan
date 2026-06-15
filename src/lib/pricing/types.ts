@@ -46,6 +46,7 @@ export interface PurchasePlan {
 export interface ListItemPriceMatch {
   listItemId: string;
   listItemName: string;
+  sourceTaskIds?: string[];
   product: ProductPrice | null;
   confidence: PriceMatchConfidence;
   estimatedCheckoutPriceSek?: number;
