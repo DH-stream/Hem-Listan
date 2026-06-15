@@ -26,7 +26,11 @@ import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
 } from "../lib/grocery/categorize";
-import { formatPurchasePlanLabel } from "../../shared/pricingQuantity";
+import {
+  formatComparableQuantity,
+  formatPurchasePlanLabel,
+  parseComparableQuantity,
+} from "../../shared/pricingQuantity";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -643,7 +647,15 @@ export default function ListDetailGrocery({
       Övrigt: [],
     };
 
-    const activeTasks = list.tasks.filter((t) => !t.checked);
+    const activeTaskIds = new Set(
+      list.tasks.filter((task) => !task.checked).map((task) => task.id),
+    );
+    const activeTasks = list.tasks.filter((task) => {
+      if (task.checked) return false;
+      const sourceTaskIds = matchByTaskId[task.id]?.sourceTaskIds;
+      if (!sourceTaskIds?.length) return true;
+      return sourceTaskIds.find((id) => activeTaskIds.has(id)) === task.id;
+    });
 
     activeTasks.forEach((t) => {
       const matchedProduct = matchByTaskId[t.id]?.product;
@@ -667,6 +679,38 @@ export default function ListDetailGrocery({
   };
 
   const categorized = getCategorizedTasks();
+
+  const getShoppingRowSourceIds = (item: TaskItem) =>
+    matchByTaskId[item.id]?.sourceTaskIds?.filter((id) =>
+      list.tasks.some((task) => task.id === id && !task.checked),
+    ) ?? [item.id];
+
+  const getShoppingRowText = (item: TaskItem) => {
+    const match = matchByTaskId[item.id];
+    const required = parseComparableQuantity(match?.listItemName ?? item.text);
+    if (!match?.purchasePlan || !required) return item.text;
+    const normalizedName = match.listItemName
+      .replace(/\s*\([^)]+\)\s*$/, "")
+      .trim();
+    const name = normalizedName
+      ? normalizedName[0].toLocaleUpperCase("sv-SE") + normalizedName.slice(1)
+      : item.text;
+    return `${name} (${formatComparableQuantity({
+      amount: match.purchasePlan.purchasedAmount,
+      dimension: required.dimension,
+    })})`;
+  };
+
+  const getShoppingRowParts = (item: TaskItem) => {
+    const plan = matchByTaskId[item.id]?.purchasePlan;
+    if (
+      !plan ||
+      (plan.items.length === 1 && plan.items[0]?.count === 1)
+    ) {
+      return null;
+    }
+    return formatPurchasePlanLabel(plan);
+  };
 
   const getCatIcon = (name: string) => {
     switch (name) {
@@ -1116,7 +1160,11 @@ export default function ListDetailGrocery({
                               layoutId={`grocery-item-${item.id}`}
                             >
                               <div
-                                onClick={() => onToggleTask(list.id, item.id)}
+                                onClick={() =>
+                                  getShoppingRowSourceIds(item).forEach((id) =>
+                                    onToggleTask(list.id, id),
+                                  )
+                                }
                                 className="flex items-center gap-3.5 flex-1 min-w-0"
                               >
                                 <div
@@ -1141,14 +1189,11 @@ export default function ListDetailGrocery({
                                         : ""
                                     }`}
                                   >
-                                    {item.text}
+                                    {getShoppingRowText(item)}
                                   </div>
-                                  {matchByTaskId[item.id]?.purchasePlan && (
+                                  {getShoppingRowParts(item) && (
                                     <div className="font-sans text-xs text-on-surface-variant truncate">
-                                      Köp{" "}
-                                      {formatPurchasePlanLabel(
-                                        matchByTaskId[item.id].purchasePlan!,
-                                      )}
+                                      {getShoppingRowParts(item)}
                                     </div>
                                   )}
                                 </div>
@@ -1184,7 +1229,11 @@ export default function ListDetailGrocery({
                               )}
 
                               <button
-                                onClick={() => onDeleteTask(list.id, item.id)}
+                                onClick={() =>
+                                  getShoppingRowSourceIds(item).forEach((id) =>
+                                    onDeleteTask(list.id, id),
+                                  )
+                                }
                                 className="p-1 hover:bg-surface-container text-error rounded-full transition-colors opacity-50 hover:opacity-100"
                                 title="Ta bort"
                               >
