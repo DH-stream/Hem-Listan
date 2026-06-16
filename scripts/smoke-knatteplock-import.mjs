@@ -5,6 +5,9 @@ import { join } from "node:path";
 import process from "node:process";
 import { chromium } from "playwright";
 
+// Run without committing Playwright as an app dependency, for example:
+//   npx -y -p playwright@1.56.1 node scripts/smoke-knatteplock-import.mjs
+
 const RECIPE_URL =
   "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass";
 const APP_URL = process.env.APP_URL ?? "http://127.0.0.1:3000";
@@ -121,50 +124,41 @@ try {
 
   const images = modal.locator("img");
   const imageCount = await images.count();
-  let previewImageSrc = null;
-  const checks = ["preview dialog rendered"];
+  if (imageCount === 0) {
+    throw new Error("Import preview did not render an image");
+  }
 
-  if (imageCount > 0) {
-    const image = images.first();
-    await page.waitForFunction(
-      (element) =>
-        element instanceof HTMLImageElement &&
-        element.complete &&
-        element.naturalWidth > 0,
-      await image.elementHandle(),
-      { timeout: 15_000 },
-    );
-    const imageSrc = await image.getAttribute("src");
+  const image = images.first();
+  await page.waitForFunction(
+    (element) =>
+      element instanceof HTMLImageElement &&
+      element.complete &&
+      element.naturalWidth > 0,
+    await image.elementHandle(),
+    { timeout: 15_000 },
+  );
+  const imageSrc = await image.getAttribute("src");
 
-    if (!imageSrc) throw new Error("Import preview rendered an image without src");
-    const parsedImageUrl = new URL(imageSrc, APP_URL);
-    previewImageSrc = parsedImageUrl.href;
+  if (!imageSrc) throw new Error("Import preview rendered an image without src");
+  const parsedImageUrl = new URL(imageSrc, APP_URL);
 
-    if (parsedImageUrl.hostname !== EXPECTED_HOST) {
-      throw new Error(`Expected Knatteplock image host, got ${parsedImageUrl.href}`);
-    }
-    if (!/\/cdn\/shop\//i.test(parsedImageUrl.pathname)) {
-      throw new Error(`Expected a Knatteplock Shopify CDN image, got ${parsedImageUrl.href}`);
-    }
-    if (LOGO_OR_PLACEHOLDER_PATTERN.test(parsedImageUrl.href)) {
-      throw new Error(`Preview selected a logo/placeholder-like image: ${parsedImageUrl.href}`);
-    }
-    if (!/morotskakeglass|morotskake/i.test(parsedImageUrl.href)) {
-      throw new Error(`Expected morotskakeglass article image, got ${parsedImageUrl.href}`);
-    }
-
-    checks.push(
-      "preview image rendered and loaded in import preview",
-      "image host is www.knatteplock.se",
-      "image path is /cdn/shop/...",
-      "image is not logo/favicon/icon/placeholder/brand",
-      "image URL matches morotskakeglass article image naming",
-    );
-  } else {
-    checks.push(
-      "no preview image rendered because the live article HTML exposes no morotskakeglass article image",
-      "preview did not show the Knatteplock logo, generic image001 brand image, collection image, product image, or author image",
-    );
+  if (parsedImageUrl.hostname !== EXPECTED_HOST) {
+    throw new Error(`Expected Knatteplock image host, got ${parsedImageUrl.href}`);
+  }
+  if (!/\/cdn\/shop\//i.test(parsedImageUrl.pathname)) {
+    throw new Error(`Expected a Knatteplock Shopify CDN image, got ${parsedImageUrl.href}`);
+  }
+  if (/\/(?:products|collections)\//i.test(parsedImageUrl.pathname)) {
+    throw new Error(`Preview selected a product/collection image: ${parsedImageUrl.href}`);
+  }
+  if (LOGO_OR_PLACEHOLDER_PATTERN.test(parsedImageUrl.href)) {
+    throw new Error(`Preview selected a logo/placeholder-like image: ${parsedImageUrl.href}`);
+  }
+  if (/author|profile|avatar|elin|oresten/i.test(parsedImageUrl.href)) {
+    throw new Error(`Preview selected an author/profile image: ${parsedImageUrl.href}`);
+  }
+  if (!/morotskakeglass|morotskake/i.test(parsedImageUrl.href)) {
+    throw new Error(`Expected morotskakeglass article image, got ${parsedImageUrl.href}`);
   }
 
   console.log(
@@ -172,8 +166,16 @@ try {
       {
         ok: true,
         recipeUrl: RECIPE_URL,
-        previewImageSrc,
-        checks,
+        previewImageSrc: parsedImageUrl.href,
+        checks: [
+          "preview dialog rendered",
+          "preview image rendered and loaded in import preview",
+          "image has src",
+          "image host is www.knatteplock.se",
+          "image path is /cdn/shop/...",
+          "image is not logo/favicon/icon/placeholder/brand/author/product/collection",
+          "image URL matches morotskakeglass article image naming",
+        ],
       },
       null,
       2,
