@@ -656,6 +656,31 @@ test("prefers a Shopify article srcset image over later product images", () => {
   );
 });
 
+test("keeps og:image first for non-Shopify /blogs pages", () => {
+  const html = `
+    <head>
+      <meta property="og:image" content="/images/og-recipe.jpg">
+    </head>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Bloggpasta",
+        "recipeIngredient": ["200 g pasta", "1 dl grädde", "1 st citron"]
+      }
+    </script>
+    <article>
+      <h1>Bloggpasta</h1>
+      <img alt="Bloggpasta artikelbild" src="/images/article-recipe.jpg">
+    </article>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recipe-blog.example/blogs/bloggpasta"),
+  );
+
+  assert.equal(result?.imageUrl, "https://recipe-blog.example/images/og-recipe.jpg");
+});
 
 test("prefers the Knatteplock morotskakeglass article image over the logo", () => {
   const html = `

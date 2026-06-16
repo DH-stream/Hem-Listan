@@ -421,14 +421,16 @@ function extractLargestSrcsetUrl(value: string): string {
   return largest.url;
 }
 
+function hasShopifySignal(html: string): boolean {
+  return /Shopify\.|cdn\/shop\/|cdn\.shopify\.com/i.test(html);
+}
+
 function isShopifyBlogArticlePage(html: string, sourceUrl: URL): boolean {
+  if (!hasShopifySignal(html)) return false;
   if (sourceUrl.pathname.startsWith("/blogs/")) return true;
 
-  return (
-    /Shopify\.|cdn\/shop\/|cdn\.shopify\.com/i.test(html) &&
-    /<meta[^>]+(?:property|name)=["']og:type["'][^>]+content=["']article["']|<article\b|template(?:--|-)article/i.test(
-      html,
-    )
+  return /<meta[^>]+(?:property|name)=["']og:type["'][^>]+content=["']article["']|<article\b|template(?:--|-)article/i.test(
+    html,
   );
 }
 
