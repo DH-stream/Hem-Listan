@@ -223,7 +223,7 @@ export default function RecipeImportPreviewModal({
                   aria-label="Avbryt receptimport"
                   className="absolute right-2.5 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-low/85 text-on-surface-variant transition-[background-color,color,transform] duration-150 hover:bg-surface-container-high hover:text-text-main active:scale-[0.96] sm:top-2.5"
                 >
-                  <LucideIcon name="close" className="h-4.5 w-4.5" />
+                  <LucideIcon name="close" className="h-4 w-4" />
                 </button>
               </>
             )}
@@ -274,6 +274,18 @@ export default function RecipeImportPreviewModal({
                           </div>
                         </div>
                       </div>
+
+                      {preview.imageUrl ? (
+                        <div className="mt-4 overflow-hidden rounded-[1.35rem] border border-surface-container/40 bg-surface-container-low shadow-[0_8px_24px_rgba(34,50,35,0.06)]">
+                          <img
+                            src={preview.imageUrl}
+                            alt=""
+                            className="aspect-[16/9] w-full object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : null}
 
                       {showConfidenceWarning && (
                         <div className="mt-4 flex gap-2 rounded-xl border border-amber-500/20 bg-amber-50 p-3 text-xs font-medium leading-relaxed text-amber-900">
