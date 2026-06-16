@@ -782,6 +782,48 @@ test("prefers the Knatteplock morotskakeglass article image over the logo", () =
   );
 });
 
+test("replaces rejected Shopify JSON-LD images with scoped article images", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "image": "/cdn/shop/files/Knatteplock-brand-logo.png",
+        "recipeIngredient": ["2 st morötter", "1 dl yoghurt", "1 tsk kanel"]
+      }
+    </script>
+    <main class="template-article">
+      <h1>Morotskakeglass</h1>
+      <img
+        alt="Morotskakeglass i form"
+        data-src="/cdn/shop/articles/morotskakeglass-400.jpg"
+        data-srcset="/cdn/shop/articles/morotskakeglass-400.jpg 400w, /cdn/shop/articles/morotskakeglass-1600.jpg 1600w"
+      >
+      <section class="product-recommendations">
+        <a href="/products/glassform">
+          <img alt="Glassform" src="/cdn/shop/files/glassform.jpg">
+        </a>
+      </section>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/articles/morotskakeglass-1600.jpg",
+  );
+});
+
 test("scopes generic Shopify article images before product recommendations", () => {
   const html = `
     <head><meta property="og:type" content="article"></head>

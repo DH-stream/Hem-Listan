@@ -635,6 +635,18 @@ function extractFallbackImage(
   return ogImage || twitterImage || articleImage;
 }
 
+function isRejectedExistingShopifyImage(
+  value: string,
+  html: string,
+  sourceUrl: URL,
+  recipeName: string,
+): boolean {
+  return (
+    isShopifyBlogArticlePage(html, sourceUrl) &&
+    isRejectedShopifyMetaImage(value, sourceUrl, recipeName)
+  );
+}
+
 function extractPageTitle(html: string): string {
   const heading = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
   return (
@@ -649,9 +661,22 @@ function ensureCandidateImage(
   html: string,
   sourceUrl: URL,
 ): RecipeCandidate | null {
-  if (!candidate || candidate.imageUrl) return candidate;
+  if (!candidate) return candidate;
 
   const recipeName = cleanText(candidate.recipeName) || extractPageTitle(html);
+  if (candidate.imageUrl) {
+    if (
+      !isRejectedExistingShopifyImage(candidate.imageUrl, html, sourceUrl, recipeName)
+    ) {
+      return candidate;
+    }
+
+    const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
+    return fallbackImageUrl
+      ? { ...candidate, imageUrl: fallbackImageUrl }
+      : { ...candidate, imageUrl: undefined };
+  }
+
   const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
 
   return fallbackImageUrl

@@ -1,12 +1,29 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import process from "node:process";
-import { chromium } from "playwright";
+import { pathToFileURL } from "node:url";
 
 // Run without committing Playwright as an app dependency, for example:
 //   npx -y -p playwright@1.56.1 node scripts/smoke-knatteplock-import.mjs
+
+async function loadPlaywright() {
+  try {
+    return await import("playwright");
+  } catch (error) {
+    const playwrightBinDir = process.env.PATH
+      ?.split(":")
+      .find((entry) => entry.includes("_npx") && entry.endsWith("node_modules/.bin"));
+    if (!playwrightBinDir) throw error;
+
+    const playwrightRoot = join(dirname(playwrightBinDir), "playwright");
+    return import(pathToFileURL(join(playwrightRoot, "index.js")).href);
+  }
+}
+
+const playwright = await loadPlaywright();
+const { chromium } = playwright.default ?? playwright;
 
 const RECIPE_URL =
   "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass";
