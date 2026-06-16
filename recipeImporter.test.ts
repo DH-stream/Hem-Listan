@@ -824,6 +824,51 @@ test("replaces rejected Shopify JSON-LD images with scoped article images", () =
   );
 });
 
+test("prefers Shopify WRH recipe media even when filename does not match title", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+      <meta property="og:image" content="/cdn/shop/files/image001.png">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Tropisk mellisglass",
+        "image": "/cdn/shop/files/brand-header.png",
+        "recipeIngredient": ["1 dl mango", "1 dl yoghurt", "1 banan"]
+      }
+    </script>
+    <main class="wrh-main">
+      <div class="wrh-media">
+        <figure class="wrh-image">
+          <img
+            alt="Tropisk mellisglass"
+            src="//www.knatteplock.se/cdn/shop/files/20260430094538-namnlo-cc-88s-20-1080-20-c3-97.jpg?v=1780662899&width=1600"
+            width="1080"
+            height="1350"
+          >
+        </figure>
+      </div>
+      <div class="wrh-author">
+        <img alt="Elin Oresten" src="/cdn/shop/files/author.jpg" width="200" height="200">
+      </div>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/tropisk-mellisglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/files/20260430094538-namnlo-cc-88s-20-1080-20-c3-97.jpg?v=1780662899&width=1600",
+  );
+});
+
 test("scopes generic Shopify article images before product recommendations", () => {
   const html = `
     <head><meta property="og:type" content="article"></head>

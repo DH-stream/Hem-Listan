@@ -493,6 +493,32 @@ function getShopifyArticleHtmlScope(html: string, sourceUrl: URL): string {
   return html.slice(scopeStart, scopeEnd);
 }
 
+function extractShopifyWrhRecipeImage(scopedHtml: string, sourceUrl: URL): string {
+  const wrhBlocks = scopedHtml.match(
+    /<[^>]+(?:class=["'][^"']*\bwrh-(?:media|image)\b[^"']*["']|data-wrh-(?:slider|slide)\b)[^>]*>[\s\S]{0,5000}?<\/(?:div|figure|section)>/gi,
+  ) ?? [];
+
+  for (const block of wrhBlocks) {
+    const sourcePattern = /<(?:img|source)\b([^>]*)>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = sourcePattern.exec(block))) {
+      const attributes = match[1];
+      const srcset =
+        extractAttribute(attributes, "data-srcset") ||
+        extractAttribute(attributes, "srcset");
+      const url =
+        extractLargestSrcsetUrl(srcset) ||
+        extractAttribute(attributes, "data-src") ||
+        extractAttribute(attributes, "src");
+      if (!url) continue;
+      if (isRejectedArticleImageCandidate(url, attributes, sourceUrl)) continue;
+      return url;
+    }
+  }
+
+  return "";
+}
+
 function extractArticleImage(
   html: string,
   sourceUrl: URL,
@@ -500,6 +526,11 @@ function extractArticleImage(
 ): string {
   const isShopifyBlogArticle = isShopifyBlogArticlePage(html, sourceUrl);
   const scopedHtml = getShopifyArticleHtmlScope(html, sourceUrl);
+  if (isShopifyBlogArticle) {
+    const wrhImage = extractShopifyWrhRecipeImage(scopedHtml, sourceUrl);
+    if (wrhImage) return wrhImage;
+  }
+
   const titleWords = cleanText(recipeName)
     .toLocaleLowerCase("sv")
     .split(/\s+/)
