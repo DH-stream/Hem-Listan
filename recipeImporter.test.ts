@@ -656,6 +656,87 @@ test("prefers a Shopify article srcset image over later product images", () => {
   );
 });
 
+
+test("prefers the Knatteplock morotskakeglass article image over the logo", () => {
+  const html = `
+    <head>
+      <meta property="og:image" content="/cdn/shop/files/Knatteplock-logo.png">
+    </head>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "recipeIngredient": ["2 st morötter", "1 dl yoghurt", "1 tsk kanel"]
+      }
+    </script>
+    <header>
+      <img alt="Knatteplock logotyp" src="/cdn/shop/files/Knatteplock-logo.png">
+    </header>
+    <article class="article-template">
+      <h1>Morotskakeglass</h1>
+      <img
+        alt="Morotskakeglass i form"
+        src="/cdn/shop/articles/morotskakeglass-400.jpg"
+        srcset="/cdn/shop/articles/morotskakeglass-400.jpg 400w, /cdn/shop/articles/morotskakeglass-1600.jpg 1600w"
+      >
+    </article>
+    <section class="featured-products">
+      <a href="/products/barnsked">
+        <img alt="Barnsked" src="/cdn/shop/products/barnsked.jpg">
+      </a>
+    </section>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/articles/morotskakeglass-1600.jpg",
+  );
+});
+
+test("scopes generic Shopify article images before product recommendations", () => {
+  const html = `
+    <head><meta property="og:type" content="article"></head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Blåbärspannkaka",
+        "recipeIngredient": ["2 dl blåbär", "3 dl mjölk", "2 st ägg"]
+      }
+    </script>
+    <main class="template-article">
+      <img alt="Generic Shop logo" src="/cdn/shop/files/logo.svg">
+      <img
+        alt="Blåbärspannkaka med bär"
+        data-src="/cdn/shop/articles/blueberry-pancake-800.jpg"
+        data-srcset="/cdn/shop/articles/blueberry-pancake-800.jpg 800w, /cdn/shop/articles/blabarpannkaka-1400.jpg 1400w"
+      >
+      <div class="product-recommendations">
+        <a href="/products/pannkakspanna">
+          <img alt="Pannkakspanna" src="/cdn/shop/products/pannkakspanna.jpg">
+        </a>
+      </div>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://generic-shop.example/blogs/recept/blabarpannkaka"),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://generic-shop.example/cdn/shop/articles/blabarpannkaka-1400.jpg",
+  );
+});
+
 test("applies the fallback image to a selected non-JSON-LD candidate", () => {
   const html = `
     <html>
