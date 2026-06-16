@@ -421,28 +421,116 @@ function extractLargestSrcsetUrl(value: string): string {
   return largest.url;
 }
 
+function hasShopifySignal(html: string): boolean {
+  return /Shopify\.|cdn\/shop\/|cdn\.shopify\.com/i.test(html);
+}
+
+function isShopifyBlogArticlePage(html: string, sourceUrl: URL): boolean {
+  if (!hasShopifySignal(html)) return false;
+  if (sourceUrl.pathname.startsWith("/blogs/")) return true;
+
+  return /<meta[^>]+(?:property|name)=["']og:type["'][^>]+content=["']article["']|<article\b|template(?:--|-)article/i.test(
+    html,
+  );
+}
+
+function isRejectedArticleImageCandidate(
+  url: string,
+  attributes: string,
+  sourceUrl: URL,
+): boolean {
+  const resolved = resolveImageUrl(url, sourceUrl);
+  if (!resolved) return true;
+  if (/\$\{/.test(url) || /%24%7b/i.test(resolved)) return true;
+
+  const searchable = [
+    url,
+    attributes,
+    extractAttribute(attributes, "alt"),
+    extractAttribute(attributes, "title"),
+    extractAttribute(attributes, "class"),
+    extractAttribute(attributes, "id"),
+  ]
+    .join(" ")
+    .toLocaleLowerCase("sv");
+
+  if (/\/(?:products|collections)\//i.test(resolved)) return true;
+  if (
+    /(?:logo|logotyp|favicon|icon|icn|sprite|avatar|author|profile|placeholder|header|site-header|menu|nav|badge|lfgb)/i.test(
+      searchable,
+    )
+  ) {
+    return true;
+  }
+
+  const width = Number.parseInt(extractAttribute(attributes, "width"), 10);
+  const height = Number.parseInt(extractAttribute(attributes, "height"), 10);
+  return (Number.isFinite(width) && width > 0 && width < 120) ||
+    (Number.isFinite(height) && height > 0 && height < 120);
+}
+
+function getShopifyArticleHtmlScope(html: string, sourceUrl: URL): string {
+  if (!isShopifyBlogArticlePage(html, sourceUrl)) return html;
+
+  const mainContentStart = html.search(
+    /<main\b[^>]*(?:id=["']MainContent["']|class=["'][^"']*main-content[^"']*["'])/i,
+  );
+  const articleClassStart = html.search(
+    /class=["'][^"']*(?:wrh-main|article|blog|recipe|template[-_ ]?article|article-template)[^"']*["']/i,
+  );
+  const articleElementStart = html.search(/<(?:article|main)\b/i);
+  const articleStart = mainContentStart >= 0
+    ? mainContentStart
+    : articleClassStart >= 0
+      ? articleClassStart
+      : articleElementStart;
+  const scopeStart = articleStart >= 0 ? articleStart : 0;
+  const productMatch = html.slice(scopeStart).search(
+    /<(?:section|div|ul)\b[^>]*(?:class|id)=["'][^"']*(?:product-card|product-grid|featured-products|featured-collection|related-products|recommendations|product-recommendations)[^"']*["']|href=["'][^"']*\/products\//i,
+  );
+  const scopeEnd = productMatch >= 0 ? scopeStart + productMatch : html.length;
+
+  return html.slice(scopeStart, scopeEnd);
+}
+
+function extractShopifyWrhRecipeImage(scopedHtml: string, sourceUrl: URL): string {
+  const wrhBlocks = scopedHtml.match(
+    /<[^>]+(?:class=["'][^"']*\bwrh-(?:media|image)\b[^"']*["']|data-wrh-(?:slider|slide)\b)[^>]*>[\s\S]{0,5000}?<\/(?:div|figure|section)>/gi,
+  ) ?? [];
+
+  for (const block of wrhBlocks) {
+    const sourcePattern = /<(?:img|source)\b([^>]*)>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = sourcePattern.exec(block))) {
+      const attributes = match[1];
+      const srcset =
+        extractAttribute(attributes, "data-srcset") ||
+        extractAttribute(attributes, "srcset");
+      const url =
+        extractLargestSrcsetUrl(srcset) ||
+        extractAttribute(attributes, "data-src") ||
+        extractAttribute(attributes, "src");
+      if (!url) continue;
+      if (isRejectedArticleImageCandidate(url, attributes, sourceUrl)) continue;
+      return url;
+    }
+  }
+
+  return "";
+}
+
 function extractArticleImage(
   html: string,
   sourceUrl: URL,
   recipeName: string,
 ): string {
-  const isKnatteplockBlog =
-    getHostname(sourceUrl) === "knatteplock.se" &&
-    sourceUrl.pathname.startsWith("/blogs/");
-  const articleStart = html.search(
-    /<(?:article|main)\b|class=["'][^"']*(?:article|blog|recipe|wrh-main)[^"']*["']/i,
-  );
-  const productStart = isKnatteplockBlog
-    ? html.search(
-        /class=["'][^"']*(?:product-card|product-grid|featured-products)[^"']*["']|href=["'][^"']*\/products\//i,
-      )
-    : -1;
-  const scopedHtml = isKnatteplockBlog
-    ? html.slice(
-        articleStart >= 0 ? articleStart : 0,
-        productStart > articleStart ? productStart : html.length,
-      )
-    : html;
+  const isShopifyBlogArticle = isShopifyBlogArticlePage(html, sourceUrl);
+  const scopedHtml = getShopifyArticleHtmlScope(html, sourceUrl);
+  if (isShopifyBlogArticle) {
+    const wrhImage = extractShopifyWrhRecipeImage(scopedHtml, sourceUrl);
+    if (wrhImage) return wrhImage;
+  }
+
   const titleWords = cleanText(recipeName)
     .toLocaleLowerCase("sv")
     .split(/\s+/)
@@ -453,6 +541,11 @@ function extractArticleImage(
 
   while ((match = imagePattern.exec(scopedHtml))) {
     const attributes = match[1];
+    const previousTagStart = scopedHtml.lastIndexOf("<", match.index - 1);
+    const previousTag = previousTagStart >= 0
+      ? scopedHtml.slice(previousTagStart, match.index)
+      : "";
+    const candidateContext = /^<img\b/i.test(previousTag) ? "" : previousTag;
     const srcset =
       extractAttribute(attributes, "data-srcset") ||
       extractAttribute(attributes, "srcset");
@@ -460,11 +553,21 @@ function extractArticleImage(
       extractLargestSrcsetUrl(srcset) ||
       extractAttribute(attributes, "data-src") ||
       extractAttribute(attributes, "src");
-    if (!url || /\/products\//i.test(url)) continue;
+    if (!url) continue;
+    if (
+      isShopifyBlogArticle &&
+      isRejectedArticleImageCandidate(url, `${attributes} ${candidateContext}`, sourceUrl)
+    ) {
+      continue;
+    }
 
     const label = [
       extractAttribute(attributes, "alt"),
       extractAttribute(attributes, "title"),
+      extractAttribute(attributes, "data-srcset"),
+      extractAttribute(attributes, "srcset"),
+      extractAttribute(attributes, "data-src"),
+      extractAttribute(attributes, "src"),
     ]
       .join(" ")
       .toLocaleLowerCase("sv");
@@ -474,7 +577,7 @@ function extractArticleImage(
       score:
         titleMatches * 10 +
         (/\/(?:articles|blogs)\//i.test(url) ? 5 : 0) +
-        (isKnatteplockBlog ? 2 : 0),
+        (isShopifyBlogArticle ? 2 : 0),
     });
   }
 
@@ -510,15 +613,68 @@ function inspectArticleImages(html: string, sourceUrl: URL): ArticleImageDebug[]
   return images;
 }
 
+function isRejectedShopifyMetaImage(
+  value: string,
+  sourceUrl: URL,
+  recipeName: string,
+): boolean {
+  const resolved = resolveImageUrl(value, sourceUrl);
+  if (!resolved) return true;
+  if (/\/(?:products|collections)\//i.test(resolved)) return true;
+  if (
+    /(?:logo|logotyp|favicon|icon|sprite|avatar|author|profile|placeholder|brand|header|image00\d)/i.test(
+      resolved,
+    )
+  ) {
+    return true;
+  }
+
+  const normalizedUrl = resolved.toLocaleLowerCase("sv");
+  const titleWords = cleanText(recipeName)
+    .toLocaleLowerCase("sv")
+    .split(/\s+/)
+    .filter((word) => word.length >= 4);
+
+  return (
+    !/\/(?:articles|blogs)\//i.test(resolved) &&
+    !titleWords.some((word) => normalizedUrl.includes(word))
+  );
+}
+
 function extractFallbackImage(
   html: string,
   sourceUrl: URL,
   recipeName: string,
 ): string {
+  const articleImage = extractArticleImage(html, sourceUrl, recipeName);
+  const isShopifyBlogArticle = isShopifyBlogArticlePage(html, sourceUrl);
+  if (isShopifyBlogArticle && articleImage) return articleImage;
+
+  const ogImage = extractMetaContent(html, "og:image");
+  const twitterImage = extractMetaContent(html, "twitter:image");
+
+  if (isShopifyBlogArticle) {
+    return (
+      (!isRejectedShopifyMetaImage(ogImage, sourceUrl, recipeName) ? ogImage : "") ||
+      (!isRejectedShopifyMetaImage(twitterImage, sourceUrl, recipeName)
+        ? twitterImage
+        : "") ||
+      articleImage
+    );
+  }
+
+  return ogImage || twitterImage || articleImage;
+}
+
+function isRejectedExistingShopifyImage(
+  value: string,
+  html: string,
+  sourceUrl: URL,
+  recipeName: string,
+): boolean {
   return (
-    extractMetaContent(html, "og:image") ||
-    extractMetaContent(html, "twitter:image") ||
-    extractArticleImage(html, sourceUrl, recipeName)
+    isShopifyBlogArticlePage(html, sourceUrl) &&
+    isRejectedShopifyMetaImage(value, sourceUrl, recipeName)
   );
 }
 
@@ -536,9 +692,22 @@ function ensureCandidateImage(
   html: string,
   sourceUrl: URL,
 ): RecipeCandidate | null {
-  if (!candidate || candidate.imageUrl) return candidate;
+  if (!candidate) return candidate;
 
   const recipeName = cleanText(candidate.recipeName) || extractPageTitle(html);
+  if (candidate.imageUrl) {
+    if (
+      !isRejectedExistingShopifyImage(candidate.imageUrl, html, sourceUrl, recipeName)
+    ) {
+      return candidate;
+    }
+
+    const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
+    return fallbackImageUrl
+      ? { ...candidate, imageUrl: fallbackImageUrl }
+      : { ...candidate, imageUrl: undefined };
+  }
+
   const fallbackImageUrl = extractFallbackImage(html, sourceUrl, recipeName);
 
   return fallbackImageUrl

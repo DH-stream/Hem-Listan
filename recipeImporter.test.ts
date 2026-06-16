@@ -656,6 +656,256 @@ test("prefers a Shopify article srcset image over later product images", () => {
   );
 });
 
+test("keeps og:image first for non-Shopify /blogs pages", () => {
+  const html = `
+    <head>
+      <meta property="og:image" content="/images/og-recipe.jpg">
+    </head>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Bloggpasta",
+        "recipeIngredient": ["200 g pasta", "1 dl grädde", "1 st citron"]
+      }
+    </script>
+    <article>
+      <h1>Bloggpasta</h1>
+      <img alt="Bloggpasta artikelbild" src="/images/article-recipe.jpg">
+    </article>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recipe-blog.example/blogs/bloggpasta"),
+  );
+
+  assert.equal(result?.imageUrl, "https://recipe-blog.example/images/og-recipe.jpg");
+});
+
+test("does not apply Shopify article image rejection to non-Shopify pages", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Bloggpasta",
+        "recipeIngredient": ["200 g pasta", "1 dl grädde", "1 st citron"]
+      }
+    </script>
+    <article>
+      <h1>Bloggpasta</h1>
+      <img alt="Bloggpasta logo" src="/images/blog-logo.jpg" width="80" height="80">
+    </article>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recipe-blog.example/blogs/bloggpasta"),
+  );
+
+  assert.equal(result?.imageUrl, "https://recipe-blog.example/images/blog-logo.jpg");
+});
+
+
+test("rejects generic Shopify collection and brand meta images without an article image", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+      <meta property="og:image" content="/cdn/shop/collections/unrelated.jpg">
+      <meta name="twitter:image" content="https://cdn.shopify.com/s/files/store/files/image001.png">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "recipeIngredient": ["2 dl morot", "4 st dadlar", "1 dl grädde"]
+      }
+    </script>
+    <main class="wrh-main">
+      <img alt="Receptförfattare" src="/cdn/shop/files/author.jpg">
+      <section class="featured-products">
+        <a href="/products/glassform">
+          <img alt="Glassform" src="/cdn/shop/files/glassform.jpg">
+        </a>
+      </section>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://generic-shop.example/blogs/recept/morotskakeglass"),
+  );
+
+  assert.equal(result?.imageUrl, undefined);
+});
+
+test("prefers the Knatteplock morotskakeglass article image over the logo", () => {
+  const html = `
+    <head>
+      <meta property="og:image" content="/cdn/shop/files/Knatteplock-logo.png">
+    </head>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "recipeIngredient": ["2 st morötter", "1 dl yoghurt", "1 tsk kanel"]
+      }
+    </script>
+    <header>
+      <img alt="Knatteplock logotyp" src="/cdn/shop/files/Knatteplock-logo.png">
+    </header>
+    <article class="article-template">
+      <h1>Morotskakeglass</h1>
+      <img
+        alt="Morotskakeglass i form"
+        src="/cdn/shop/articles/morotskakeglass-400.jpg"
+        srcset="/cdn/shop/articles/morotskakeglass-400.jpg 400w, /cdn/shop/articles/morotskakeglass-1600.jpg 1600w"
+      >
+    </article>
+    <section class="featured-products">
+      <a href="/products/barnsked">
+        <img alt="Barnsked" src="/cdn/shop/products/barnsked.jpg">
+      </a>
+    </section>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/articles/morotskakeglass-1600.jpg",
+  );
+});
+
+test("replaces rejected Shopify JSON-LD images with scoped article images", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "image": "/cdn/shop/files/Knatteplock-brand-logo.png",
+        "recipeIngredient": ["2 st morötter", "1 dl yoghurt", "1 tsk kanel"]
+      }
+    </script>
+    <main class="template-article">
+      <h1>Morotskakeglass</h1>
+      <img
+        alt="Morotskakeglass i form"
+        data-src="/cdn/shop/articles/morotskakeglass-400.jpg"
+        data-srcset="/cdn/shop/articles/morotskakeglass-400.jpg 400w, /cdn/shop/articles/morotskakeglass-1600.jpg 1600w"
+      >
+      <section class="product-recommendations">
+        <a href="/products/glassform">
+          <img alt="Glassform" src="/cdn/shop/files/glassform.jpg">
+        </a>
+      </section>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/morotskakeglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/articles/morotskakeglass-1600.jpg",
+  );
+});
+
+test("prefers Shopify WRH recipe media even when filename does not match title", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+      <meta property="og:image" content="/cdn/shop/files/image001.png">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Tropisk mellisglass",
+        "image": "/cdn/shop/files/brand-header.png",
+        "recipeIngredient": ["1 dl mango", "1 dl yoghurt", "1 banan"]
+      }
+    </script>
+    <main class="wrh-main">
+      <div class="wrh-media">
+        <figure class="wrh-image">
+          <img
+            alt="Tropisk mellisglass"
+            src="//www.knatteplock.se/cdn/shop/files/20260430094538-namnlo-cc-88s-20-1080-20-c3-97.jpg?v=1780662899&width=1600"
+            width="1080"
+            height="1350"
+          >
+        </figure>
+      </div>
+      <div class="wrh-author">
+        <img alt="Elin Oresten" src="/cdn/shop/files/author.jpg" width="200" height="200">
+      </div>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL(
+      "https://www.knatteplock.se/blogs/enkla-recept-for-barn-familj/tropisk-mellisglass",
+    ),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://www.knatteplock.se/cdn/shop/files/20260430094538-namnlo-cc-88s-20-1080-20-c3-97.jpg?v=1780662899&width=1600",
+  );
+});
+
+test("scopes generic Shopify article images before product recommendations", () => {
+  const html = `
+    <head><meta property="og:type" content="article"></head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Blåbärspannkaka",
+        "recipeIngredient": ["2 dl blåbär", "3 dl mjölk", "2 st ägg"]
+      }
+    </script>
+    <main class="template-article">
+      <img alt="Generic Shop logo" src="/cdn/shop/files/logo.svg">
+      <img
+        alt="Blåbärspannkaka med bär"
+        data-src="/cdn/shop/articles/blueberry-pancake-800.jpg"
+        data-srcset="/cdn/shop/articles/blueberry-pancake-800.jpg 800w, /cdn/shop/articles/blabarpannkaka-1400.jpg 1400w"
+      >
+      <div class="product-recommendations">
+        <a href="/products/pannkakspanna">
+          <img alt="Pannkakspanna" src="/cdn/shop/products/pannkakspanna.jpg">
+        </a>
+      </div>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://generic-shop.example/blogs/recept/blabarpannkaka"),
+  );
+
+  assert.equal(
+    result?.imageUrl,
+    "https://generic-shop.example/cdn/shop/articles/blabarpannkaka-1400.jpg",
+  );
+});
+
 test("applies the fallback image to a selected non-JSON-LD candidate", () => {
   const html = `
     <html>
