@@ -682,6 +682,40 @@ test("keeps og:image first for non-Shopify /blogs pages", () => {
   assert.equal(result?.imageUrl, "https://recipe-blog.example/images/og-recipe.jpg");
 });
 
+
+test("rejects generic Shopify collection and brand meta images without an article image", () => {
+  const html = `
+    <head>
+      <meta property="og:type" content="article">
+      <meta property="og:image" content="/cdn/shop/collections/unrelated.jpg">
+      <meta name="twitter:image" content="https://cdn.shopify.com/s/files/store/files/image001.png">
+    </head>
+    <script>window.Shopify = { shop: "generic-shop.example" };</script>
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Morotskakeglass",
+        "recipeIngredient": ["2 dl morot", "4 st dadlar", "1 dl grädde"]
+      }
+    </script>
+    <main class="wrh-main">
+      <img alt="Receptförfattare" src="/cdn/shop/files/author.jpg">
+      <section class="featured-products">
+        <a href="/products/glassform">
+          <img alt="Glassform" src="/cdn/shop/files/glassform.jpg">
+        </a>
+      </section>
+    </main>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://generic-shop.example/blogs/recept/morotskakeglass"),
+  );
+
+  assert.equal(result?.imageUrl, undefined);
+});
+
 test("prefers the Knatteplock morotskakeglass article image over the logo", () => {
   const html = `
     <head>

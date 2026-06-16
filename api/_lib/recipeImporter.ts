@@ -452,9 +452,9 @@ function isRejectedArticleImageCandidate(
     .join(" ")
     .toLocaleLowerCase("sv");
 
-  if (/\/products\//i.test(resolved)) return true;
+  if (/\/(?:products|collections)\//i.test(resolved)) return true;
   if (
-    /(?:logo|logotyp|favicon|icon|sprite|avatar|placeholder|header|site-header|menu|nav|badge)/i.test(
+    /(?:logo|logotyp|favicon|icon|sprite|avatar|author|profile|placeholder|header|site-header|menu|nav|badge)/i.test(
       searchable,
     )
   ) {
@@ -470,9 +470,11 @@ function isRejectedArticleImageCandidate(
 function getShopifyArticleHtmlScope(html: string, sourceUrl: URL): string {
   if (!isShopifyBlogArticlePage(html, sourceUrl)) return html;
 
-  const articleStart = html.search(
-    /<(?:article|main)\b|class=["'][^"']*(?:article|blog|recipe|wrh-main|template[-_ ]?article|article-template)[^"']*["']/i,
+  const articleClassStart = html.search(
+    /class=["'][^"']*(?:wrh-main|article|blog|recipe|template[-_ ]?article|article-template)[^"']*["']/i,
   );
+  const articleElementStart = html.search(/<(?:article|main)\b/i);
+  const articleStart = articleClassStart >= 0 ? articleClassStart : articleElementStart;
   const scopeStart = articleStart >= 0 ? articleStart : 0;
   const productMatch = html.slice(scopeStart).search(
     /<(?:section|div|ul)\b[^>]*(?:class|id)=["'][^"']*(?:product-card|product-grid|featured-products|featured-collection|related-products|recommendations|product-recommendations)[^"']*["']|href=["'][^"']*\/products\//i,
@@ -560,19 +562,57 @@ function inspectArticleImages(html: string, sourceUrl: URL): ArticleImageDebug[]
   return images;
 }
 
+function isRejectedShopifyMetaImage(
+  value: string,
+  sourceUrl: URL,
+  recipeName: string,
+): boolean {
+  const resolved = resolveImageUrl(value, sourceUrl);
+  if (!resolved) return true;
+  if (/\/(?:products|collections)\//i.test(resolved)) return true;
+  if (
+    /(?:logo|logotyp|favicon|icon|sprite|avatar|author|profile|placeholder|brand|header|image00\d)/i.test(
+      resolved,
+    )
+  ) {
+    return true;
+  }
+
+  const normalizedUrl = resolved.toLocaleLowerCase("sv");
+  const titleWords = cleanText(recipeName)
+    .toLocaleLowerCase("sv")
+    .split(/\s+/)
+    .filter((word) => word.length >= 4);
+
+  return (
+    !/\/(?:articles|blogs)\//i.test(resolved) &&
+    !titleWords.some((word) => normalizedUrl.includes(word))
+  );
+}
+
 function extractFallbackImage(
   html: string,
   sourceUrl: URL,
   recipeName: string,
 ): string {
   const articleImage = extractArticleImage(html, sourceUrl, recipeName);
-  if (isShopifyBlogArticlePage(html, sourceUrl) && articleImage) return articleImage;
+  const isShopifyBlogArticle = isShopifyBlogArticlePage(html, sourceUrl);
+  if (isShopifyBlogArticle && articleImage) return articleImage;
 
-  return (
-    extractMetaContent(html, "og:image") ||
-    extractMetaContent(html, "twitter:image") ||
-    articleImage
-  );
+  const ogImage = extractMetaContent(html, "og:image");
+  const twitterImage = extractMetaContent(html, "twitter:image");
+
+  if (isShopifyBlogArticle) {
+    return (
+      (!isRejectedShopifyMetaImage(ogImage, sourceUrl, recipeName) ? ogImage : "") ||
+      (!isRejectedShopifyMetaImage(twitterImage, sourceUrl, recipeName)
+        ? twitterImage
+        : "") ||
+      articleImage
+    );
+  }
+
+  return ogImage || twitterImage || articleImage;
 }
 
 function extractPageTitle(html: string): string {
