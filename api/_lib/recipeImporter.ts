@@ -441,9 +441,11 @@ function isRejectedArticleImageCandidate(
 ): boolean {
   const resolved = resolveImageUrl(url, sourceUrl);
   if (!resolved) return true;
+  if (/\$\{/.test(url) || /%24%7b/i.test(resolved)) return true;
 
   const searchable = [
     url,
+    attributes,
     extractAttribute(attributes, "alt"),
     extractAttribute(attributes, "title"),
     extractAttribute(attributes, "class"),
@@ -454,7 +456,7 @@ function isRejectedArticleImageCandidate(
 
   if (/\/(?:products|collections)\//i.test(resolved)) return true;
   if (
-    /(?:logo|logotyp|favicon|icon|sprite|avatar|author|profile|placeholder|header|site-header|menu|nav|badge)/i.test(
+    /(?:logo|logotyp|favicon|icon|icn|sprite|avatar|author|profile|placeholder|header|site-header|menu|nav|badge|lfgb)/i.test(
       searchable,
     )
   ) {
@@ -470,11 +472,18 @@ function isRejectedArticleImageCandidate(
 function getShopifyArticleHtmlScope(html: string, sourceUrl: URL): string {
   if (!isShopifyBlogArticlePage(html, sourceUrl)) return html;
 
+  const mainContentStart = html.search(
+    /<main\b[^>]*(?:id=["']MainContent["']|class=["'][^"']*main-content[^"']*["'])/i,
+  );
   const articleClassStart = html.search(
     /class=["'][^"']*(?:wrh-main|article|blog|recipe|template[-_ ]?article|article-template)[^"']*["']/i,
   );
   const articleElementStart = html.search(/<(?:article|main)\b/i);
-  const articleStart = articleClassStart >= 0 ? articleClassStart : articleElementStart;
+  const articleStart = mainContentStart >= 0
+    ? mainContentStart
+    : articleClassStart >= 0
+      ? articleClassStart
+      : articleElementStart;
   const scopeStart = articleStart >= 0 ? articleStart : 0;
   const productMatch = html.slice(scopeStart).search(
     /<(?:section|div|ul)\b[^>]*(?:class|id)=["'][^"']*(?:product-card|product-grid|featured-products|featured-collection|related-products|recommendations|product-recommendations)[^"']*["']|href=["'][^"']*\/products\//i,
@@ -501,6 +510,11 @@ function extractArticleImage(
 
   while ((match = imagePattern.exec(scopedHtml))) {
     const attributes = match[1];
+    const previousTagStart = scopedHtml.lastIndexOf("<", match.index - 1);
+    const previousTag = previousTagStart >= 0
+      ? scopedHtml.slice(previousTagStart, match.index)
+      : "";
+    const candidateContext = /^<img\b/i.test(previousTag) ? "" : previousTag;
     const srcset =
       extractAttribute(attributes, "data-srcset") ||
       extractAttribute(attributes, "srcset");
@@ -508,7 +522,13 @@ function extractArticleImage(
       extractLargestSrcsetUrl(srcset) ||
       extractAttribute(attributes, "data-src") ||
       extractAttribute(attributes, "src");
-    if (!url || isRejectedArticleImageCandidate(url, attributes, sourceUrl)) continue;
+    if (!url) continue;
+    if (
+      isShopifyBlogArticle &&
+      isRejectedArticleImageCandidate(url, `${attributes} ${candidateContext}`, sourceUrl)
+    ) {
+      continue;
+    }
 
     const label = [
       extractAttribute(attributes, "alt"),

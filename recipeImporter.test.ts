@@ -682,6 +682,29 @@ test("keeps og:image first for non-Shopify /blogs pages", () => {
   assert.equal(result?.imageUrl, "https://recipe-blog.example/images/og-recipe.jpg");
 });
 
+test("does not apply Shopify article image rejection to non-Shopify pages", () => {
+  const html = `
+    <script type="application/ld+json">
+      {
+        "@type": "Recipe",
+        "name": "Bloggpasta",
+        "recipeIngredient": ["200 g pasta", "1 dl grädde", "1 st citron"]
+      }
+    </script>
+    <article>
+      <h1>Bloggpasta</h1>
+      <img alt="Bloggpasta logo" src="/images/blog-logo.jpg" width="80" height="80">
+    </article>
+  `;
+
+  const result = extractRecipeFromHtml(
+    html,
+    new URL("https://recipe-blog.example/blogs/bloggpasta"),
+  );
+
+  assert.equal(result?.imageUrl, "https://recipe-blog.example/images/blog-logo.jpg");
+});
+
 
 test("rejects generic Shopify collection and brand meta images without an article image", () => {
   const html = `
