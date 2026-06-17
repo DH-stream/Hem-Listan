@@ -28,6 +28,27 @@ test("parses ICA HTML product cards with normal prices", () => {
   assert.equal(products[0].comparePrice, "15,30 kr/l");
 });
 
+test("parses ICA HTML weighted ca prices", () => {
+  const products = parseIcaHtmlProducts(
+    `
+      <a href="/stores/1004554/products/banan-eko">
+        <img alt="Banan Eko ca 180g Klass 1 ICA" />
+        <span>Banan Eko ca 180g Klass 1 ICA</span>
+        <p>0.18kg (29,95 kr/kg)</p>
+        <span>Pris Ca Ca 5,38 kr</span>
+      </a>
+    `,
+    "banan",
+    "1004554",
+    "2026-06-17T00:00:00.000Z",
+  );
+
+  assert.equal(products.length, 1);
+  assert.equal(products[0].productName, "Banan Eko ca 180g Klass 1 ICA");
+  assert.equal(products[0].priceSek, 5.38);
+  assert.equal(products[0].comparePrice, "29,95 kr/kg");
+});
+
 test("uses ICA ordinary price for multi-buy HTML offers", () => {
   const products = parseIcaHtmlProducts(
     `
@@ -66,7 +87,7 @@ test("does not interpret ICA multi-buy offer count as a product price", () => {
   assert.equal(products.length, 0);
 });
 
-test("ICA search tries the clean store page before searched HTML fallbacks", async () => {
+test("ICA search tries query-matched category fallback before generic HTML fallbacks", async () => {
   clearIcaPricingCache();
   const requestedUrls: string[] = [];
 
@@ -98,5 +119,5 @@ test("ICA search tries the clean store page before searched HTML fallbacks", asy
   assert.equal(products.length, 1);
   assert.equal(products[0].chainId, "ica");
   assert.equal(products[0].priceSek, 22.95);
-  assert.match(requestedUrls[2], /\/stores\/1004554$/);
+  assert.match(requestedUrls[2], /\/stores\/1004554\/categories\/mejeri-ost\/bf3acda4-568d-4aad-b971-4c5412307e95\?sortBy=favorite$/);
 });
