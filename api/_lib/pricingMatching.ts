@@ -100,6 +100,23 @@ const confidenceRank: Record<PriceMatchConfidence, number> = {
   none: 0,
 };
 
+const simpleProduceQueries = new Set([
+  "banan",
+  "apple",
+  "apelsin",
+  "citron",
+  "lime",
+  "gurka",
+  "tomat",
+  "potatis",
+  "morot",
+  "lok",
+  "paprika",
+]);
+
+const processedProductTerms =
+  /\b(?:godis|godispase|toffee|kola|chips|snacks|barnsnacks|smoothie|fruktsmoothie|dryck|drickyoghurt|yoghurt|grot|pure|dessert|bar|proteinbar|juice|nektar|glass|kaka|kex|marmelad|sylt)\b/;
+
 const isClearlyIncompatibleProduct = (
   query: string,
   product: ProductPrice,
@@ -108,6 +125,13 @@ const isClearlyIncompatibleProduct = (
   const category = normalizePriceQuery(
     [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
   );
+
+  if (
+    simpleProduceQueries.has(query) &&
+    processedProductTerms.test(`${productName} ${category}`)
+  ) {
+    return true;
+  }
 
   if (
     query === "citron" &&
@@ -223,7 +247,7 @@ const priceSanity = (priceSek: number, medianPriceSek: number | undefined) => {
   if (ratio >= 0.7 && ratio <= 1.3) {
     return { score: 2, reasons: ["reasonable_price"] };
   }
-  return { score: 0, reasons: [] as string[] };
+  return { score: 0, reasons: [] };
 };
 
 const confidenceScore: Record<PriceMatchConfidence, number> = {
