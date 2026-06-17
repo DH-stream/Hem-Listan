@@ -279,6 +279,9 @@ export default function ListDetailGrocery({
     selectedPricingSource,
   );
   const shoppingMatchHistory = useRef<Record<string, ListItemPriceMatch>>({});
+  useEffect(() => {
+    shoppingMatchHistory.current = {};
+  }, [selectedPricingSource.chain, selectedPricingSource.storeId]);
   Object.entries(matchByTaskId).forEach(([taskId, match]) => {
     if (match.purchasePlan) shoppingMatchHistory.current[taskId] = match;
   });

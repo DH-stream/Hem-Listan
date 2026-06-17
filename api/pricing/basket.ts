@@ -206,8 +206,14 @@ export function createBasketPricingHandler(
 
     try {
       pricingApiLog(debug, "stage calculation-start");
-      const calculateBasket = pricing.calculateBasketPricing ?? pricing.calculateCityGrossBasket;
-      if (!calculateBasket) throw new Error("Basket pricing calculator unavailable");
+      const calculateBasket =
+        pricing.calculateBasketPricing ??
+        (validation.request.chain === "city_gross"
+          ? pricing.calculateCityGrossBasket
+          : undefined);
+      if (!calculateBasket) {
+        throw new Error("Basket pricing calculator unavailable for selected chain");
+      }
       const result = await calculateBasket(
         validation.request,
         {
