@@ -115,6 +115,24 @@ const collectCategoryLabels = (value: unknown): string[] => {
   );
 };
 
+const getPayloadShape = (payload: unknown, depth = 0): unknown => {
+  if (depth >= 2) return Array.isArray(payload) ? `[array:${payload.length}]` : typeof payload;
+  if (Array.isArray(payload)) {
+    return {
+      type: "array",
+      length: payload.length,
+      first: payload.length > 0 ? getPayloadShape(payload[0], depth + 1) : undefined,
+    };
+  }
+  const record = asRecord(payload);
+  if (!record) return typeof payload;
+  return Object.fromEntries(
+    Object.entries(record)
+      .slice(0, 12)
+      .map(([key, value]) => [key, getPayloadShape(value, depth + 1)]),
+  );
+};
+
 const getImageUrl = (product: IcaProductCandidate) => {
   const imageRecord = asRecord(product.image);
   if (imageRecord) {
@@ -285,6 +303,7 @@ export async function searchIcaProducts(
   if (!validation.ok) return [];
 
   const liveEnabled = options.liveEnabled ?? process.env.ICA_LIVE_PRICING === "true";
+  pricingApiLog(debug, "ica live status", { liveEnabled });
   if (!liveEnabled) return [];
 
   const normalizedStoreId = storeId.trim().slice(0, 40) || "1004392";
@@ -292,7 +311,10 @@ export async function searchIcaProducts(
   const now = options.now ?? Date.now;
   const currentTime = now();
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > currentTime) return cached.products;
+  if (cached && cached.expiresAt > currentTime) {
+    pricingApiLog(debug, "ica cache hit", { cacheKey, productCount: cached.products.length });
+    return cached.products;
+  }
 
   let lastError: unknown;
   for (const searchUrl of buildIcaSearchUrls(validation.query, normalizedStoreId)) {
@@ -314,10 +336,22 @@ export async function searchIcaProducts(
       pricingApiLog(debug, "ica response", { status: response.status, contentType });
       if (!response.ok || !contentType.includes("application/json")) continue;
       const fetchedAt = new Date(currentTime).toISOString();
-      const rawProducts = getProducts(await response.json());
+      const payload = await response.json();
+      const rawProducts = getProducts(payload);
       const products = rawProducts
         .map((product) => normalizeIcaProduct(product, normalizedStoreId, fetchedAt))
         .filter((product): product is ProductPrice => product !== null);
+      pricingApiLog(debug, "ica products parsed", {
+        rawProductCount: rawProducts.length,
+        normalizedProductCount: products.length,
+        payloadShape: products.length === 0 ? getPayloadShape(payload) : undefined,
+        products: products.slice(0, 5).map((product) => ({
+          productName: product.productName,
+          priceSek: product.priceSek,
+          unitLabel: product.unitLabel,
+          category: product.category,
+        })),
+      });
       cache.set(cacheKey, {
         expiresAt: currentTime + (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
         products,
