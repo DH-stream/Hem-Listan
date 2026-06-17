@@ -7,6 +7,7 @@ import {
 } from "../../../shared/pricingQuantity";
 import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
+import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
@@ -246,10 +247,11 @@ export const createBasketItemSignature = (tasks: TaskItem[]): string => {
 
 export const createBasketPricingCacheKey = (
   chain: string,
+  storeId: string,
   listId: string,
   signature: string,
 ): string =>
-  `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${listId}:${signature}`;
+  `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${storeId}:${listId}:${signature}`;
 
 const isCacheEntry = (value: unknown): value is BasketPricingCacheEntry => {
   if (!value || typeof value !== "object") return false;
@@ -470,6 +472,7 @@ export const selectActiveBasketEstimate = (
 export const useBasketPriceEstimate = (
   listId: string,
   tasks: TaskItem[],
+  pricingSource: PricingSource,
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
   const activeItems = useMemo(
@@ -491,8 +494,8 @@ export const useBasketPriceEstimate = (
       return;
     }
 
-    const chain = "city_gross";
-    const cacheKey = createBasketPricingCacheKey(chain, listId, itemSignature);
+    const { chain, storeId } = pricingSource;
+    const cacheKey = createBasketPricingCacheKey(chain, storeId, listId, itemSignature);
     const cached = readBasketPricingCache(cacheKey);
     if (cached.entry) {
       setEstimate(cached.entry.result);
@@ -513,12 +516,13 @@ export const useBasketPriceEstimate = (
       activeCount: activeItems.length,
     });
     const timeoutId = window.setTimeout(() => {
-      pricingLog("request basket", { chain, items: activeItems });
+      pricingLog("request basket", { chain, storeId, items: activeItems });
       void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chain,
+          storeId,
           items: activeItems,
         }),
         signal: controller.signal,

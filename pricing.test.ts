@@ -18,6 +18,8 @@ import {
   readBasketPricingCache,
   selectActiveBasketEstimate,
 } from "./src/lib/pricing/useBasketPriceEstimate";
+import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
+import { getStoreLogoPath } from "./src/components/StoreLogo";
 
 const products: ProductPrice[] = [
   {
@@ -270,8 +272,12 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.equal(first, second);
   assert.equal(first, "bröd|mjölk");
   assert.equal(
-    createBasketPricingCacheKey("city_gross", "list-1", first),
-    `hem-listan-pricing-basket:v1:city_gross:list-1:${first}`,
+    createBasketPricingCacheKey("city_gross", "public", "list-1", first),
+    `hem-listan-pricing-basket:v1:city_gross:public:list-1:${first}`,
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("city_gross", "public", "list-1", first),
+    createBasketPricingCacheKey("ica", "1004392", "list-1", first),
   );
   assert.notEqual(
     first,
@@ -544,7 +550,7 @@ test("aggregated pricing matches map back to every contributing visible task", (
 
 test("basket pricing cache identifies fresh and stale entries", () => {
   const originalWindow = globalThis.window;
-  const key = "hem-listan-pricing-basket:v1:city_gross:list-cache:items";
+  const key = "hem-listan-pricing-basket:v1:city_gross:public:list-cache:items";
   const fetchedAt = "2026-06-13T00:00:00.000Z";
   const entry = {
     result: { matches: [], approximateTotalSek: 42 },
@@ -578,4 +584,17 @@ test("basket pricing cache identifies fresh and stale entries", () => {
       value: originalWindow,
     });
   }
+});
+
+test("pricing source defaults to City Gross and normalizes ICA", () => {
+  assert.equal(DEFAULT_PRICING_SOURCE.chain, "city_gross");
+  const ica = normalizePricingSource({ chain: "ica", storeId: "1004392" });
+  assert.equal(ica.chain, "ica");
+  assert.equal(ica.storeId, "1004392");
+  assert.equal(ica.label, "ICA Maxi Kungälv");
+});
+
+test("store logo helper resolves City Gross and ICA logos", () => {
+  assert.equal(getStoreLogoPath("city_gross"), "/store-logos/citygross.svg");
+  assert.equal(getStoreLogoPath("ica"), "/store-logos/ica.svg");
 });

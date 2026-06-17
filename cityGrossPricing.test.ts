@@ -1267,3 +1267,35 @@ test("reasonable price breaks ties between otherwise normal egg packs", () => {
   assert.equal(match.product?.id, "eggs-reasonable");
   assert.ok(match.preferenceReasons?.includes("reasonable_price"));
 });
+
+test("basket pricing validation accepts ICA Kungälv pricing source", () => {
+  const validation = validateBasketPricingRequest({
+    chain: "ica",
+    storeId: "1004392",
+    items: [{ id: "milk", name: "mjölk" }],
+  });
+  assert.equal(validation.ok, true);
+  if (validation.ok) {
+    assert.equal(validation.request.chain, "ica");
+    assert.equal(validation.request.storeId, "1004392");
+  }
+});
+
+test("basket pricing routes requests to the selected provider", async () => {
+  const { calculateBasketPricing } = await import("./api/_lib/pricingProviders");
+  const result = await calculateBasketPricing(
+    { chain: "ica", storeId: "1004392", items: [{ id: "milk", name: "mjölk" }] },
+    { debug: false },
+  );
+  assert.deepEqual(result, {
+    matches: [
+      {
+        listItemId: "milk",
+        listItemName: "mjölk",
+        product: null,
+        confidence: "none",
+      },
+    ],
+    approximateTotalSek: 0,
+  });
+});

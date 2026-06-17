@@ -6,7 +6,9 @@ type ApiResponse = ServerResponse & {
   json(body: unknown): ApiResponse;
 };
 
-type BasketPricingModule = typeof import("../_lib/basketPricing.js");
+type BasketPricingModule = Pick<typeof import("../_lib/basketPricing.js"), "validateBasketPricingRequest"> &
+  Partial<Pick<typeof import("../_lib/basketPricing.js"), "calculateCityGrossBasket">> &
+  Partial<Pick<typeof import("../_lib/pricingProviders.js"), "calculateBasketPricing">>;
 type LoadBasketPricing = () => Promise<BasketPricingModule>;
 
 interface SerializedPricingError {
@@ -122,8 +124,10 @@ export async function readJsonBody(req: ApiRequest): Promise<unknown> {
 }
 
 export function createBasketPricingHandler(
-  loadBasketPricing: LoadBasketPricing = () =>
-    import("../_lib/basketPricing.js"),
+  loadBasketPricing: LoadBasketPricing = async () => ({
+    ...(await import("../_lib/basketPricing.js")),
+    ...(await import("../_lib/pricingProviders.js")),
+  }),
 ) {
   return async function handler(req: ApiRequest, res: ApiResponse) {
     const debug = isPricingDebugRequest(req);
@@ -202,7 +206,9 @@ export function createBasketPricingHandler(
 
     try {
       pricingApiLog(debug, "stage calculation-start");
-      const result = await pricing.calculateCityGrossBasket(
+      const calculateBasket = pricing.calculateBasketPricing ?? pricing.calculateCityGrossBasket;
+      if (!calculateBasket) throw new Error("Basket pricing calculator unavailable");
+      const result = await calculateBasket(
         validation.request,
         {
           debug,

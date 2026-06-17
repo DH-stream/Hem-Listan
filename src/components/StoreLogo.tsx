@@ -12,9 +12,11 @@ const logoPaths: Partial<Record<GroceryChainId, string>> = {
   coop: "/store-logos/coop.svg",
 };
 
+export const getStoreLogoPath = (chainId: GroceryChainId) => logoPaths[chainId];
+
 export default function StoreLogo({ chainId, className = "" }: StoreLogoProps) {
   const [failed, setFailed] = useState(false);
-  const src = logoPaths[chainId];
+  const src = getStoreLogoPath(chainId);
   if (!src || failed) return null;
 
   return (
