@@ -11,8 +11,9 @@ import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
 const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
-const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v1";
+const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v2";
 const basketPricingMemoryCache = new Map<string, BasketPricingCacheEntry>();
 
 interface BasketPricingCacheEntry {
@@ -96,6 +97,7 @@ const createShoppingRows = (
     }
   >();
   const unquantified: ShoppingProgressRow[] = [];
+
   requirements.forEach((requirement) => {
     if (requirement.id.startsWith("task-imported-")) {
       const persistedCount = persistedByIdentity.get(requirement.identity) ?? 0;
@@ -104,6 +106,7 @@ const createShoppingRows = (
         return;
       }
     }
+
     if (!requirement.quantity) {
       unquantified.push({
         id: requirement.id,
@@ -114,6 +117,7 @@ const createShoppingRows = (
       });
       return;
     }
+
     const key = `${requirement.name}:${requirement.quantity.dimension}`;
     totals.set(key, (totals.get(key) ?? 0) + requirement.quantity.amount);
     const current = quantified.get(key);
@@ -122,12 +126,8 @@ const createShoppingRows = (
         id: requirement.id,
         normalizedName: requirement.name,
         dimension: requirement.quantity.dimension,
-        checked:
-          (current?.checked ?? true) && requirement.checked,
-        sourceTaskIds: [
-          ...(current?.sourceTaskIds ?? []),
-          requirement.id,
-        ],
+        checked: (current?.checked ?? true) && requirement.checked,
+        sourceTaskIds: [...(current?.sourceTaskIds ?? []), requirement.id],
       });
     } else {
       current.sourceTaskIds.push(requirement.id);
@@ -180,9 +180,7 @@ export const createShoppingRowDisplay = (
       : null;
   const plan = match?.purchasePlan;
   return {
-    text: quantity
-      ? `${name} (${formatComparableQuantity(quantity)})`
-      : name,
+    text: quantity ? `${name} (${formatComparableQuantity(quantity)})` : name,
     parts:
       plan && (plan.items.length > 1 || plan.items[0]?.count > 1)
         ? formatPurchasePlanLabel(plan)
@@ -240,9 +238,32 @@ export const createBasketItemSignature = (tasks: TaskItem[]): string => {
       count === 1 ? name : `${name}:unquantified:${count}`,
     ),
   );
-  return parts
-    .sort()
-    .join("|");
+  return parts.sort().join("|");
+};
+
+export const createBasketItemSignatureFromRows = (
+  rows: ActiveShoppingRow[],
+): string => {
+  const unquantifiedCounts = new Map<string, number>();
+  const parts: string[] = [];
+  rows.forEach((requirement) => {
+    if (requirement.dimension && requirement.amount !== undefined) {
+      parts.push(
+        `${requirement.normalizedName}:${requirement.dimension}:${requirement.amount}`,
+      );
+      return;
+    }
+    unquantifiedCounts.set(
+      requirement.normalizedName,
+      (unquantifiedCounts.get(requirement.normalizedName) ?? 0) + 1,
+    );
+  });
+  parts.push(
+    ...Array.from(unquantifiedCounts, ([name, count]) =>
+      count === 1 ? name : `${name}:unquantified:${count}`,
+    ),
+  );
+  return parts.sort().join("|");
 };
 
 export const createBasketPricingCacheKey = (
@@ -252,6 +273,14 @@ export const createBasketPricingCacheKey = (
   signature: string,
 ): string =>
   `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${storeId}:${listId}:${signature}`;
+
+const hasPricedMatches = (result: BasketPriceEstimate) =>
+  result.matches.some((match) => Boolean(match.product));
+
+const cacheTtlMsFor = (result: BasketPriceEstimate) =>
+  hasPricedMatches(result)
+    ? BASKET_PRICING_CACHE_TTL_MS
+    : EMPTY_BASKET_PRICING_CACHE_TTL_MS;
 
 const isCacheEntry = (value: unknown): value is BasketPricingCacheEntry => {
   if (!value || typeof value !== "object") return false;
@@ -289,7 +318,7 @@ export const readBasketPricingCache = (
     entry,
     isStale:
       !Number.isFinite(fetchedAtMs) ||
-      now - fetchedAtMs >= BASKET_PRICING_CACHE_TTL_MS,
+      now - fetchedAtMs >= cacheTtlMsFor(entry.result),
   };
 };
 
@@ -316,7 +345,12 @@ const writeBasketPricingCache = (
   } catch {
     // The memory cache still avoids duplicate requests in this session.
   }
-  pricingLog("cache write", { key, fetchedAt: entry.fetchedAt });
+  pricingLog("cache write", {
+    key,
+    fetchedAt: entry.fetchedAt,
+    ttlMs: cacheTtlMsFor(result),
+    pricedCount: result.matches.filter((match) => match.product).length,
+  });
 };
 
 const isPricingDebugEnabled = () => {
@@ -388,11 +422,7 @@ export const selectActiveBasketEstimate = (
   const activeShoppingRows = createActiveShoppingRows(tasks);
   const shoppingRowByIdentity = new Map(
     activeShoppingRows.map((row) => [
-      createShoppingRowIdentity(
-        row.normalizedName,
-        row.dimension,
-        row.amount,
-      ),
+      createShoppingRowIdentity(row.normalizedName, row.dimension, row.amount),
       row,
     ]),
   );
@@ -463,7 +493,7 @@ export const selectActiveBasketEstimate = (
       : allTaskIds.has(match.listItemId)
         ? undefined
         : activeTaskByName.get(
-          match.listItemName.trim().toLocaleLowerCase().replace(/\s+/g, " "),
+            match.listItemName.trim().toLocaleLowerCase().replace(/\s+/g, " "),
           );
     if (!currentTask) return;
     if (seenTaskIds.has(currentTask.id)) return;
@@ -501,7 +531,8 @@ export const useBasketPriceEstimate = (
     activeItems,
   });
 
-  const itemSignature = createBasketItemSignature(tasks);
+  const activeShoppingRows = useMemo(() => createActiveShoppingRows(tasks), [tasks]);
+  const itemSignature = createBasketItemSignatureFromRows(activeShoppingRows);
   const { chain, storeId } = pricingSource;
   const cacheKey = createBasketPricingCacheKey(chain, storeId, listId, itemSignature);
 
@@ -598,7 +629,7 @@ export const useBasketPriceEstimate = (
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [activeItems, cacheKey]);
+  }, [activeItems, cacheKey, chain, storeId]);
 
   const effectiveEstimate = estimateCacheKey === cacheKey ? estimate : EMPTY_ESTIMATE;
   const effectiveIsLoading =
