@@ -451,9 +451,26 @@ const ICA_CATEGORY_FALLBACKS = [
   },
 ];
 
+const ICA_TARGETED_SEARCH_QUERIES: Record<string, string[]> = {
+  banan: ["banan klass 1", "banan eko", "banan ca 180g"],
+  apple: ["äpple klass 1", "äpple eko"],
+  apelsin: ["apelsin klass 1", "apelsin eko"],
+  citron: ["citron klass 1", "citron eko"],
+  gurka: ["gurka klass 1", "gurka eko"],
+  tomat: ["tomat klass 1", "tomat eko"],
+  potatis: ["potatis fast", "potatis mjölig"],
+};
+
 const createCategoryUrl = (storeId: string, path: string) => {
   const url = new URL(`/stores/${encodeURIComponent(storeId)}/categories/${path}`, ICA_ORIGIN);
   url.searchParams.set("sortBy", "favorite");
+  return url;
+};
+
+const createSearchUrl = (storeId: string, query: string) => {
+  const url = new URL(`/stores/${encodeURIComponent(storeId)}/search`, ICA_ORIGIN);
+  url.searchParams.set("q", query);
+  url.searchParams.set("query", query);
   return url;
 };
 
@@ -463,12 +480,12 @@ const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   const matchedCategoryUrls = ICA_CATEGORY_FALLBACKS
     .filter((category) => category.keywords.some((keyword) => normalizedQuery.includes(keyword)))
     .map((category) => createCategoryUrl(storeId, category.path));
+  const targetedSearchPages = (ICA_TARGETED_SEARCH_QUERIES[normalizedQuery] ?? [])
+    .map((targetedQuery) => createSearchUrl(storeId, targetedQuery));
   const navigationCategories = new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN);
   navigationCategories.searchParams.set("source", "navigation");
   const storePage = new URL(`/stores/${encodedStoreId}`, ICA_ORIGIN);
-  const searchPage = new URL(`/stores/${encodedStoreId}/search`, ICA_ORIGIN);
-  searchPage.searchParams.set("q", query);
-  searchPage.searchParams.set("query", query);
+  const searchPage = createSearchUrl(storeId, query);
   const productsPage = new URL(`/stores/${encodedStoreId}/products`, ICA_ORIGIN);
   productsPage.searchParams.set("search", query);
   productsPage.searchParams.set("q", query);
@@ -480,6 +497,7 @@ const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
     ...matchedCategoryUrls,
     navigationCategories,
     storePage,
+    ...targetedSearchPages,
     searchPage,
     productsPage,
     categorySearchPage,
