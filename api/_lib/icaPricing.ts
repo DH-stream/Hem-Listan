@@ -9,6 +9,8 @@ const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 20 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 7_000;
+const ICA_BROWSER_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 interface CacheEntry {
   expiresAt: number;
@@ -484,6 +486,19 @@ const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   ];
 };
 
+const createIcaRequestHeaders = (normalizedStoreId: string) => ({
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
+  "Accept-Language": "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+  Referer: `${ICA_ORIGIN}/stores/${encodeURIComponent(normalizedStoreId)}`,
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "same-origin",
+  "User-Agent": ICA_BROWSER_USER_AGENT,
+});
+
 const fetchIcaProductsFromUrl = async (
   searchUrl: URL,
   normalizedStoreId: string,
@@ -509,11 +524,7 @@ const fetchIcaProductsFromUrl = async (
       hasSearchParams: Array.from(searchUrl.searchParams.keys()).length > 0,
     });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
-      headers: {
-        Accept: "application/json, text/html;q=0.9, */*;q=0.8",
-        Referer: `${ICA_ORIGIN}/stores/${encodeURIComponent(normalizedStoreId)}`,
-        "User-Agent": "Hem-Listan/1.2 (+public grocery price lookup)",
-      },
+      headers: createIcaRequestHeaders(normalizedStoreId),
       signal: controller.signal,
     });
     const contentType = response.headers.get("content-type") ?? "";
