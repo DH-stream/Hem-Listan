@@ -115,7 +115,7 @@ const simpleProduceQueries = new Set([
 ]);
 
 const processedProductTerms =
-  /\b(?:godis|godispase|toffee|kola|chips|snacks|barnsnacks|smoothie|fruktsmoothie|dryck|drickyoghurt|yoghurt|grot|pure|dessert|bar|proteinbar|juice|nektar|glass|kaka|kex|marmelad|sylt)\b/;
+  /(?:\b(?:godis|godispase|toffee|kola|chips|snacks|barnsnacks|smoothie|fruktsmoothie|grotsmoothie|dryck|drickyoghurt|yoghurt|grot|pure|dessert|bar|proteinbar|juice|nektar|glass|kaka|kex|marmelad|sylt)\b|(?:godispase|barnsnacks|fruktsmoothie|grotsmoothie|drickyoghurt|smoothie))/;
 
 const isClearlyIncompatibleProduct = (
   query: string,
