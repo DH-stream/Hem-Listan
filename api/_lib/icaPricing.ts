@@ -499,7 +499,7 @@ export async function searchIcaProducts(
   const validation = validateIcaQuery(query);
   if (!validation.ok) return [];
 
-  const liveEnabled = options.liveEnabled ?? process.env.ICA_LIVE_PRICING === "true";
+  const liveEnabled = options.liveEnabled ?? process.env.ICA_LIVE_PRICING !== "false";
   pricingApiLog(debug, "ica live status", { liveEnabled });
   if (!liveEnabled) return [];
 
