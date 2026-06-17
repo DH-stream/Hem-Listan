@@ -1,4 +1,9 @@
 import type { ProductPrice } from "../../src/lib/pricing/types";
+import {
+  MAX_PRICING_QUERY_LENGTH,
+  normalizePricingQuery,
+  parsePriceSek,
+} from "./pricingProviderUtils.js";
 
 const CITY_GROSS_ORIGIN = "https://www.citygross.se";
 const CITY_GROSS_SEARCH_URL = `${CITY_GROSS_ORIGIN}/api/v1/Loop54/search`;
@@ -6,8 +11,6 @@ const CITY_GROSS_IMAGE_BASE_URL = `${CITY_GROSS_ORIGIN}/images/products`;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 20 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 7_000;
-export const MAX_PRICING_QUERY_LENGTH = 80;
-
 interface CacheEntry {
   expiresAt: number;
   products: ProductPrice[];
@@ -62,13 +65,6 @@ const pricingApiLog = (
   if (enabled) console.log(`[pricing-api] ${message}`, details ?? "");
 };
 
-export const normalizePricingQuery = (value: string) =>
-  value
-    .normalize("NFKC")
-    .toLocaleLowerCase("sv-SE")
-    .replace(/\s+/g, " ")
-    .trim();
-
 export const validatePricingQuery = (value: unknown) => {
   if (typeof value !== "string" || normalizePricingQuery(value) === "") {
     return { ok: false as const, error: "Query is required." };
@@ -80,15 +76,6 @@ export const validatePricingQuery = (value: unknown) => {
     };
   }
   return { ok: true as const, query: normalizePricingQuery(value) };
-};
-
-export const parsePriceSek = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-  const parsed = Number.parseFloat(
-    value.replace(/\s/g, "").replace(/kr/gi, "").replace(",", "."),
-  );
-  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const unitLabel = (value: unknown) => {
@@ -139,6 +126,14 @@ const getCityGrossCategoryPath = (product: CityGrossProduct) =>
   ]
     .flatMap(collectCategoryLabels)
     .filter((label, index, labels) => labels.indexOf(label) === index);
+
+const normalizeCityGrossStoreId = (storeId?: string) => {
+  const trimmed = storeId?.trim().slice(0, 40) ?? "";
+  if (!trimmed || trimmed.toLocaleLowerCase("sv-SE") === "public") {
+    return undefined;
+  }
+  return trimmed;
+};
 
 export const normalizeCityGrossProduct = (
   product: CityGrossProduct,
@@ -221,11 +216,12 @@ export async function searchCityGrossProducts(
     return [];
   }
 
-  const normalizedStoreId = storeId?.trim().slice(0, 40) || "public";
-  const cacheKey = `city_gross:${normalizedStoreId}:${validation.query}`;
+  const normalizedStoreId = normalizeCityGrossStoreId(storeId);
+  const cacheStoreId = normalizedStoreId ?? "public";
+  const cacheKey = `city_gross:${cacheStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
-  pricingApiLog(debug, "citygross cache key", { cacheKey });
+  pricingApiLog(debug, "citygross cache key", { cacheKey, normalizedStoreId });
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > currentTime) {
     pricingApiLog(debug, "citygross cache hit", {
@@ -241,8 +237,7 @@ export async function searchCityGrossProducts(
   searchUrl.searchParams.set("skip", "0");
   searchUrl.searchParams.set("take", "12");
   searchUrl.searchParams.set("type", "product");
-  if (storeId?.trim())
-    searchUrl.searchParams.set("store", storeId.trim().slice(0, 40));
+  if (normalizedStoreId) searchUrl.searchParams.set("store", normalizedStoreId);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -255,6 +250,7 @@ export async function searchCityGrossProducts(
     }
     pricingApiLog(debug, "citygross fetch", {
       searchUrl: loggedSearchUrl.toString(),
+      usesStoreParam: Boolean(normalizedStoreId),
     });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
       headers: {
@@ -276,7 +272,7 @@ export async function searchCityGrossProducts(
     const fetchedAt = new Date(currentTime).toISOString();
     const rawProducts = getProducts(await response.json());
     const products = rawProducts
-      .map((product) => normalizeCityGrossProduct(product, storeId, fetchedAt))
+      .map((product) => normalizeCityGrossProduct(product, cacheStoreId, fetchedAt))
       .filter((product): product is ProductPrice => product !== null);
 
     pricingApiLog(debug, "citygross products parsed", {
