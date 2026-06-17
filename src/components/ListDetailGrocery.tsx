@@ -1099,20 +1099,20 @@ export default function ListDetailGrocery({
                   </h2>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  {approximateTotalSek > 0 && (
-                    <button
-                      type="button"
-                      className="price-reveal flex items-center gap-1.5 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      title="Välj butik"
-                      aria-label="Välj butik för prisuppskattning"
-                      onClick={() => setPricingSourceSheetOpen(true)}
-                    >
+                  <button
+                    type="button"
+                    className="price-reveal flex items-center gap-1.5 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    title="Välj butik"
+                    aria-label="Välj butik för prisuppskattning"
+                    onClick={() => setPricingSourceSheetOpen(true)}
+                  >
+                    {approximateTotalSek > 0 && (
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
-                      <StoreLogo chainId={selectedPricingSource.chain} className="h-5 w-auto max-w-14" />
-                    </button>
-                  )}
+                    )}
+                    <StoreLogo chainId={selectedPricingSource.chain} className="h-5 w-auto max-w-14" />
+                  </button>
                   <p className="font-display text-sm font-bold text-primary">
                     {completedCount} / {totalTasks}
                   </p>
