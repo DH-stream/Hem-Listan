@@ -1336,3 +1336,81 @@ test("basket pricing routes requests to the selected provider", async () => {
     approximateTotalSek: 0,
   });
 });
+
+test("normalizes mocked ICA JSON product search response", async () => {
+  const { clearIcaPricingCache, searchIcaProducts } = await import("./api/_lib/icaPricing");
+  clearIcaPricingCache();
+
+  const products = await searchIcaProducts("mjölk", "1004392", {
+    now: () => 0,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          products: [
+            {
+              id: "ica-milk-1",
+              name: "Mellanmjölk 1,5% 1l",
+              brand: "ICA",
+              price: 15.95,
+              size: "1l",
+              comparePrice: "15:95 kr/l",
+              category: "Mejeri & ost",
+              url: "/stores/1004392/products/ica-milk-1/details",
+              imageUrl: "https://assets.icanet.se/image/upload/milk.webp",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  });
+
+  assert.equal(products.length, 1);
+  assert.equal(products[0].chainId, "ica");
+  assert.equal(products[0].storeId, "1004392");
+  assert.equal(products[0].productName, "ICA Mellanmjölk 1,5% 1l");
+  assert.equal(products[0].priceSek, 15.95);
+  assert.equal(products[0].unitLabel, "1l");
+  assert.equal(products[0].comparePrice, "15:95 kr/l");
+});
+
+test("calculateBasketPricing uses ICA provider results when ICA returns products", async () => {
+  const { clearIcaPricingCache } = await import("./api/_lib/icaPricing");
+  const { calculateBasketPricing } = await import("./api/_lib/pricingProviders");
+  clearIcaPricingCache();
+
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  globalThis.fetch = (async (input) => {
+    requestedUrls.push(input.toString());
+    return new Response(
+      JSON.stringify({
+        products: [
+          {
+            id: "ica-milk-1",
+            name: "Mellanmjölk 1,5% 1l",
+            brand: "ICA",
+            price: 15.95,
+            size: "1l",
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await calculateBasketPricing({
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "milk", name: "mjölk" }],
+    });
+
+    assert.equal(result.matches.length, 1);
+    assert.equal(result.matches[0].product?.chainId, "ica");
+    assert.equal(result.matches[0].product?.storeId, "1004392");
+    assert.equal(result.approximateTotalSek, 15.95);
+    assert.match(requestedUrls[0], /handlaprivatkund\.ica\.se/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
