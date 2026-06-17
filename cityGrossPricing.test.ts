@@ -13,9 +13,9 @@ import {
 } from "./api/_lib/basketPricing";
 import {
   clearCityGrossPricingCache,
-  parsePriceSek,
   searchCityGrossProducts,
 } from "./api/_lib/cityGrossPricing";
+import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
   cleanCityGrossSearchQuery,
@@ -1342,6 +1342,7 @@ test("normalizes mocked ICA JSON product search response", async () => {
   clearIcaPricingCache();
 
   const products = await searchIcaProducts("mjölk", "1004392", {
+    liveEnabled: true,
     now: () => 0,
     fetchImpl: async () =>
       new Response(
@@ -1379,6 +1380,8 @@ test("calculateBasketPricing uses ICA provider results when ICA returns products
   clearIcaPricingCache();
 
   const originalFetch = globalThis.fetch;
+  const originalLivePricing = process.env.ICA_LIVE_PRICING;
+  process.env.ICA_LIVE_PRICING = "true";
   const requestedUrls: string[] = [];
   globalThis.fetch = (async (input) => {
     requestedUrls.push(input.toString());
@@ -1412,5 +1415,147 @@ test("calculateBasketPricing uses ICA provider results when ICA returns products
     assert.match(requestedUrls[0], /handlaprivatkund\.ica\.se/);
   } finally {
     globalThis.fetch = originalFetch;
+    if (originalLivePricing === undefined) {
+      delete process.env.ICA_LIVE_PRICING;
+    } else {
+      process.env.ICA_LIVE_PRICING = originalLivePricing;
+    }
   }
+});
+
+
+test("ICA search uses fallback URL when the store-scoped URL returns HTML", async () => {
+  const { clearIcaPricingCache, searchIcaProducts } = await import("./api/_lib/icaPricing");
+  clearIcaPricingCache();
+  const requestedUrls: string[] = [];
+
+  const products = await searchIcaProducts("banan", "1004392", {
+    liveEnabled: true,
+    now: () => 0,
+    fetchImpl: async (input) => {
+      requestedUrls.push(input.toString());
+      if (requestedUrls.length === 1) {
+        return new Response("<html>Not found</html>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          products: [{ id: "banana-1", name: "Banan", price: 29.9, unit: "kg" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+
+  assert.equal(requestedUrls.length, 2);
+  assert.match(requestedUrls[0], /\/stores\/1004392\/api\/products\/search/);
+  assert.match(requestedUrls[1], /\/api\/products\/search/);
+  assert.equal(products.length, 1);
+  assert.equal(products[0].productName, "Banan");
+});
+
+test("ICA search caches the same query and store within the TTL", async () => {
+  const { clearIcaPricingCache, searchIcaProducts } = await import("./api/_lib/icaPricing");
+  clearIcaPricingCache();
+  let fetchCount = 0;
+  const fetchImpl = async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify({ products: [{ id: "egg-1", name: "Ägg 12-pack", price: 39.9 }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const first = await searchIcaProducts("ägg", "1004392", {
+    liveEnabled: true,
+    now: () => 0,
+    fetchImpl,
+  });
+  const second = await searchIcaProducts("ägg", "1004392", {
+    liveEnabled: true,
+    now: () => 1_000,
+    fetchImpl,
+  });
+
+  assert.equal(fetchCount, 1);
+  assert.deepEqual(second, first);
+});
+
+test("ICA search separates cache entries by storeId", async () => {
+  const { clearIcaPricingCache, searchIcaProducts } = await import("./api/_lib/icaPricing");
+  clearIcaPricingCache();
+  const requestedUrls: string[] = [];
+
+  const fetchImpl = async (input: URL | RequestInfo) => {
+    requestedUrls.push(input.toString());
+    return new Response(
+      JSON.stringify({ products: [{ id: `coffee-${requestedUrls.length}`, name: "Kaffe", price: 49 }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  await searchIcaProducts("kaffe", "1004392", { liveEnabled: true, now: () => 0, fetchImpl });
+  await searchIcaProducts("kaffe", "1004393", { liveEnabled: true, now: () => 1_000, fetchImpl });
+
+  assert.equal(requestedUrls.length, 2);
+  assert.match(requestedUrls[0], /\/stores\/1004392\//);
+  assert.match(requestedUrls[1], /\/stores\/1004393\//);
+});
+
+test("ICA product normalization does not duplicate a brand already present with different casing", async () => {
+  const { normalizeIcaProduct } = await import("./api/_lib/icaPricing");
+
+  const product = normalizeIcaProduct(
+    { id: "milk-1", name: "ica Mellanmjölk 1l", brand: "ICA", price: 15.95 },
+    "1004392",
+    "2026-06-17T00:00:00.000Z",
+  );
+
+  assert.equal(product?.productName, "ica Mellanmjölk 1l");
+});
+
+test("ICA product normalization accepts nested current price objects", async () => {
+  const { normalizeIcaProduct } = await import("./api/_lib/icaPricing");
+
+  const product = normalizeIcaProduct(
+    {
+      id: "coffee-1",
+      name: "Bryggkaffe 450g",
+      brand: "ICA",
+      priceInfo: { currentPrice: { price: "49,90 kr" } },
+      descriptiveSize: "450g",
+    },
+    "1004392",
+    "2026-06-17T00:00:00.000Z",
+  );
+
+  assert.equal(product?.priceSek, 49.9);
+  assert.equal(product?.unitLabel, "450g");
+});
+
+test("ICA search does not extend stale cached prices after a refresh error", async () => {
+  const { clearIcaPricingCache, searchIcaProducts } = await import("./api/_lib/icaPricing");
+  clearIcaPricingCache();
+
+  const fresh = await searchIcaProducts("stale", "1004392", {
+    liveEnabled: true,
+    now: () => 0,
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ products: [{ id: "stale-1", name: "Stale", price: 10 }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  });
+  const staleRefresh = await searchIcaProducts("stale", "1004392", {
+    liveEnabled: true,
+    now: () => 6 * 60 * 60 * 1000 + 1,
+    fetchImpl: async () => {
+      throw new Error("refresh failed");
+    },
+  });
+
+  assert.equal(fresh.length, 1);
+  assert.deepEqual(staleRefresh, []);
 });

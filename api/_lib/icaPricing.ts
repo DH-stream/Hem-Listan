@@ -3,7 +3,7 @@ import {
   MAX_PRICING_QUERY_LENGTH,
   normalizePricingQuery,
   parsePriceSek,
-} from "./cityGrossPricing.js";
+} from "./pricingProviderUtils.js";
 
 const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -155,7 +155,12 @@ export const normalizeIcaProduct = (
   if (!id || !name || priceSek === null) return null;
 
   const brand = firstString(product.brand, product.manufacturer);
-  const productName = name.includes(brand ?? "") ? name : [brand, name].filter(Boolean).join(" ");
+  const normalizedName = name.toLocaleLowerCase("sv-SE");
+  const normalizedBrand = brand?.toLocaleLowerCase("sv-SE");
+  const productName =
+    brand && normalizedBrand && !normalizedName.includes(normalizedBrand)
+      ? `${brand} ${name}`
+      : name;
   const comparePrice = firstString(
     product.comparePrice,
     product.comparativePrice,
@@ -231,7 +236,7 @@ export async function searchIcaProducts(
   const validation = validateIcaQuery(query);
   if (!validation.ok) return [];
 
-  const liveEnabled = options.liveEnabled ?? process.env.ICA_LIVE_PRICING !== "false";
+  const liveEnabled = options.liveEnabled ?? process.env.ICA_LIVE_PRICING === "true";
   if (!liveEnabled) return [];
 
   const normalizedStoreId = storeId.trim().slice(0, 40) || "1004392";
@@ -271,7 +276,12 @@ export async function searchIcaProducts(
     throw new Error("ICA returned no usable JSON product response");
   } catch (error) {
     pricingApiLog(debug, "ica error", error);
-    const fallbackProducts = cached?.products ?? [];
+    const hasFreshCache = Boolean(cached && cached.expiresAt > currentTime);
+    const fallbackProducts = hasFreshCache ? cached?.products ?? [] : [];
+    pricingApiLog(debug, "ica fallback", {
+      fallbackCount: fallbackProducts.length,
+      staleCacheIgnored: Boolean(cached && !hasFreshCache),
+    });
     cache.set(cacheKey, {
       expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
       products: fallbackProducts,
