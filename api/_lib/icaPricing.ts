@@ -12,6 +12,8 @@ const REQUEST_TIMEOUT_MS = 7_000;
 const ICA_BROWSER_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
+type IcaMode = "json" | "html";
+
 interface CacheEntry {
   expiresAt: number;
   products: ProductPrice[];
@@ -29,7 +31,7 @@ export interface IcaProviderDiagnostic {
   storeId: string;
   urlPath: string;
   searchParams: string;
-  mode: "json" | "html";
+  mode: IcaMode;
   status?: number;
   contentType?: string;
   rawProductCount?: number;
@@ -315,14 +317,7 @@ const decodeHtmlEntities = (value: string) =>
     .replace(/&gt;/g, ">");
 
 const htmlToLines = (html: string) =>
-  decodeHtmlEntities(
-    html
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-      .replace(/<img\b[^>]*\balt=["']([^"']+)["'][^>]*>/gi, "\nImage: $1\n")
-      .replace(/<(?:br|p|div|li|h\d|button|section|article|span|a)\b[^>]*>/gi, "\n")
-      .replace(/<[^>]+>/g, " "),
-  )
+  decodeHtmlEntities(html.replace(/<[^>]+>/g, "\n"))
     .split(/\n+/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
@@ -451,6 +446,10 @@ const ICA_CATEGORY_FALLBACKS = [
   },
 ];
 
+const ICA_DIRECT_PRODUCT_FALLBACKS: Record<string, string[]> = {
+  banan: ["banan-eko-ca-180g-klass-1/1477872"],
+};
+
 const ICA_TARGETED_SEARCH_QUERIES: Record<string, string[]> = {
   banan: ["banan klass 1", "banan eko", "banan ca 180g"],
   apple: ["äpple klass 1", "äpple eko"],
@@ -467,6 +466,9 @@ const createCategoryUrl = (storeId: string, path: string) => {
   return url;
 };
 
+const createProductUrl = (storeId: string, path: string) =>
+  new URL(`/stores/${encodeURIComponent(storeId)}/products/${path}`, ICA_ORIGIN);
+
 const createSearchUrl = (storeId: string, query: string) => {
   const url = new URL(`/stores/${encodeURIComponent(storeId)}/search`, ICA_ORIGIN);
   url.searchParams.set("q", query);
@@ -480,6 +482,8 @@ const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   const matchedCategoryUrls = ICA_CATEGORY_FALLBACKS
     .filter((category) => category.keywords.some((keyword) => normalizedQuery.includes(keyword)))
     .map((category) => createCategoryUrl(storeId, category.path));
+  const directProductPages = (ICA_DIRECT_PRODUCT_FALLBACKS[normalizedQuery] ?? [])
+    .map((path) => createProductUrl(storeId, path));
   const targetedSearchPages = (ICA_TARGETED_SEARCH_QUERIES[normalizedQuery] ?? [])
     .map((targetedQuery) => createSearchUrl(storeId, targetedQuery));
   const navigationCategories = new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN);
@@ -497,6 +501,7 @@ const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
     ...matchedCategoryUrls,
     navigationCategories,
     storePage,
+    ...directProductPages,
     ...targetedSearchPages,
     searchPage,
     productsPage,
@@ -616,7 +621,7 @@ export async function searchIcaProducts(
   if (!liveEnabled) return [];
 
   const normalizedStoreId = storeId.trim().slice(0, 40) || "1004392";
-  const cacheKey = `ica:${normalizedStoreId}:${validation.query}`;
+  const cacheKey = `ica:v2:${normalizedStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
   const cached = cache.get(cacheKey);
