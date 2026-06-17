@@ -277,9 +277,121 @@ const getProducts = (payload: unknown): IcaProductCandidate[] => {
   return [];
 };
 
+const decodeHtmlEntities = (value: string) =>
+  value
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+
+const htmlToLines = (html: string) =>
+  decodeHtmlEntities(
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<img\b[^>]*\balt=["']([^"']+)["'][^>]*>/gi, "\nImage: $1\n")
+      .replace(/<(?:br|p|div|li|h\d|button|section|article|span)\b[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+const isProbablyUnitLine = (line: string) =>
+  /\b(?:kg|g|l|dl|cl|ml|st|frp|per frp)\b/i.test(line) &&
+  /\d/.test(line) &&
+  !/^pris\b/i.test(line) &&
+  !/^ord\.pris\b/i.test(line);
+
+const isNoiseLine = (line: string) =>
+  /^(?:pris|tidigare pris|ord\.pris|lägg till|button|image|ursprungsland|mjölk från sverige|från sverige|nyckelhålet|svanen|glutenfritt|laktosfritt|eko|ekologiskt)$/i.test(
+    line,
+  );
+
+const productSlug = (value: string) =>
+  normalizePricingQuery(value)
+    .replace(/[^a-z0-9åäö]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+const parseSafeIcaHtmlPrice = (lines: string[], priceLineIndex: number) => {
+  const windowText = lines.slice(priceLineIndex, priceLineIndex + 5).join(" ");
+  const ordinaryMatch = windowText.match(/ord\.pris\s+(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr/i);
+  if (ordinaryMatch) return parsePriceSek(ordinaryMatch[1]);
+
+  const priceText = lines.slice(priceLineIndex, priceLineIndex + 2).join(" ");
+  if (/\bför\b/i.test(priceText)) return null;
+  const priceMatch = priceText.match(/pris(?:\s+tidigare pris)?\s+(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr/i);
+  if (priceMatch) return parsePriceSek(priceMatch[1]);
+  const standalonePriceMatch = priceText.match(/^(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr(?:\b|$)/i);
+  return standalonePriceMatch ? parsePriceSek(standalonePriceMatch[1]) : null;
+};
+
+const findHtmlProductName = (lines: string[], priceLineIndex: number, normalizedQuery: string) => {
+  const queryWords = normalizedQuery.split(" ").filter(Boolean);
+  for (let index = priceLineIndex - 1; index >= Math.max(0, priceLineIndex - 10); index -= 1) {
+    const line = lines[index].replace(/^Image:\s*/i, "").trim();
+    const normalizedLine = normalizePricingQuery(line);
+    if (!line || isNoiseLine(line) || isProbablyUnitLine(line)) continue;
+    if (queryWords.length > 0 && !queryWords.some((word) => normalizedLine.includes(word))) continue;
+    return line;
+  }
+  return null;
+};
+
+const findHtmlUnitLabel = (lines: string[], priceLineIndex: number) => {
+  for (let index = priceLineIndex - 1; index >= Math.max(0, priceLineIndex - 5); index -= 1) {
+    if (isProbablyUnitLine(lines[index])) return lines[index];
+  }
+  for (let index = priceLineIndex + 1; index < Math.min(lines.length, priceLineIndex + 5); index += 1) {
+    if (isProbablyUnitLine(lines[index])) return lines[index];
+  }
+  return "st";
+};
+
+export const parseIcaHtmlProducts = (
+  html: string,
+  query: string,
+  storeId: string,
+  fetchedAt = new Date().toISOString(),
+): ProductPrice[] => {
+  const normalizedQuery = normalizePricingQuery(query);
+  const lines = htmlToLines(html);
+  const products: ProductPrice[] = [];
+  const seen = new Set<string>();
+
+  lines.forEach((line, index) => {
+    if (!/^pris\b/i.test(line) && !/^ord\.pris\b/i.test(line)) return;
+    const priceSek = parseSafeIcaHtmlPrice(lines, index);
+    if (priceSek === null) return;
+    const productName = findHtmlProductName(lines, index, normalizedQuery);
+    if (!productName) return;
+    const unitLabel = findHtmlUnitLabel(lines, index);
+    const id = `ica-html:${storeId}:${productSlug(productName)}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    const comparePrice = unitLabel.match(/\(([^)]+kr\/[^)]+)\)/i)?.[1];
+    products.push({
+      id,
+      chainId: "ica",
+      storeId,
+      productName,
+      priceSek,
+      unitLabel,
+      searchTerms: [productName],
+      comparePrice,
+      fetchedAt,
+    });
+  });
+
+  return products.slice(0, 12);
+};
+
 export const clearIcaPricingCache = () => cache.clear();
 
-const buildIcaSearchUrls = (query: string, storeId: string) => {
+const buildIcaJsonSearchUrls = (query: string, storeId: string) => {
   const urls = [
     new URL(`/stores/${encodeURIComponent(storeId)}/api/products/search`, ICA_ORIGIN),
     new URL(`/api/products/search`, ICA_ORIGIN),
@@ -291,6 +403,91 @@ const buildIcaSearchUrls = (query: string, storeId: string) => {
   urls[1].searchParams.set("q", query);
   urls[1].searchParams.set("take", "12");
   return urls;
+};
+
+const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
+  const encodedStoreId = encodeURIComponent(storeId);
+  const candidates = [
+    new URL(`/stores/${encodedStoreId}/search`, ICA_ORIGIN),
+    new URL(`/stores/${encodedStoreId}/products`, ICA_ORIGIN),
+    new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN),
+    new URL(`/stores/${encodedStoreId}`, ICA_ORIGIN),
+  ];
+  candidates[0].searchParams.set("q", query);
+  candidates[0].searchParams.set("query", query);
+  candidates[1].searchParams.set("search", query);
+  candidates[1].searchParams.set("q", query);
+  candidates[2].searchParams.set("search", query);
+  candidates[2].searchParams.set("q", query);
+  candidates[3].searchParams.set("search", query);
+  candidates[3].searchParams.set("q", query);
+  return candidates;
+};
+
+const fetchIcaProductsFromUrl = async (
+  searchUrl: URL,
+  normalizedStoreId: string,
+  query: string,
+  fetchedAt: string,
+  options: IcaSearchOptions,
+  debug: boolean,
+) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    pricingApiLog(debug, "ica fetch", {
+      searchUrl: searchUrl.origin + searchUrl.pathname,
+      mode: searchUrl.pathname.includes("/api/") ? "json" : "html",
+    });
+    const response = await (options.fetchImpl ?? fetch)(searchUrl, {
+      headers: {
+        Accept: "application/json, text/html;q=0.9, */*;q=0.8",
+        Referer: `${ICA_ORIGIN}/stores/${encodeURIComponent(normalizedStoreId)}`,
+        "User-Agent": "Hem-Listan/1.2 (+public grocery price lookup)",
+      },
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    pricingApiLog(debug, "ica response", { status: response.status, contentType });
+    if (!response.ok) return [];
+    if (contentType.includes("application/json")) {
+      const payload = await response.json();
+      const rawProducts = getProducts(payload);
+      const products = rawProducts
+        .map((product) => normalizeIcaProduct(product, normalizedStoreId, fetchedAt))
+        .filter((product): product is ProductPrice => product !== null);
+      pricingApiLog(debug, "ica products parsed", {
+        source: "json",
+        rawProductCount: rawProducts.length,
+        normalizedProductCount: products.length,
+        payloadShape: products.length === 0 ? getPayloadShape(payload) : undefined,
+        products: products.slice(0, 5).map((product) => ({
+          productName: product.productName,
+          priceSek: product.priceSek,
+          unitLabel: product.unitLabel,
+          category: product.category,
+        })),
+      });
+      return products;
+    }
+    if (contentType.includes("text/html")) {
+      const html = await response.text();
+      const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
+      pricingApiLog(debug, "ica products parsed", {
+        source: "html",
+        normalizedProductCount: products.length,
+        products: products.slice(0, 5).map((product) => ({
+          productName: product.productName,
+          priceSek: product.priceSek,
+          unitLabel: product.unitLabel,
+        })),
+      });
+      return products;
+    }
+    return [];
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 export async function searchIcaProducts(
@@ -317,43 +514,23 @@ export async function searchIcaProducts(
   }
 
   let lastError: unknown;
-  for (const searchUrl of buildIcaSearchUrls(validation.query, normalizedStoreId)) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const fetchedAt = new Date(currentTime).toISOString();
+  for (const searchUrl of [
+    ...buildIcaJsonSearchUrls(validation.query, normalizedStoreId),
+    ...buildIcaHtmlSearchUrls(validation.query, normalizedStoreId),
+  ]) {
     try {
-      pricingApiLog(debug, "ica fetch", {
-        searchUrl: searchUrl.origin + searchUrl.pathname,
-      });
-      const response = await (options.fetchImpl ?? fetch)(searchUrl, {
-        headers: {
-          Accept: "application/json",
-          Referer: `${ICA_ORIGIN}/stores/${encodeURIComponent(normalizedStoreId)}`,
-          "User-Agent": "Hem-Listan/1.2 (+public grocery price lookup)",
-        },
-        signal: controller.signal,
-      });
-      const contentType = response.headers.get("content-type") ?? "";
-      pricingApiLog(debug, "ica response", { status: response.status, contentType });
-      if (!response.ok || !contentType.includes("application/json")) continue;
-      const fetchedAt = new Date(currentTime).toISOString();
-      const payload = await response.json();
-      const rawProducts = getProducts(payload);
-      const products = rawProducts
-        .map((product) => normalizeIcaProduct(product, normalizedStoreId, fetchedAt))
-        .filter((product): product is ProductPrice => product !== null);
-      pricingApiLog(debug, "ica products parsed", {
-        rawProductCount: rawProducts.length,
-        normalizedProductCount: products.length,
-        payloadShape: products.length === 0 ? getPayloadShape(payload) : undefined,
-        products: products.slice(0, 5).map((product) => ({
-          productName: product.productName,
-          priceSek: product.priceSek,
-          unitLabel: product.unitLabel,
-          category: product.category,
-        })),
-      });
+      const products = await fetchIcaProductsFromUrl(
+        searchUrl,
+        normalizedStoreId,
+        validation.query,
+        fetchedAt,
+        options,
+        debug,
+      );
+      if (products.length === 0) continue;
       cache.set(cacheKey, {
-        expiresAt: currentTime + (products.length > 0 ? CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
+        expiresAt: currentTime + CACHE_TTL_MS,
         products,
       });
       return products;
@@ -363,15 +540,13 @@ export async function searchIcaProducts(
         searchUrl: searchUrl.origin + searchUrl.pathname,
         error,
       });
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 
   pricingApiLog(
     debug,
     "ica error",
-    lastError ?? new Error("ICA returned no usable JSON product response"),
+    lastError ?? new Error("ICA returned no usable product response"),
   );
   pricingApiLog(debug, "ica fallback", {
     fallbackCount: 0,
