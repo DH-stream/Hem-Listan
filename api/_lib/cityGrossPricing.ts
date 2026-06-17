@@ -127,6 +127,14 @@ const getCityGrossCategoryPath = (product: CityGrossProduct) =>
     .flatMap(collectCategoryLabels)
     .filter((label, index, labels) => labels.indexOf(label) === index);
 
+const normalizeCityGrossStoreId = (storeId?: string) => {
+  const trimmed = storeId?.trim().slice(0, 40) ?? "";
+  if (!trimmed || trimmed.toLocaleLowerCase("sv-SE") === "public") {
+    return undefined;
+  }
+  return trimmed;
+};
+
 export const normalizeCityGrossProduct = (
   product: CityGrossProduct,
   storeId?: string,
@@ -208,11 +216,12 @@ export async function searchCityGrossProducts(
     return [];
   }
 
-  const normalizedStoreId = storeId?.trim().slice(0, 40) || "public";
-  const cacheKey = `city_gross:${normalizedStoreId}:${validation.query}`;
+  const normalizedStoreId = normalizeCityGrossStoreId(storeId);
+  const cacheStoreId = normalizedStoreId ?? "public";
+  const cacheKey = `city_gross:${cacheStoreId}:${validation.query}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
-  pricingApiLog(debug, "citygross cache key", { cacheKey });
+  pricingApiLog(debug, "citygross cache key", { cacheKey, normalizedStoreId });
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > currentTime) {
     pricingApiLog(debug, "citygross cache hit", {
@@ -228,8 +237,7 @@ export async function searchCityGrossProducts(
   searchUrl.searchParams.set("skip", "0");
   searchUrl.searchParams.set("take", "12");
   searchUrl.searchParams.set("type", "product");
-  if (storeId?.trim())
-    searchUrl.searchParams.set("store", storeId.trim().slice(0, 40));
+  if (normalizedStoreId) searchUrl.searchParams.set("store", normalizedStoreId);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -242,6 +250,7 @@ export async function searchCityGrossProducts(
     }
     pricingApiLog(debug, "citygross fetch", {
       searchUrl: loggedSearchUrl.toString(),
+      usesStoreParam: Boolean(normalizedStoreId),
     });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
       headers: {
@@ -263,7 +272,7 @@ export async function searchCityGrossProducts(
     const fetchedAt = new Date(currentTime).toISOString();
     const rawProducts = getProducts(await response.json());
     const products = rawProducts
-      .map((product) => normalizeCityGrossProduct(product, storeId, fetchedAt))
+      .map((product) => normalizeCityGrossProduct(product, cacheStoreId, fetchedAt))
       .filter((product): product is ProductPrice => product !== null);
 
     pricingApiLog(debug, "citygross products parsed", {
