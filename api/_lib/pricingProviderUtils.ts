@@ -10,8 +10,11 @@ export const normalizePricingQuery = (value: string) =>
 export const parsePriceSek = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
-  const parsed = Number.parseFloat(
-    value.replace(/\s/g, "").replace(/kr/gi, "").replace(",", "."),
-  );
+  const normalizedPrice = value
+    .replace(/\s/g, "")
+    .replace(/kr/gi, "")
+    .replace(/(\d):(\d{1,2})(?=\D|$)/g, "$1.$2")
+    .replace(",", ".");
+  const parsed = Number.parseFloat(normalizedPrice);
   return Number.isFinite(parsed) ? parsed : null;
 };
