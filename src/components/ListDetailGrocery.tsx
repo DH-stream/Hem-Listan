@@ -273,7 +273,7 @@ export default function ListDetailGrocery({
   const completedShoppingRows = progressRows.filter((row) => row.checked);
   const totalTasks = progressRows.length;
   const completedCount = completedShoppingRows.length;
-  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(
+  const { matchByTaskId, approximateTotalSek, isLoading: pricingLoading } = useBasketPriceEstimate(
     list.id,
     list.tasks,
     selectedPricingSource,
@@ -1106,11 +1106,13 @@ export default function ListDetailGrocery({
                     aria-label="Välj butik för prisuppskattning"
                     onClick={() => setPricingSourceSheetOpen(true)}
                   >
-                    {approximateTotalSek > 0 && (
+                    {pricingLoading ? (
+                      <span className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high" />
+                    ) : approximateTotalSek > 0 ? (
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
-                    )}
+                    ) : null}
                     <StoreLogo chainId={selectedPricingSource.chain} className="h-5 w-auto max-w-14" />
                   </button>
                   <p className="font-display text-sm font-bold text-primary">
@@ -1207,7 +1209,9 @@ export default function ListDetailGrocery({
                                 </div>
                               </div>
 
-                              {matchByTaskId[item.id]?.product && (
+                              {pricingLoading ? (
+                                <div className="mr-2 h-5 w-16 shrink-0 animate-pulse rounded-full bg-surface-container-high" />
+                              ) : matchByTaskId[item.id]?.product ? (
                                 <div
                                   className={`price-reveal mr-2 flex shrink-0 items-center gap-1.5 ${
                                     matchByTaskId[item.id].confidence === "high"
@@ -1234,7 +1238,7 @@ export default function ListDetailGrocery({
                                   </span>
                                   <StoreLogo chainId={selectedPricingSource.chain} className="h-4 w-auto max-w-12" />
                                 </div>
-                              )}
+                              ) : null}
 
                               <button
                                 onClick={() =>

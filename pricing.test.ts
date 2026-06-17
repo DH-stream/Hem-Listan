@@ -16,6 +16,7 @@ import {
   createBasketPricingCacheKey,
   logBasketPricingResult,
   readBasketPricingCache,
+  resolveBasketPricingCacheState,
   selectActiveBasketEstimate,
 } from "./src/lib/pricing/useBasketPriceEstimate";
 import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
@@ -584,6 +585,41 @@ test("basket pricing cache identifies fresh and stale entries", () => {
       value: originalWindow,
     });
   }
+});
+
+test("basket pricing cache state clears stale source when selected source has no cache", () => {
+  const state = resolveBasketPricingCacheState({ entry: null, isStale: false });
+  assert.equal(state.isLoading, true);
+  assert.equal(state.shouldFetch, true);
+  assert.deepEqual(state.estimate, { matches: [], approximateTotalSek: 0 });
+});
+
+test("basket pricing cache state uses fresh same-source cache without loading", () => {
+  const result = {
+    matches: [],
+    approximateTotalSek: 123,
+  };
+  const state = resolveBasketPricingCacheState({
+    entry: { result, fetchedAt: "2026-06-17T00:00:00.000Z" },
+    isStale: false,
+  });
+  assert.equal(state.isLoading, false);
+  assert.equal(state.shouldFetch, false);
+  assert.equal(state.estimate, result);
+});
+
+test("basket pricing cache state can show stale same-source cache while refreshing", () => {
+  const result = {
+    matches: [],
+    approximateTotalSek: 45,
+  };
+  const state = resolveBasketPricingCacheState({
+    entry: { result, fetchedAt: "2026-06-10T00:00:00.000Z" },
+    isStale: true,
+  });
+  assert.equal(state.isLoading, true);
+  assert.equal(state.shouldFetch, true);
+  assert.equal(state.estimate, result);
 });
 
 test("pricing source defaults to City Gross and normalizes ICA", () => {
