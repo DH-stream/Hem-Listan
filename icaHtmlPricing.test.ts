@@ -66,7 +66,7 @@ test("does not interpret ICA multi-buy offer count as a product price", () => {
   assert.equal(products.length, 0);
 });
 
-test("ICA search falls back to HTML when JSON endpoints return no products", async () => {
+test("ICA search tries the clean store page before searched HTML fallbacks", async () => {
   clearIcaPricingCache();
   const requestedUrls: string[] = [];
 
@@ -98,5 +98,5 @@ test("ICA search falls back to HTML when JSON endpoints return no products", asy
   assert.equal(products.length, 1);
   assert.equal(products[0].chainId, "ica");
   assert.equal(products[0].priceSek, 22.95);
-  assert.match(requestedUrls[2], /\/stores\/1004554\/search/);
+  assert.match(requestedUrls[2], /\/stores\/1004554$/);
 });
