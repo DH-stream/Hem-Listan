@@ -8,6 +8,7 @@ import type {
   ProductPrice,
 } from "../../src/lib/pricing/types";
 import { searchCityGrossProducts } from "./cityGrossPricing.js";
+import { searchIcaProducts } from "./icaPricing.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -26,6 +27,18 @@ export interface PricingBasketRequest {
 interface BasketPricingOptions {
   debug?: boolean;
   searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
+}
+
+interface PricingQueryDiagnostic {
+  normalizedQuery: string;
+  searchQuery: string;
+  providerProductCount: number;
+  topProviderProducts: Array<{
+    productName: string;
+    priceSek: number;
+    unitLabel: string;
+    category?: string;
+  }>;
 }
 
 const pricingApiLog = (
@@ -102,16 +115,37 @@ export const validateBasketPricingRequest = (
   };
 };
 
+const defaultSearchProductsFor = (request: PricingBasketRequest) =>
+  request.chain === "ica"
+    ? (query: string, storeId?: string) => searchIcaProducts(query, storeId)
+    : (query: string, storeId?: string) => searchCityGrossProducts(query, storeId);
+
+const summarizeDiagnostics = (
+  request: PricingBasketRequest,
+  diagnostics: PricingQueryDiagnostic[],
+  pricedCount: number,
+  matchCount: number,
+) =>
+  JSON.stringify({
+    chain: request.chain,
+    storeId: request.storeId ?? null,
+    queryCount: diagnostics.length,
+    pricedCount,
+    matchCount,
+    queries: diagnostics,
+  });
+
 export async function calculateBasketPriceEstimate(
   request: PricingBasketRequest,
   options: BasketPricingOptions = {},
 ): Promise<BasketPriceEstimate> {
   const debug = options.debug ?? false;
-  const searchProducts =
-    options.searchProducts ??
-    ((query: string, storeId?: string) =>
-      searchCityGrossProducts(query, storeId, { debug }));
-  pricingApiLog(debug, "basket input", { itemCount: request.items.length });
+  const searchProducts = options.searchProducts ?? defaultSearchProductsFor(request);
+  pricingApiLog(debug, "basket input", {
+    chain: request.chain,
+    storeId: request.storeId,
+    itemCount: request.items.length,
+  });
   const queryByItemId = new Map<string, string>();
   const searchQueryByNormalizedQuery = new Map<string, string>();
 
@@ -137,6 +171,7 @@ export async function calculateBasketPriceEstimate(
     ...(queries.length > 10 ? { omittedCount: queries.length - 10 } : {}),
   });
   const productEntries: Array<readonly [string, ProductPrice[]]> = [];
+  const diagnostics: PricingQueryDiagnostic[] = [];
   let nextQueryIndex = 0;
 
   const worker = async () => {
@@ -144,15 +179,36 @@ export async function calculateBasketPriceEstimate(
       const [normalizedQuery, searchQuery] = queries[nextQueryIndex];
       nextQueryIndex += 1;
       pricingApiLog(debug, "search start", {
+        chain: request.chain,
         normalizedQuery,
         searchQuery,
         storeId: request.storeId,
       });
       const products = await searchProducts(searchQuery, request.storeId);
       pricingApiLog(debug, "search result", {
+        chain: request.chain,
         normalizedQuery,
         productCount: products.length,
+        topProducts: products.slice(0, 5).map((product) => ({
+          productName: product.productName,
+          priceSek: product.priceSek,
+          unitLabel: product.unitLabel,
+          category: product.category,
+        })),
       });
+      if (debug) {
+        diagnostics.push({
+          normalizedQuery,
+          searchQuery,
+          providerProductCount: products.length,
+          topProviderProducts: products.slice(0, 5).map((product) => ({
+            productName: product.productName,
+            priceSek: product.priceSek,
+            unitLabel: product.unitLabel,
+            ...(product.category ? { category: product.category } : {}),
+          })),
+        });
+      }
       productEntries.push([normalizedQuery, products] as const);
     }
   };
@@ -170,20 +226,33 @@ export async function calculateBasketPriceEstimate(
     ),
   );
 
-  const result = {
+  const approximateTotalSek =
+    Math.round(
+      matches.reduce(
+        (total, match) =>
+          total +
+          (match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0),
+        0,
+      ) * 100,
+    ) / 100;
+
+  const pricedCount = matches.filter((match) => match.product).length;
+  const result: BasketPriceEstimate = {
     matches,
-    approximateTotalSek:
-      Math.round(
-        matches.reduce(
-          (total, match) =>
-            total +
-            (match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0),
-          0,
-        ) * 100,
-      ) / 100,
+    approximateTotalSek,
+    ...(debug
+      ? {
+          debugCode: pricedCount > 0 ? "pricing_match_debug" : "pricing_no_match_debug",
+          debugMessage: summarizeDiagnostics(
+            request,
+            diagnostics.sort((a, b) => a.normalizedQuery.localeCompare(b.normalizedQuery)),
+            pricedCount,
+            matches.length,
+          ),
+        }
+      : {}),
   };
 
-  const pricedCount = result.matches.filter((match) => match.product).length;
   pricingApiLog(debug, "match summary", {
     inputItemCount: request.items.length,
     matchCount: result.matches.length,
