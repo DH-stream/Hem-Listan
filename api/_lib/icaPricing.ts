@@ -185,24 +185,72 @@ export const normalizeIcaProduct = (
     productName,
     priceSek,
     unitLabel:
-      firstString(product.size, product.descriptiveSize, product.quantity, product.unitLabel, product.unit) ?? "st",
+      firstString(
+        product.size,
+        product.descriptiveSize,
+        product.quantity,
+        product.unitLabel,
+        product.unit,
+      ) ?? "st",
     searchTerms: [name, brand].filter((term): term is string => Boolean(term)),
     comparePrice,
     category: categoryPath[0],
     categoryPath: categoryPath.length > 0 ? categoryPath : undefined,
-    productUrl: absoluteUrl(firstString(product.productUrl, product.url) ?? `/stores/${storeId}/products/${id}/details`, ICA_ORIGIN),
+    productUrl: absoluteUrl(
+      firstString(product.productUrl, product.url) ??
+        `/stores/${storeId}/products/${id}/details`,
+      ICA_ORIGIN,
+    ),
     imageUrl: absoluteUrl(getImageUrl(product), ICA_ORIGIN),
-    isCampaign: Boolean(product.isCampaign || product.hasPromotion || product.hasDiscount || priceInfo.hasPromotion || priceInfo.hasDiscount),
+    isCampaign: Boolean(
+      product.isCampaign ||
+        product.hasPromotion ||
+        product.hasDiscount ||
+        priceInfo.hasPromotion ||
+        priceInfo.hasDiscount,
+    ),
     fetchedAt,
   };
 };
 
+const hasAnyKey = (record: Record<string, unknown>, keys: string[]) =>
+  keys.some((key) => record[key] !== undefined && record[key] !== null);
+
+const looksLikeProductCandidate = (value: unknown) => {
+  const record = asRecord(value);
+  if (!record) return false;
+  const hasIdentity = hasAnyKey(record, [
+    "id",
+    "articleId",
+    "productId",
+    "retailerProductId",
+  ]);
+  const hasName = hasAnyKey(record, ["name", "productName", "title"]);
+  const hasPrice = hasAnyKey(record, [
+    "price",
+    "currentPrice",
+    "ordinaryPrice",
+    "priceInfo",
+    "prices",
+  ]);
+  return hasIdentity && hasName && hasPrice;
+};
+
+const productArray = (value: unknown): IcaProductCandidate[] => {
+  if (!Array.isArray(value)) return [];
+  return value.some(looksLikeProductCandidate)
+    ? (value as IcaProductCandidate[])
+    : [];
+};
+
 const getProducts = (payload: unknown): IcaProductCandidate[] => {
-  if (Array.isArray(payload)) return payload as IcaProductCandidate[];
+  const directProducts = productArray(payload);
+  if (directProducts.length > 0) return directProducts;
   const record = asRecord(payload);
   if (!record) return [];
   for (const key of ["products", "items", "results", "productResults"]) {
-    if (Array.isArray(record[key])) return record[key] as IcaProductCandidate[];
+    const products = productArray(record[key]);
+    if (products.length > 0) return products;
   }
   for (const value of Object.values(record)) {
     const nested = getProducts(value);
@@ -246,11 +294,14 @@ export async function searchIcaProducts(
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > currentTime) return cached.products;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    for (const searchUrl of buildIcaSearchUrls(validation.query, normalizedStoreId)) {
-      pricingApiLog(debug, "ica fetch", { searchUrl: searchUrl.origin + searchUrl.pathname });
+  let lastError: unknown;
+  for (const searchUrl of buildIcaSearchUrls(validation.query, normalizedStoreId)) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      pricingApiLog(debug, "ica fetch", {
+        searchUrl: searchUrl.origin + searchUrl.pathname,
+      });
       const response = await (options.fetchImpl ?? fetch)(searchUrl, {
         headers: {
           Accept: "application/json",
@@ -272,22 +323,29 @@ export async function searchIcaProducts(
         products,
       });
       return products;
+    } catch (error) {
+      lastError = error;
+      pricingApiLog(debug, "ica endpoint error", {
+        searchUrl: searchUrl.origin + searchUrl.pathname,
+        error,
+      });
+    } finally {
+      clearTimeout(timeoutId);
     }
-    throw new Error("ICA returned no usable JSON product response");
-  } catch (error) {
-    pricingApiLog(debug, "ica error", error);
-    const hasFreshCache = Boolean(cached && cached.expiresAt > currentTime);
-    const fallbackProducts = hasFreshCache ? cached?.products ?? [] : [];
-    pricingApiLog(debug, "ica fallback", {
-      fallbackCount: fallbackProducts.length,
-      staleCacheIgnored: Boolean(cached && !hasFreshCache),
-    });
-    cache.set(cacheKey, {
-      expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
-      products: fallbackProducts,
-    });
-    return fallbackProducts;
-  } finally {
-    clearTimeout(timeoutId);
   }
+
+  pricingApiLog(
+    debug,
+    "ica error",
+    lastError ?? new Error("ICA returned no usable JSON product response"),
+  );
+  pricingApiLog(debug, "ica fallback", {
+    fallbackCount: 0,
+    staleCacheIgnored: Boolean(cached),
+  });
+  cache.set(cacheKey, {
+    expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
+    products: [],
+  });
+  return [];
 }
