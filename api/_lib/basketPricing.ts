@@ -18,7 +18,7 @@ export interface PricingBasketItem {
 }
 
 export interface PricingBasketRequest {
-  chain: "city_gross";
+  chain: "city_gross" | "ica";
   storeId?: string;
   items: PricingBasketItem[];
 }
@@ -46,7 +46,7 @@ export const validateBasketPricingRequest = (
   }
 
   const value = body as Record<string, unknown>;
-  if (value.chain !== "city_gross") {
+  if (value.chain !== "city_gross" && value.chain !== "ica") {
     return { ok: false, error: "Unsupported grocery chain." };
   }
   if (!Array.isArray(value.items) || value.items.length === 0) {
@@ -92,7 +92,7 @@ export const validateBasketPricingRequest = (
   return {
     ok: true,
     request: {
-      chain: "city_gross",
+      chain: value.chain,
       storeId:
         typeof value.storeId === "string" && value.storeId.trim()
           ? value.storeId.trim().slice(0, 40)
@@ -102,7 +102,7 @@ export const validateBasketPricingRequest = (
   };
 };
 
-export async function calculateCityGrossBasket(
+export async function calculateBasketPriceEstimate(
   request: PricingBasketRequest,
   options: BasketPricingOptions = {},
 ): Promise<BasketPriceEstimate> {
@@ -199,4 +199,11 @@ export async function calculateCityGrossBasket(
     })),
   });
   return result;
+}
+
+export async function calculateCityGrossBasket(
+  request: PricingBasketRequest,
+  options: BasketPricingOptions = {},
+): Promise<BasketPriceEstimate> {
+  return calculateBasketPriceEstimate({ ...request, chain: "city_gross" }, options);
 }

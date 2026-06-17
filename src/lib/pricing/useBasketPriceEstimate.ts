@@ -7,6 +7,7 @@ import {
 } from "../../../shared/pricingQuantity";
 import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
+import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
@@ -246,10 +247,11 @@ export const createBasketItemSignature = (tasks: TaskItem[]): string => {
 
 export const createBasketPricingCacheKey = (
   chain: string,
+  storeId: string,
   listId: string,
   signature: string,
 ): string =>
-  `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${listId}:${signature}`;
+  `${BASKET_PRICING_CACHE_PREFIX}:${chain}:${storeId}:${listId}:${signature}`;
 
 const isCacheEntry = (value: unknown): value is BasketPricingCacheEntry => {
   if (!value || typeof value !== "object") return false;
@@ -289,6 +291,18 @@ export const readBasketPricingCache = (
       !Number.isFinite(fetchedAtMs) ||
       now - fetchedAtMs >= BASKET_PRICING_CACHE_TTL_MS,
   };
+};
+
+export const resolveBasketPricingCacheState = (
+  cached: { entry: BasketPricingCacheEntry | null; isStale: boolean },
+): { estimate: BasketPriceEstimate; isLoading: boolean; shouldFetch: boolean } => {
+  if (cached.entry && !cached.isStale) {
+    return { estimate: cached.entry.result, isLoading: false, shouldFetch: false };
+  }
+  if (cached.entry) {
+    return { estimate: cached.entry.result, isLoading: true, shouldFetch: true };
+  }
+  return { estimate: EMPTY_ESTIMATE, isLoading: true, shouldFetch: true };
 };
 
 const writeBasketPricingCache = (
@@ -363,6 +377,7 @@ export const logBasketPricingResult = (result: BasketPriceEstimate) => {
 export interface BasketPriceEstimateView {
   matchByTaskId: Record<string, ListItemPriceMatch>;
   approximateTotalSek: number;
+  isLoading: boolean;
 }
 
 export const selectActiveBasketEstimate = (
@@ -464,14 +479,18 @@ export const selectActiveBasketEstimate = (
   return {
     matchByTaskId,
     approximateTotalSek: Math.round(approximateTotalSek * 100) / 100,
+    isLoading: false,
   };
 };
 
 export const useBasketPriceEstimate = (
   listId: string,
   tasks: TaskItem[],
+  pricingSource: PricingSource,
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
+  const [estimateCacheKey, setEstimateCacheKey] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const activeItems = useMemo(
     () => createActivePricingItems(tasks),
     [tasks],
@@ -483,22 +502,25 @@ export const useBasketPriceEstimate = (
   });
 
   const itemSignature = createBasketItemSignature(tasks);
+  const { chain, storeId } = pricingSource;
+  const cacheKey = createBasketPricingCacheKey(chain, storeId, listId, itemSignature);
 
   useEffect(() => {
     if (activeItems.length === 0) {
       setEstimate(EMPTY_ESTIMATE);
+      setEstimateCacheKey(null);
+      setIsLoading(false);
       pricingLog("skip: no active items");
       return;
     }
 
-    const chain = "city_gross";
-    const cacheKey = createBasketPricingCacheKey(chain, listId, itemSignature);
     const cached = readBasketPricingCache(cacheKey);
-    if (cached.entry) {
-      setEstimate(cached.entry.result);
-    }
-    if (cached.entry && !cached.isStale) {
-      pricingLog("cache hit", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
+    const cacheState = resolveBasketPricingCacheState(cached);
+    setEstimate(cacheState.estimate);
+    setEstimateCacheKey(cacheKey);
+    setIsLoading(cacheState.isLoading);
+    if (!cacheState.shouldFetch) {
+      pricingLog("cache hit", { key: cacheKey, fetchedAt: cached.entry?.fetchedAt });
       return;
     } else if (cached.entry) {
       pricingLog("cache stale", { key: cacheKey, fetchedAt: cached.entry.fetchedAt });
@@ -513,12 +535,13 @@ export const useBasketPriceEstimate = (
       activeCount: activeItems.length,
     });
     const timeoutId = window.setTimeout(() => {
-      pricingLog("request basket", { chain, items: activeItems });
+      pricingLog("request basket", { chain, storeId, items: activeItems });
       void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chain,
+          storeId,
           items: activeItems,
         }),
         signal: controller.signal,
@@ -548,6 +571,8 @@ export const useBasketPriceEstimate = (
           }
           writeBasketPricingCache(cacheKey, result);
           setEstimate(result);
+          setEstimateCacheKey(cacheKey);
+          setIsLoading(false);
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) {
@@ -561,7 +586,11 @@ export const useBasketPriceEstimate = (
               fetchedAt: cached.entry.fetchedAt,
             });
             setEstimate(cached.entry.result);
+          } else {
+            setEstimate(EMPTY_ESTIMATE);
           }
+          setEstimateCacheKey(cacheKey);
+          setIsLoading(false);
         });
     }, BASKET_DEBOUNCE_MS);
 
@@ -569,10 +598,17 @@ export const useBasketPriceEstimate = (
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [itemSignature, listId]);
+  }, [activeItems, cacheKey]);
+
+  const effectiveEstimate = estimateCacheKey === cacheKey ? estimate : EMPTY_ESTIMATE;
+  const effectiveIsLoading =
+    activeItems.length > 0 && (estimateCacheKey === cacheKey ? isLoading : true);
 
   return useMemo(
-    () => selectActiveBasketEstimate(tasks, estimate),
-    [tasks, estimate],
+    () => ({
+      ...selectActiveBasketEstimate(tasks, effectiveEstimate),
+      isLoading: effectiveIsLoading,
+    }),
+    [tasks, effectiveEstimate, effectiveIsLoading],
   );
 };

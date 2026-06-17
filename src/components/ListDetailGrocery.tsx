@@ -27,6 +27,7 @@ import {
   useBasketPriceEstimate,
 } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
+import PricingSourceSheet from "./PricingSourceSheet";
 import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
@@ -35,6 +36,7 @@ import {
   formatPurchasePlanLabel,
 } from "../../shared/pricingQuantity";
 import type { ListItemPriceMatch } from "../lib/pricing/types";
+import { usePricingSource } from "../lib/pricing/usePricingSource";
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -265,12 +267,21 @@ export default function ListDetailGrocery({
     return () => window.clearTimeout(timeoutId);
   }, [highlightedMealClientId, list.meals]);
 
+  const [pricingSourceSheetOpen, setPricingSourceSheetOpen] = useState(false);
+  const { selectedPricingSource, setSelectedPricingSource } = usePricingSource();
   const progressRows = createShoppingProgressRows(list.tasks);
   const completedShoppingRows = progressRows.filter((row) => row.checked);
   const totalTasks = progressRows.length;
   const completedCount = completedShoppingRows.length;
-  const { matchByTaskId, approximateTotalSek } = useBasketPriceEstimate(list.id, list.tasks);
+  const { matchByTaskId, approximateTotalSek, isLoading: pricingLoading } = useBasketPriceEstimate(
+    list.id,
+    list.tasks,
+    selectedPricingSource,
+  );
   const shoppingMatchHistory = useRef<Record<string, ListItemPriceMatch>>({});
+  useEffect(() => {
+    shoppingMatchHistory.current = {};
+  }, [selectedPricingSource.chain, selectedPricingSource.storeId]);
   Object.entries(matchByTaskId).forEach(([taskId, match]) => {
     if (match.purchasePlan) shoppingMatchHistory.current[taskId] = match;
   });
@@ -1091,14 +1102,22 @@ export default function ListDetailGrocery({
                   </h2>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  {approximateTotalSek > 0 && (
-                    <div className="price-reveal flex items-center gap-1.5" title="Ungefärligt pris från City Gross">
+                  <button
+                    type="button"
+                    className="price-reveal flex items-center gap-1.5 rounded-full focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    title="Välj butik"
+                    aria-label="Välj butik för prisuppskattning"
+                    onClick={() => setPricingSourceSheetOpen(true)}
+                  >
+                    {pricingLoading ? (
+                      <span className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high" />
+                    ) : approximateTotalSek > 0 ? (
                       <span className="font-display text-base font-bold text-primary">
                         ≈ {Math.round(approximateTotalSek)} kr
                       </span>
-                      <StoreLogo chainId="city_gross" className="h-5 w-auto max-w-14" />
-                    </div>
-                  )}
+                    ) : null}
+                    <StoreLogo chainId={selectedPricingSource.chain} className="h-5 w-auto max-w-14" />
+                  </button>
                   <p className="font-display text-sm font-bold text-primary">
                     {completedCount} / {totalTasks}
                   </p>
@@ -1193,7 +1212,9 @@ export default function ListDetailGrocery({
                                 </div>
                               </div>
 
-                              {matchByTaskId[item.id]?.product && (
+                              {pricingLoading ? (
+                                <div className="mr-2 h-5 w-16 shrink-0 animate-pulse rounded-full bg-surface-container-high" />
+                              ) : matchByTaskId[item.id]?.product ? (
                                 <div
                                   className={`price-reveal mr-2 flex shrink-0 items-center gap-1.5 ${
                                     matchByTaskId[item.id].confidence === "high"
@@ -1218,9 +1239,9 @@ export default function ListDetailGrocery({
                                     })} kr
                                     {matchByTaskId[item.id].confidence !== "high" ? " ?" : ""}
                                   </span>
-                                  <StoreLogo chainId="city_gross" className="h-4 w-auto max-w-12" />
+                                  <StoreLogo chainId={selectedPricingSource.chain} className="h-4 w-auto max-w-12" />
                                 </div>
-                              )}
+                              ) : null}
 
                               <button
                                 onClick={() =>
@@ -1490,6 +1511,16 @@ export default function ListDetailGrocery({
         mealType={pendingMeal?.type ?? "middag"}
         isLoggedIn={isLoggedIn}
         onSelectSavedRecipe={handleSelectSavedRecipe}
+      />
+
+      <PricingSourceSheet
+        open={pricingSourceSheetOpen}
+        selectedSource={selectedPricingSource}
+        onClose={() => setPricingSourceSheetOpen(false)}
+        onSelect={(source) => {
+          setSelectedPricingSource(source);
+          setPricingSourceSheetOpen(false);
+        }}
       />
     </div>
   );

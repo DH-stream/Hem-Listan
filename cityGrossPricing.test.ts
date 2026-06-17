@@ -179,6 +179,43 @@ test("basket pricing endpoint degrades safely when calculation throws", async ()
   });
 });
 
+test("basket pricing endpoint does not use City Gross fallback for ICA requests", async () => {
+  const pricing = await import("./api/_lib/basketPricing");
+  let cityGrossFallbackCalled = false;
+  const handler = createBasketPricingHandler(async () => ({
+    ...pricing,
+    calculateBasketPricing: undefined,
+    calculateCityGrossBasket: async () => {
+      cityGrossFallbackCalled = true;
+      throw new Error("City Gross fallback should not run");
+    },
+  }));
+  const response = createResponse();
+
+  await handler(
+    {
+      method: "POST",
+      url: "/api/pricing/basket?debug=1",
+      body: {
+        chain: "ica",
+        storeId: "1004392",
+        items: [{ id: "milk", name: "mjölk" }],
+      },
+    } as unknown as IncomingMessage,
+    response,
+  );
+
+  assert.equal(cityGrossFallbackCalled, false);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.responseBody, {
+    matches: [],
+    approximateTotalSek: 0,
+    error: "Basket pricing unavailable",
+    debugCode: "calculation_failed",
+    debugMessage: "Basket pricing calculator unavailable for selected chain",
+  });
+});
+
 test("basket pricing endpoint hides calculation details without debug mode", async () => {
   const pricing = await import("./api/_lib/basketPricing");
   const handler = createBasketPricingHandler(async () => ({
@@ -1266,4 +1303,36 @@ test("reasonable price breaks ties between otherwise normal egg packs", () => {
   });
   assert.equal(match.product?.id, "eggs-reasonable");
   assert.ok(match.preferenceReasons?.includes("reasonable_price"));
+});
+
+test("basket pricing validation accepts ICA Kungälv pricing source", () => {
+  const validation = validateBasketPricingRequest({
+    chain: "ica",
+    storeId: "1004392",
+    items: [{ id: "milk", name: "mjölk" }],
+  });
+  assert.equal(validation.ok, true);
+  if (validation.ok) {
+    assert.equal(validation.request.chain, "ica");
+    assert.equal(validation.request.storeId, "1004392");
+  }
+});
+
+test("basket pricing routes requests to the selected provider", async () => {
+  const { calculateBasketPricing } = await import("./api/_lib/pricingProviders");
+  const result = await calculateBasketPricing(
+    { chain: "ica", storeId: "1004392", items: [{ id: "milk", name: "mjölk" }] },
+    { debug: false },
+  );
+  assert.deepEqual(result, {
+    matches: [
+      {
+        listItemId: "milk",
+        listItemName: "mjölk",
+        product: null,
+        confidence: "none",
+      },
+    ],
+    approximateTotalSek: 0,
+  });
 });

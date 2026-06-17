@@ -16,8 +16,11 @@ import {
   createBasketPricingCacheKey,
   logBasketPricingResult,
   readBasketPricingCache,
+  resolveBasketPricingCacheState,
   selectActiveBasketEstimate,
 } from "./src/lib/pricing/useBasketPriceEstimate";
+import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
+import { getStoreLogoPath } from "./src/components/StoreLogo";
 
 const products: ProductPrice[] = [
   {
@@ -270,8 +273,12 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.equal(first, second);
   assert.equal(first, "bröd|mjölk");
   assert.equal(
-    createBasketPricingCacheKey("city_gross", "list-1", first),
-    `hem-listan-pricing-basket:v1:city_gross:list-1:${first}`,
+    createBasketPricingCacheKey("city_gross", "public", "list-1", first),
+    `hem-listan-pricing-basket:v1:city_gross:public:list-1:${first}`,
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("city_gross", "public", "list-1", first),
+    createBasketPricingCacheKey("ica", "1004392", "list-1", first),
   );
   assert.notEqual(
     first,
@@ -544,7 +551,7 @@ test("aggregated pricing matches map back to every contributing visible task", (
 
 test("basket pricing cache identifies fresh and stale entries", () => {
   const originalWindow = globalThis.window;
-  const key = "hem-listan-pricing-basket:v1:city_gross:list-cache:items";
+  const key = "hem-listan-pricing-basket:v1:city_gross:public:list-cache:items";
   const fetchedAt = "2026-06-13T00:00:00.000Z";
   const entry = {
     result: { matches: [], approximateTotalSek: 42 },
@@ -578,4 +585,52 @@ test("basket pricing cache identifies fresh and stale entries", () => {
       value: originalWindow,
     });
   }
+});
+
+test("basket pricing cache state clears stale source when selected source has no cache", () => {
+  const state = resolveBasketPricingCacheState({ entry: null, isStale: false });
+  assert.equal(state.isLoading, true);
+  assert.equal(state.shouldFetch, true);
+  assert.deepEqual(state.estimate, { matches: [], approximateTotalSek: 0 });
+});
+
+test("basket pricing cache state uses fresh same-source cache without loading", () => {
+  const result = {
+    matches: [],
+    approximateTotalSek: 123,
+  };
+  const state = resolveBasketPricingCacheState({
+    entry: { result, fetchedAt: "2026-06-17T00:00:00.000Z" },
+    isStale: false,
+  });
+  assert.equal(state.isLoading, false);
+  assert.equal(state.shouldFetch, false);
+  assert.equal(state.estimate, result);
+});
+
+test("basket pricing cache state can show stale same-source cache while refreshing", () => {
+  const result = {
+    matches: [],
+    approximateTotalSek: 45,
+  };
+  const state = resolveBasketPricingCacheState({
+    entry: { result, fetchedAt: "2026-06-10T00:00:00.000Z" },
+    isStale: true,
+  });
+  assert.equal(state.isLoading, true);
+  assert.equal(state.shouldFetch, true);
+  assert.equal(state.estimate, result);
+});
+
+test("pricing source defaults to City Gross and normalizes ICA", () => {
+  assert.equal(DEFAULT_PRICING_SOURCE.chain, "city_gross");
+  const ica = normalizePricingSource({ chain: "ica", storeId: "1004392" });
+  assert.equal(ica.chain, "ica");
+  assert.equal(ica.storeId, "1004392");
+  assert.equal(ica.label, "ICA Maxi Kungälv");
+});
+
+test("store logo helper resolves City Gross and ICA logos", () => {
+  assert.equal(getStoreLogoPath("city_gross"), "/store-logos/citygross.svg");
+  assert.equal(getStoreLogoPath("ica"), "/store-logos/ica.svg");
 });
