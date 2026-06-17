@@ -292,7 +292,7 @@ const htmlToLines = (html: string) =>
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<img\b[^>]*\balt=["']([^"']+)["'][^>]*>/gi, "\nImage: $1\n")
-      .replace(/<(?:br|p|div|li|h\d|button|section|article|span)\b[^>]*>/gi, "\n")
+      .replace(/<(?:br|p|div|li|h\d|button|section|article|span|a)\b[^>]*>/gi, "\n")
       .replace(/<[^>]+>/g, " "),
   )
     .split(/\n+/)
@@ -317,21 +317,28 @@ const productSlug = (value: string) =>
     .slice(0, 80);
 
 const parseSafeIcaHtmlPrice = (lines: string[], priceLineIndex: number) => {
+  const caPrefix = "(?:ca\\s+){0,2}";
   const windowText = lines.slice(priceLineIndex, priceLineIndex + 5).join(" ");
-  const ordinaryMatch = windowText.match(/ord\.pris\s+(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr/i);
+  const ordinaryMatch = windowText.match(
+    new RegExp(`ord\\.pris\\s+${caPrefix}(\\d+(?:[.,]\\d{1,2})?)\\s*kr`, "i"),
+  );
   if (ordinaryMatch) return parsePriceSek(ordinaryMatch[1]);
 
   const priceText = lines.slice(priceLineIndex, priceLineIndex + 2).join(" ");
   if (/\bför\b/i.test(priceText)) return null;
-  const priceMatch = priceText.match(/pris(?:\s+tidigare pris)?\s+(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr/i);
+  const priceMatch = priceText.match(
+    new RegExp(`pris(?:\\s+tidigare pris)?\\s+${caPrefix}(\\d+(?:[.,]\\d{1,2})?)\\s*kr`, "i"),
+  );
   if (priceMatch) return parsePriceSek(priceMatch[1]);
-  const standalonePriceMatch = priceText.match(/^(?:ca\s+)?(\d+(?:[.,]\d{1,2})?)\s*kr(?:\b|$)/i);
+  const standalonePriceMatch = priceText.match(
+    new RegExp(`^${caPrefix}(\\d+(?:[.,]\\d{1,2})?)\\s*kr(?:\\b|$)`, "i"),
+  );
   return standalonePriceMatch ? parsePriceSek(standalonePriceMatch[1]) : null;
 };
 
 const findHtmlProductName = (lines: string[], priceLineIndex: number, normalizedQuery: string) => {
   const queryWords = normalizedQuery.split(" ").filter(Boolean);
-  for (let index = priceLineIndex - 1; index >= Math.max(0, priceLineIndex - 10); index -= 1) {
+  for (let index = priceLineIndex - 1; index >= Math.max(0, priceLineIndex - 12); index -= 1) {
     const line = lines[index].replace(/^Image:\s*/i, "").trim();
     const normalizedLine = normalizePricingQuery(line);
     if (!line || isNoiseLine(line) || isProbablyUnitLine(line)) continue;
@@ -405,22 +412,50 @@ const buildIcaJsonSearchUrls = (query: string, storeId: string) => {
   return urls;
 };
 
+const ICA_CATEGORY_FALLBACKS = [
+  {
+    keywords: ["mjolk", "fil", "yoghurt", "agg", "ost", "gradde", "smor"],
+    path: "mejeri-ost/bf3acda4-568d-4aad-b971-4c5412307e95",
+  },
+  {
+    keywords: ["banan", "apple", "apelsin", "frukt", "tomat", "gurka", "potatis"],
+    path: "frukt-gr%C3%B6nt/21684e2b-854e-48fc-a7e1-3225a5618ca3",
+  },
+];
+
+const createCategoryUrl = (storeId: string, path: string) => {
+  const url = new URL(`/stores/${encodeURIComponent(storeId)}/categories/${path}`, ICA_ORIGIN);
+  url.searchParams.set("sortBy", "favorite");
+  return url;
+};
+
 const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   const encodedStoreId = encodeURIComponent(storeId);
+  const normalizedQuery = normalizePricingQuery(query);
+  const matchedCategoryUrls = ICA_CATEGORY_FALLBACKS
+    .filter((category) => category.keywords.some((keyword) => normalizedQuery.includes(keyword)))
+    .map((category) => createCategoryUrl(storeId, category.path));
+  const navigationCategories = new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN);
+  navigationCategories.searchParams.set("source", "navigation");
   const storePage = new URL(`/stores/${encodedStoreId}`, ICA_ORIGIN);
-  const candidates = [
+  const searchPage = new URL(`/stores/${encodedStoreId}/search`, ICA_ORIGIN);
+  searchPage.searchParams.set("q", query);
+  searchPage.searchParams.set("query", query);
+  const productsPage = new URL(`/stores/${encodedStoreId}/products`, ICA_ORIGIN);
+  productsPage.searchParams.set("search", query);
+  productsPage.searchParams.set("q", query);
+  const categorySearchPage = new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN);
+  categorySearchPage.searchParams.set("search", query);
+  categorySearchPage.searchParams.set("q", query);
+
+  return [
+    ...matchedCategoryUrls,
+    navigationCategories,
     storePage,
-    new URL(`/stores/${encodedStoreId}/search`, ICA_ORIGIN),
-    new URL(`/stores/${encodedStoreId}/products`, ICA_ORIGIN),
-    new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN),
+    searchPage,
+    productsPage,
+    categorySearchPage,
   ];
-  candidates[1].searchParams.set("q", query);
-  candidates[1].searchParams.set("query", query);
-  candidates[2].searchParams.set("search", query);
-  candidates[2].searchParams.set("q", query);
-  candidates[3].searchParams.set("search", query);
-  candidates[3].searchParams.set("q", query);
-  return candidates;
 };
 
 const fetchIcaProductsFromUrl = async (
