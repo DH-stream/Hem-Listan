@@ -86,8 +86,10 @@ export const parseProductPackageQuantity = (product: ProductPrice) =>
   parseComparableQuantity(product.unitLabel) ??
   parseComparableQuantity(product.productName);
 
-export const isWeightPricedProduct = (product: ProductPrice) =>
-  /_kg$/i.test(product.id);
+export const isWeightPricedProduct = (product: ProductPrice) => {
+  const comparePrice = product.comparePrice?.toLocaleLowerCase("sv-SE") ?? "";
+  return /_kg$/i.test(product.id) || comparePrice.includes("kr/kg");
+};
 
 export const isApproximatePieceMassProduct = (product: ProductPrice) => {
   const unit = product.unitLabel.normalize("NFKC").toLocaleLowerCase("sv-SE");
