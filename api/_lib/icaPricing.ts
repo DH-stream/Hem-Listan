@@ -407,16 +407,15 @@ const buildIcaJsonSearchUrls = (query: string, storeId: string) => {
 
 const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   const encodedStoreId = encodeURIComponent(storeId);
+  const storePage = new URL(`/stores/${encodedStoreId}`, ICA_ORIGIN);
   const candidates = [
+    storePage,
     new URL(`/stores/${encodedStoreId}/search`, ICA_ORIGIN),
     new URL(`/stores/${encodedStoreId}/products`, ICA_ORIGIN),
     new URL(`/stores/${encodedStoreId}/categories`, ICA_ORIGIN),
-    new URL(`/stores/${encodedStoreId}`, ICA_ORIGIN),
   ];
-  candidates[0].searchParams.set("q", query);
-  candidates[0].searchParams.set("query", query);
-  candidates[1].searchParams.set("search", query);
   candidates[1].searchParams.set("q", query);
+  candidates[1].searchParams.set("query", query);
   candidates[2].searchParams.set("search", query);
   candidates[2].searchParams.set("q", query);
   candidates[3].searchParams.set("search", query);
@@ -438,6 +437,7 @@ const fetchIcaProductsFromUrl = async (
     pricingApiLog(debug, "ica fetch", {
       searchUrl: searchUrl.origin + searchUrl.pathname,
       mode: searchUrl.pathname.includes("/api/") ? "json" : "html",
+      hasSearchParams: Array.from(searchUrl.searchParams.keys()).length > 0,
     });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
       headers: {
@@ -475,6 +475,8 @@ const fetchIcaProductsFromUrl = async (
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
       pricingApiLog(debug, "ica products parsed", {
         source: "html",
+        htmlLength: html.length,
+        parsedLineCount: htmlToLines(html).length,
         normalizedProductCount: products.length,
         products: products.slice(0, 5).map((product) => ({
           productName: product.productName,
