@@ -22,6 +22,21 @@ interface IcaSearchOptions {
   liveEnabled?: boolean;
 }
 
+export interface IcaProviderDiagnostic {
+  query: string;
+  storeId: string;
+  urlPath: string;
+  searchParams: string;
+  mode: "json" | "html";
+  status?: number;
+  contentType?: string;
+  rawProductCount?: number;
+  normalizedProductCount?: number;
+  htmlLength?: number;
+  parsedLineCount?: number;
+  error?: string;
+}
+
 interface IcaProductCandidate {
   id?: unknown;
   articleId?: unknown;
@@ -60,6 +75,17 @@ interface IcaProductCandidate {
 }
 
 const cache = new Map<string, CacheEntry>();
+const icaProviderDiagnostics: IcaProviderDiagnostic[] = [];
+
+export const resetIcaPricingDiagnostics = () => {
+  icaProviderDiagnostics.length = 0;
+};
+
+export const consumeIcaPricingDiagnostics = (): IcaProviderDiagnostic[] => {
+  const diagnostics = icaProviderDiagnostics.slice();
+  icaProviderDiagnostics.length = 0;
+  return diagnostics;
+};
 
 const pricingApiLog = (enabled: boolean, message: string, details?: unknown) => {
   if (enabled) console.log(`[pricing-api] ${message}`, details ?? "");
@@ -466,12 +492,20 @@ const fetchIcaProductsFromUrl = async (
   options: IcaSearchOptions,
   debug: boolean,
 ) => {
+  const mode = searchUrl.pathname.includes("/api/") ? "json" : "html";
+  const attempt: IcaProviderDiagnostic = {
+    query,
+    storeId: normalizedStoreId,
+    urlPath: searchUrl.pathname,
+    searchParams: searchUrl.searchParams.toString(),
+    mode,
+  };
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     pricingApiLog(debug, "ica fetch", {
       searchUrl: searchUrl.origin + searchUrl.pathname,
-      mode: searchUrl.pathname.includes("/api/") ? "json" : "html",
+      mode,
       hasSearchParams: Array.from(searchUrl.searchParams.keys()).length > 0,
     });
     const response = await (options.fetchImpl ?? fetch)(searchUrl, {
@@ -483,6 +517,8 @@ const fetchIcaProductsFromUrl = async (
       signal: controller.signal,
     });
     const contentType = response.headers.get("content-type") ?? "";
+    attempt.status = response.status;
+    attempt.contentType = contentType.slice(0, 80);
     pricingApiLog(debug, "ica response", { status: response.status, contentType });
     if (!response.ok) return [];
     if (contentType.includes("application/json")) {
@@ -491,6 +527,8 @@ const fetchIcaProductsFromUrl = async (
       const products = rawProducts
         .map((product) => normalizeIcaProduct(product, normalizedStoreId, fetchedAt))
         .filter((product): product is ProductPrice => product !== null);
+      attempt.rawProductCount = rawProducts.length;
+      attempt.normalizedProductCount = products.length;
       pricingApiLog(debug, "ica products parsed", {
         source: "json",
         rawProductCount: rawProducts.length,
@@ -507,11 +545,15 @@ const fetchIcaProductsFromUrl = async (
     }
     if (contentType.includes("text/html")) {
       const html = await response.text();
+      const lines = htmlToLines(html);
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
+      attempt.htmlLength = html.length;
+      attempt.parsedLineCount = lines.length;
+      attempt.normalizedProductCount = products.length;
       pricingApiLog(debug, "ica products parsed", {
         source: "html",
         htmlLength: html.length,
-        parsedLineCount: htmlToLines(html).length,
+        parsedLineCount: lines.length,
         normalizedProductCount: products.length,
         products: products.slice(0, 5).map((product) => ({
           productName: product.productName,
@@ -522,7 +564,11 @@ const fetchIcaProductsFromUrl = async (
       return products;
     }
     return [];
+  } catch (error) {
+    attempt.error = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
+    icaProviderDiagnostics.push(attempt);
     clearTimeout(timeoutId);
   }
 };
@@ -547,6 +593,16 @@ export async function searchIcaProducts(
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > currentTime) {
     pricingApiLog(debug, "ica cache hit", { cacheKey, productCount: cached.products.length });
+    if (debug) {
+      icaProviderDiagnostics.push({
+        query: validation.query,
+        storeId: normalizedStoreId,
+        urlPath: "cache",
+        searchParams: "",
+        mode: "json",
+        normalizedProductCount: cached.products.length,
+      });
+    }
     return cached.products;
   }
 
