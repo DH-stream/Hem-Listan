@@ -345,6 +345,11 @@ const productSlug = (value: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 
+const normalizeIcaLookupKey = (value: string) =>
+  normalizePricingQuery(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 const parseSafeIcaHtmlPrice = (lines: string[], priceLineIndex: number) => {
   const caPrefix = "(?:ca\\s+){0,2}";
   const windowText = lines.slice(priceLineIndex, priceLineIndex + 5).join(" ");
@@ -370,7 +375,7 @@ const findHtmlProductName = (lines: string[], priceLineIndex: number, normalized
   for (let index = priceLineIndex - 1; index >= Math.max(0, priceLineIndex - 12); index -= 1) {
     const line = lines[index].replace(/^Image:\s*/i, "").trim();
     const normalizedLine = normalizePricingQuery(line);
-    if (!line || isNoiseLine(line) || isProbablyUnitLine(line)) continue;
+    if (!line || isNoiseLine(line)) continue;
     if (queryWords.length > 0 && !queryWords.some((word) => normalizedLine.includes(word))) continue;
     return line;
   }
@@ -452,9 +457,6 @@ export const parseIcaHtmlProducts = (
   fetchedAt = new Date().toISOString(),
 ): ProductPrice[] => {
   const normalizedQuery = normalizePricingQuery(query);
-  const directProduct = getDirectProductFallback(html, query, storeId, fetchedAt);
-  if (directProduct) return [directProduct];
-
   const lines = htmlToLines(html);
   const products: ProductPrice[] = [];
   const seen = new Set<string>();
@@ -483,7 +485,10 @@ export const parseIcaHtmlProducts = (
     });
   });
 
-  return products.slice(0, 12);
+  if (products.length > 0) return products.slice(0, 12);
+
+  const directProduct = getDirectProductFallback(html, query, storeId, fetchedAt);
+  return directProduct ? [directProduct] : [];
 };
 
 export const clearIcaPricingCache = () => cache.clear();
@@ -545,7 +550,7 @@ const createSearchUrl = (storeId: string, query: string) => {
 
 const buildIcaHtmlSearchUrls = (query: string, storeId: string) => {
   const encodedStoreId = encodeURIComponent(storeId);
-  const normalizedQuery = normalizePricingQuery(query);
+  const normalizedQuery = normalizeIcaLookupKey(query);
   const matchedCategoryUrls = ICA_CATEGORY_FALLBACKS
     .filter((category) => category.keywords.some((keyword) => normalizedQuery.includes(keyword)))
     .map((category) => createCategoryUrl(storeId, category.path));
