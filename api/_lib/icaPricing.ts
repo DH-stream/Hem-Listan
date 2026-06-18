@@ -17,6 +17,17 @@ const ICA_BROWSER_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 type IcaMode = "json" | "html";
+type IcaResultType =
+  | "json_search_success"
+  | "direct_product_success"
+  | "html_product_page_success"
+  | "category_html_success"
+  | "cache_hit"
+  | "waf_blocked"
+  | "store_selector"
+  | "html_no_product_data"
+  | "json_endpoint_404"
+  | "transient_error";
 
 interface CacheEntry {
   expiresAt: number;
@@ -46,6 +57,8 @@ export interface IcaProviderDiagnostic {
   debugHint?: unknown;
   error?: string;
   fromCache?: boolean;
+  resultType?: IcaResultType;
+  directProductFallback?: boolean;
   failureType?:
     | "json_endpoint_404"
     | "html_store_selector"
@@ -733,14 +746,17 @@ const fetchIcaProductsFromUrl = async (
     attempt.contentType = contentType.slice(0, 80);
     pricingApiLog(debug, "ica response", { status: response.status, contentType });
     if (response.status === 202) {
+      attempt.resultType = "waf_blocked";
       attempt.failureType = "html_202_blocked";
       return [];
     }
     if (response.status === 404 && mode === "json") {
+      attempt.resultType = "json_endpoint_404";
       attempt.failureType = "json_endpoint_404";
       return [];
     }
     if (!response.ok) {
+      attempt.resultType = "transient_error";
       attempt.failureType = "ica_transient_response";
       return [];
     }
@@ -752,6 +768,7 @@ const fetchIcaProductsFromUrl = async (
         .filter((product): product is ProductPrice => product !== null);
       attempt.rawProductCount = rawProducts.length;
       attempt.normalizedProductCount = products.length;
+      if (products.length > 0) attempt.resultType = "json_search_success";
       pricingApiLog(debug, "ica products parsed", {
         source: "json",
         rawProductCount: rawProducts.length,
@@ -773,15 +790,29 @@ const fetchIcaProductsFromUrl = async (
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
       attempt.parsedLineCount = lines.length;
       if (isStoreSelectorHtml(html)) {
+        attempt.resultType = "store_selector";
         attempt.failureType = "html_store_selector";
         return [];
       }
       if (isBlockedOrIncompleteHtml(html, lines, products)) {
+        attempt.resultType = "html_no_product_data";
         attempt.failureType = "html_no_product_data";
         return [];
       }
       attempt.normalizedProductCount = products.length;
-      if (products.length === 0) attempt.failureType = "html_no_product_data";
+      if (products.length === 0) {
+        attempt.resultType = "html_no_product_data";
+        attempt.failureType = "html_no_product_data";
+      } else {
+        attempt.directProductFallback = products.some((product) =>
+          product.id.startsWith("ica-direct:"),
+        );
+        attempt.resultType = attempt.directProductFallback
+          ? "direct_product_success"
+          : searchUrl.pathname.includes("/categories")
+            ? "category_html_success"
+            : "html_product_page_success";
+      }
       if (products.length === 0 && searchUrl.pathname.includes("/products/")) {
         attempt.debugHint = getHtmlDebugHint(html, query);
       }
@@ -802,6 +833,7 @@ const fetchIcaProductsFromUrl = async (
     return [];
   } catch (error) {
     attempt.error = error instanceof Error ? error.message : String(error);
+    attempt.resultType = "transient_error";
     attempt.failureType = "ica_transient_response";
     throw error;
   } finally {
@@ -844,6 +876,7 @@ export async function searchIcaProducts(
         mode: "json",
         normalizedProductCount: cached.products.length,
         fromCache: true,
+        resultType: "cache_hit",
       });
     }
     return cached.products;

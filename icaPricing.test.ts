@@ -86,7 +86,16 @@ test("ICA search uses the current web product page search endpoint", async () =>
   assert.equal(products[0].priceSek, 15.95);
   const [attempt] = consumeIcaPricingDiagnostics();
   assert.equal(attempt.normalizedProductCount, 1);
+  assert.equal(attempt.resultType, "json_search_success");
   assert.equal(attempt.failureType, undefined);
+
+  const cachedProducts = await searchIcaProducts("mjölk", "1004392", {
+    debug: true,
+    liveEnabled: true,
+    now: () => 1,
+  });
+  assert.equal(cachedProducts.length, 1);
+  assert.equal(consumeIcaPricingDiagnostics()[0]?.resultType, "cache_hit");
 });
 
 test("ICA search ignores non-product arrays before nested product arrays", async () => {
