@@ -8,6 +8,7 @@ import basketPricingHandler, {
   serializePricingError,
 } from "./api/pricing/basket";
 import {
+  calculateBasketPriceEstimate,
   calculateCityGrossBasket,
   validateBasketPricingRequest,
 } from "./api/_lib/basketPricing";
@@ -18,7 +19,7 @@ import {
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
-  cleanCityGrossSearchQuery,
+  cleanGrocerySearchQuery,
   matchListItem,
 } from "./api/_lib/pricingMatching";
 
@@ -368,7 +369,7 @@ test("normalizes a Swedish price string", () => {
   assert.equal(parsePriceSek("34,50 kr"), 34.5);
 });
 
-test("cleans quantities and recipe notes from City Gross search queries", () => {
+test("cleans quantities and recipe notes from grocery search queries", () => {
   const examples = [
     ["Röd paprika (1 st)", "Röd paprika"],
     ["Potatis (400 g)", "Potatis"],
@@ -376,10 +377,13 @@ test("cleans quantities and recipe notes from City Gross search queries", () => 
     ["Crème fraiche (1 dl)", "Crème fraiche"],
     ["Kycklingfilé (ca 500 g)", "Kycklingfilé"],
     ["Babyspenat (1 förp)", "Babyspenat"],
+    ["Finhackad röd paprika", "röd paprika"],
+    ["Stort skalat och hackat äpple", "äpple"],
+    ["Sesamfrön på toppen", "Sesamfrön"],
   ];
 
   for (const [input, expected] of examples) {
-    assert.equal(cleanCityGrossSearchQuery(input), expected);
+    assert.equal(cleanGrocerySearchQuery(input), expected);
   }
 });
 
@@ -528,6 +532,57 @@ test("basket pricing deduplicates normalized item queries", async () => {
   assert.deepEqual(queries, ["Mjölk"]);
   assert.equal(result.matches.length, 2);
   assert.equal(result.approximateTotalSek, 47.85);
+});
+
+test("low-coverage ICA refresh improves final basket matches", async () => {
+  const queryNames = Array.from({ length: 53 }, (_, index) => {
+    const first = String.fromCharCode(97 + Math.floor(index / 26));
+    const second = String.fromCharCode(97 + (index % 26));
+    return `testvara ${first}${second}`;
+  });
+  const items = queryNames.map((name, index) => ({
+    id: `row-${index}`,
+    name,
+    sourceTaskIds: [`task-${index}`],
+  }));
+  const refreshedQueries: string[] = [];
+  const productFor = (query: string) => ({
+    id: `ica-${query}`,
+    chainId: "ica" as const,
+    storeId: "1004392",
+    productName: query,
+    priceSek: 10,
+    unitLabel: "st",
+    searchTerms: [query],
+  });
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items,
+    },
+    {
+      searchProducts: async (query) => {
+        return queryNames.slice(0, 5).includes(query) ? [productFor(query)] : [];
+      },
+      refreshSearchProducts: async (query) => {
+        refreshedQueries.push(query);
+        return queryNames.slice(5, 15).includes(query) ? [productFor(query)] : [];
+      },
+    },
+  );
+
+  assert.equal(refreshedQueries.length, 48);
+  assert.equal(result.matches.filter((match) => match.product).length, 15);
+  assert.equal(
+    result.matches.find((match) => match.listItemId === "row-10")?.product?.id,
+    `ica-${queryNames[10]}`,
+  );
+  assert.deepEqual(
+    result.matches.find((match) => match.listItemId === "row-10")?.sourceTaskIds,
+    ["task-10"],
+  );
 });
 
 test("failed City Gross fetch is negative-cached briefly", async () => {

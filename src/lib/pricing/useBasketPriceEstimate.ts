@@ -12,8 +12,10 @@ import type { PricingSource } from "./sources";
 const BASKET_DEBOUNCE_MS = 3_000;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
+const PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS = 60 * 1_000;
+const MIN_SAFE_ICA_COVERAGE = 0.6;
 const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
-const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v2";
+const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v3";
 const basketPricingMemoryCache = new Map<string, BasketPricingCacheEntry>();
 
 interface BasketPricingCacheEntry {
@@ -277,10 +279,17 @@ export const createBasketPricingCacheKey = (
 const hasPricedMatches = (result: BasketPriceEstimate) =>
   result.matches.some((match) => Boolean(match.product));
 
-const cacheTtlMsFor = (result: BasketPriceEstimate) =>
-  hasPricedMatches(result)
+const cacheTtlMsFor = (key: string, result: BasketPriceEstimate) => {
+  const pricedCount = result.matches.filter((match) => match.product).length;
+  const coverageRatio =
+    result.matches.length > 0 ? pricedCount / result.matches.length : 0;
+  if (key.includes(":ica:") && coverageRatio < MIN_SAFE_ICA_COVERAGE) {
+    return PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS;
+  }
+  return hasPricedMatches(result)
     ? BASKET_PRICING_CACHE_TTL_MS
     : EMPTY_BASKET_PRICING_CACHE_TTL_MS;
+};
 
 const isCacheEntry = (value: unknown): value is BasketPricingCacheEntry => {
   if (!value || typeof value !== "object") return false;
@@ -318,7 +327,7 @@ export const readBasketPricingCache = (
     entry,
     isStale:
       !Number.isFinite(fetchedAtMs) ||
-      now - fetchedAtMs >= cacheTtlMsFor(entry.result),
+      now - fetchedAtMs >= cacheTtlMsFor(key, entry.result),
   };
 };
 
@@ -334,7 +343,7 @@ export const resolveBasketPricingCacheState = (
   return { estimate: EMPTY_ESTIMATE, isLoading: true, shouldFetch: true };
 };
 
-const writeBasketPricingCache = (
+export const writeBasketPricingCache = (
   key: string,
   result: BasketPriceEstimate,
 ): void => {
@@ -348,8 +357,13 @@ const writeBasketPricingCache = (
   pricingLog("cache write", {
     key,
     fetchedAt: entry.fetchedAt,
-    ttlMs: cacheTtlMsFor(result),
+    ttlMs: cacheTtlMsFor(key, result),
     pricedCount: result.matches.filter((match) => match.product).length,
+    coverageRatio:
+      result.matches.length > 0
+        ? result.matches.filter((match) => match.product).length /
+          result.matches.length
+        : 0,
   });
 };
 

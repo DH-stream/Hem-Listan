@@ -26,13 +26,13 @@ export const normalizePriceQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export const cleanCityGrossSearchQuery = (value: string) => {
+export const cleanGrocerySearchQuery = (value: string) => {
   if (/^\s*valbart\b.*\bvalfri\b/i.test(value)) return "";
   return value
     .normalize("NFKC")
     .replace(/^port\s+(?=penne\b)/i, "")
     .replace(
-      /^(?:finhackad|finhackade|hackad|hackade|skivad|skivade|tärnad|tärnade)\s+/i,
+      /^(?:(?:stort?|stora|skalad|skalat|skalade|finhackad|finhackat|finhackade|hackad|hackat|hackade|skivad|skivat|skivade|tärnad|tärnat|tärnade)\s+|och\s+)+/i,
       "",
     )
     .replace(/\s+på toppen\b.*$/i, "")
@@ -238,7 +238,7 @@ export const matchListItem = (
   products: ProductPrice[],
   options: { debug?: boolean } = {},
 ): ListItemPriceMatch => {
-  const query = normalizePriceQuery(cleanCityGrossSearchQuery(item.name));
+  const query = normalizePriceQuery(cleanGrocerySearchQuery(item.name));
   const candidates = products.map((product) => {
     if (isClearlyIncompatibleProduct(query, product)) {
       return { product, confidence: "none" as const };

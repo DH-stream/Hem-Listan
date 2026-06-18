@@ -4,10 +4,14 @@ import {
   normalizePricingQuery,
   parsePriceSek,
 } from "./pricingProviderUtils.js";
+import { cleanGrocerySearchQuery } from "./pricingMatching.js";
 
 const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const NEGATIVE_CACHE_TTL_MS = 20 * 60 * 1000;
+const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
+const ICA_STRATEGY_VERSION = "v4";
+const MIN_VALID_HTML_LENGTH = 1_000;
+const MIN_SUBSTANTIVE_HTML_LENGTH = 5_000;
 const REQUEST_TIMEOUT_MS = 7_000;
 const ICA_BROWSER_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -24,6 +28,7 @@ interface IcaSearchOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
   liveEnabled?: boolean;
+  bypassNegativeCache?: boolean;
 }
 
 export interface IcaProviderDiagnostic {
@@ -40,6 +45,8 @@ export interface IcaProviderDiagnostic {
   parsedLineCount?: number;
   debugHint?: unknown;
   error?: string;
+  fromCache?: boolean;
+  failureType?: "ica_transient_response" | "ica_blocked_or_not_ready";
 }
 
 interface IcaProductCandidate {
@@ -350,6 +357,28 @@ const normalizeIcaLookupKey = (value: string) =>
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "");
 
+const ICA_QUERY_ALIASES: Record<string, string[]> = {
+  "keso cottage cheese": ["keso", "cottage cheese"],
+  basmatiris: ["basmatiris", "basmati ris"],
+  "smor- & rapsolja": ["smör rapsolja", "flytande smör rapsolja"],
+  agg: ["ägg", "ägg 10-p", "ägg 6-p"],
+  mjol: ["vetemjöl", "mjöl"],
+  "riven ost": ["riven ost", "ost riven"],
+  "creme fraiche": ["crème fraiche", "creme fraiche", "crème fraîche"],
+};
+
+export const getIcaSearchQueries = (query: string): string[] => {
+  const cleanedQuery = cleanGrocerySearchQuery(query);
+  const lookupKey = normalizeIcaLookupKey(cleanedQuery);
+  const simplified = normalizePricingQuery(cleanedQuery);
+  const aliases = ICA_QUERY_ALIASES[lookupKey] ??
+    ICA_QUERY_ALIASES[simplified] ??
+    [simplified || cleanedQuery];
+  return Array.from(
+    new Set(aliases.map((value) => normalizePricingQuery(value)).filter(Boolean)),
+  );
+};
+
 const parseSafeIcaHtmlPrice = (lines: string[], priceLineIndex: number) => {
   const caPrefix = "(?:ca\\s+){0,2}";
   const windowText = lines.slice(priceLineIndex, priceLineIndex + 5).join(" ");
@@ -450,6 +479,34 @@ const getHtmlDebugHint = (html: string, query: string) => {
   };
 };
 
+const isBlockedOrIncompleteHtml = (
+  html: string,
+  lines: string[],
+  products: ProductPrice[],
+) => {
+  if (products.length > 0) return false;
+  const normalizedHtml = normalizeIcaLookupKey(html);
+  const hasBlockedShellMarker =
+    /\b(?:access denied|forbidden|blocked|not ready|retry later|laddar|nagot gick fel)\b/.test(
+      normalizedHtml,
+    );
+  const hasProductMarker =
+    /<(?:article|product-card)\b|data-(?:product|article)-id=|\/products\/[^"'?\s]+/i.test(
+      html,
+    );
+  const hasPriceLine = lines.some((line) =>
+    /^(?:pris|ord\.pris)\b|\d+(?:[.,:]\d{1,2})?\s*kr\b/i.test(line),
+  );
+  return (
+    html.length < MIN_VALID_HTML_LENGTH ||
+    hasBlockedShellMarker ||
+    (html.length < MIN_SUBSTANTIVE_HTML_LENGTH &&
+      lines.length < 40 &&
+      !hasProductMarker &&
+      !hasPriceLine)
+  );
+};
+
 export const parseIcaHtmlProducts = (
   html: string,
   query: string,
@@ -516,6 +573,17 @@ const ICA_CATEGORY_FALLBACKS = [
     keywords: ["banan", "apple", "apelsin", "frukt", "tomat", "gurka", "potatis"],
     path: "frukt-gr%C3%B6nt/21684e2b-854e-48fc-a7e1-3225a5618ca3",
   },
+  {
+    keywords: ["krydda", "salt", "peppar", "oregano", "basilika"],
+    path: "skafferi/kryddor",
+  },
+  { keywords: ["mjol", "bakpulver", "socker"], path: "skafferi/bakning" },
+  { keywords: ["ris", "pasta", "lins"], path: "skafferi/pasta-ris-linser" },
+  { keywords: ["olja", "vinager"], path: "skafferi/olja-vinager" },
+  { keywords: ["konserv", "krossade tomat"], path: "skafferi/konserver-tomat" },
+  { keywords: ["sylt"], path: "skafferi/sylt-marmelad" },
+  { keywords: ["kott", "korv", "chark", "fisk"], path: "kott-chark-fisk" },
+  { keywords: ["fryst", "blabar"], path: "fryst" },
 ];
 
 const ICA_DIRECT_PRODUCT_FALLBACKS: Record<string, string[]> = {
@@ -530,6 +598,12 @@ const ICA_TARGETED_SEARCH_QUERIES: Record<string, string[]> = {
   gurka: ["gurka klass 1", "gurka eko"],
   tomat: ["tomat klass 1", "tomat eko"],
   potatis: ["potatis fast", "potatis mjölig"],
+  salt: ["fint salt", "havssalt"],
+  bakpulver: ["bakpulver"],
+  olivolja: ["olivolja extra virgin", "olivolja"],
+  linser: ["röda linser", "gröna linser"],
+  "krossade tomater": ["krossade tomater"],
+  blabar: ["blåbär frysta", "blåbär"],
 };
 
 const createCategoryUrl = (storeId: string, path: string) => {
@@ -626,7 +700,14 @@ const fetchIcaProductsFromUrl = async (
     attempt.status = response.status;
     attempt.contentType = contentType.slice(0, 80);
     pricingApiLog(debug, "ica response", { status: response.status, contentType });
-    if (!response.ok) return [];
+    if (response.status === 202) {
+      attempt.failureType = "ica_blocked_or_not_ready";
+      return [];
+    }
+    if (!response.ok) {
+      attempt.failureType = "ica_transient_response";
+      return [];
+    }
     if (contentType.includes("application/json")) {
       const payload = await response.json();
       const rawProducts = getProducts(payload);
@@ -651,10 +732,14 @@ const fetchIcaProductsFromUrl = async (
     }
     if (contentType.includes("text/html")) {
       const html = await response.text();
+      attempt.htmlLength = html.length;
       const lines = htmlToLines(html);
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
-      attempt.htmlLength = html.length;
       attempt.parsedLineCount = lines.length;
+      if (isBlockedOrIncompleteHtml(html, lines, products)) {
+        attempt.failureType = "ica_blocked_or_not_ready";
+        return [];
+      }
       attempt.normalizedProductCount = products.length;
       if (products.length === 0 && searchUrl.pathname.includes("/products/")) {
         attempt.debugHint = getHtmlDebugHint(html, query);
@@ -676,6 +761,7 @@ const fetchIcaProductsFromUrl = async (
     return [];
   } catch (error) {
     attempt.error = error instanceof Error ? error.message : String(error);
+    attempt.failureType = "ica_transient_response";
     throw error;
   } finally {
     icaProviderDiagnostics.push(attempt);
@@ -697,11 +783,16 @@ export async function searchIcaProducts(
   if (!liveEnabled) return [];
 
   const normalizedStoreId = storeId.trim().slice(0, 40) || "1004392";
-  const cacheKey = `ica:v3:${normalizedStoreId}:${validation.query}`;
+  const searchQueries = getIcaSearchQueries(validation.query);
+  const cacheKey = `ica:${ICA_STRATEGY_VERSION}:${normalizedStoreId}:${searchQueries.join("|")}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > currentTime) {
+  if (
+    cached &&
+    cached.expiresAt > currentTime &&
+    !(options.bypassNegativeCache && cached.products.length === 0)
+  ) {
     pricingApiLog(debug, "ica cache hit", { cacheKey, productCount: cached.products.length });
     if (debug) {
       icaProviderDiagnostics.push({
@@ -711,38 +802,42 @@ export async function searchIcaProducts(
         searchParams: "",
         mode: "json",
         normalizedProductCount: cached.products.length,
+        fromCache: true,
       });
     }
     return cached.products;
   }
 
   let lastError: unknown;
+  const diagnosticStartIndex = icaProviderDiagnostics.length;
   const fetchedAt = new Date(currentTime).toISOString();
-  for (const searchUrl of [
-    ...buildIcaJsonSearchUrls(validation.query, normalizedStoreId),
-    ...buildIcaHtmlSearchUrls(validation.query, normalizedStoreId),
-  ]) {
-    try {
-      const products = await fetchIcaProductsFromUrl(
-        searchUrl,
-        normalizedStoreId,
-        validation.query,
-        fetchedAt,
-        options,
-        debug,
-      );
-      if (products.length === 0) continue;
-      cache.set(cacheKey, {
-        expiresAt: currentTime + CACHE_TTL_MS,
-        products,
-      });
-      return products;
-    } catch (error) {
-      lastError = error;
-      pricingApiLog(debug, "ica endpoint error", {
-        searchUrl: searchUrl.origin + searchUrl.pathname,
-        error,
-      });
+  for (const searchQuery of searchQueries) {
+    for (const searchUrl of [
+      ...buildIcaJsonSearchUrls(searchQuery, normalizedStoreId),
+      ...buildIcaHtmlSearchUrls(searchQuery, normalizedStoreId),
+    ]) {
+      try {
+        const products = await fetchIcaProductsFromUrl(
+          searchUrl,
+          normalizedStoreId,
+          searchQuery,
+          fetchedAt,
+          options,
+          debug,
+        );
+        if (products.length === 0) continue;
+        cache.set(cacheKey, {
+          expiresAt: currentTime + CACHE_TTL_MS,
+          products,
+        });
+        return products;
+      } catch (error) {
+        lastError = error;
+        pricingApiLog(debug, "ica endpoint error", {
+          searchUrl: searchUrl.origin + searchUrl.pathname,
+          error,
+        });
+      }
     }
   }
 
@@ -755,9 +850,14 @@ export async function searchIcaProducts(
     fallbackCount: 0,
     staleCacheIgnored: Boolean(cached),
   });
-  cache.set(cacheKey, {
-    expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
-    products: [],
-  });
+  const hadTransientFailure = icaProviderDiagnostics
+    .slice(diagnosticStartIndex)
+    .some((attempt) => Boolean(attempt.failureType || attempt.error));
+  if (!hadTransientFailure) {
+    cache.set(cacheKey, {
+      expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
+      products: [],
+    });
+  }
   return [];
 }
