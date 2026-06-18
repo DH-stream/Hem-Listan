@@ -31,6 +31,7 @@ export interface PricingBasketRequest {
 interface BasketPricingOptions {
   debug?: boolean;
   searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
+  refreshSearchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
 }
 
 interface PricingQueryDiagnostic {
@@ -137,6 +138,7 @@ const summarizeDiagnostics = (
     queryCount: diagnostics.length,
     pricedCount,
     matchCount,
+    coverageRatio: matchCount > 0 ? pricedCount / matchCount : 0,
     queries: diagnostics,
     ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
   });
@@ -225,13 +227,54 @@ export async function calculateBasketPriceEstimate(
   );
   const productsByQuery = new Map(productEntries);
 
-  const matches = request.items.map((item) =>
+  let matches = request.items.map((item) =>
     matchListItem(
       item,
       productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
       { debug },
     ),
   );
+
+  const initialPricedCount = matches.filter((match) => match.product).length;
+  const initialCoverageRatio =
+    matches.length > 0 ? initialPricedCount / matches.length : 0;
+  if (
+    request.chain === "ica" &&
+    (!options.searchProducts || options.refreshSearchProducts) &&
+    initialCoverageRatio < 0.6
+  ) {
+    const refreshSearchProducts =
+      options.refreshSearchProducts ??
+      ((query: string, storeId?: string) =>
+        searchIcaProducts(query, storeId, {
+          debug,
+          bypassNegativeCache: true,
+        }));
+    const zeroQueries = Array.from(
+      new Set(
+        request.items
+          .filter((item) => !matches.find((match) => match.listItemId === item.id)?.product)
+          .map((item) => searchQueryByNormalizedQuery.get(queryByItemId.get(item.id) ?? ""))
+          .filter((query): query is string => Boolean(query)),
+      ),
+    );
+    const refreshedEntries = await Promise.all(
+      zeroQueries.map(async (query) => [
+        normalizePriceQuery(query),
+        await refreshSearchProducts(query, request.storeId),
+      ] as const),
+    );
+    refreshedEntries.forEach(([normalizedQuery, products]) => {
+      if (products.length > 0) productsByQuery.set(normalizedQuery, products);
+    });
+    matches = request.items.map((item) =>
+      matchListItem(
+        item,
+        productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
+        { debug },
+      ),
+    );
+  }
 
   const approximateTotalSek =
     Math.round(
@@ -267,6 +310,7 @@ export async function calculateBasketPriceEstimate(
     matchCount: result.matches.length,
     pricedCount,
     noProductCount: result.matches.length - pricedCount,
+    coverageRatio: matches.length > 0 ? pricedCount / matches.length : 0,
     approximateTotalSek: result.approximateTotalSek,
     winners: result.matches.slice(0, 10).map((match) => ({
       listItemName: match.listItemName,

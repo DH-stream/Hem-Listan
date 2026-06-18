@@ -274,7 +274,7 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.equal(first, "bröd|mjölk");
   assert.equal(
     createBasketPricingCacheKey("city_gross", "public", "list-1", first),
-    `hem-listan-pricing-basket:v2:city_gross:public:list-1:${first}`,
+    `hem-listan-pricing-basket:v3:city_gross:public:list-1:${first}`,
   );
   assert.notEqual(
     createBasketPricingCacheKey("city_gross", "public", "list-1", first),

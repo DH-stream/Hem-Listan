@@ -29,6 +29,15 @@ const createProvider = (
     calculateBasketPriceEstimate(request, {
       ...options,
       searchProducts: (query, storeId) => searchProducts(query, storeId, options),
+      ...(chain === "ica"
+        ? {
+            refreshSearchProducts: (query: string, storeId?: string) =>
+              searchIcaProducts(query, storeId, {
+                ...options,
+                bypassNegativeCache: true,
+              }),
+          }
+        : {}),
     }),
 });
 

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearIcaPricingCache,
+  consumeIcaPricingDiagnostics,
+  getIcaSearchQueries,
   normalizeIcaProduct,
+  resetIcaPricingDiagnostics,
   searchIcaProducts,
 } from "./api/_lib/icaPricing";
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
@@ -94,4 +97,48 @@ test("ICA search ignores non-product arrays before nested product arrays", async
   assert.equal(products.length, 1);
   assert.equal(products[0].productName, "ICA Bryggkaffe 450g");
   assert.equal(products[0].priceSek, 49.9);
+});
+
+test("ICA search aliases recipe wording to grocery search terms", () => {
+  assert.deepEqual(getIcaSearchQueries("sesamfrön på toppen"), ["sesamfrön"]);
+  assert.deepEqual(getIcaSearchQueries("stort skalat och hackat äpple"), ["äpple"]);
+  assert.deepEqual(getIcaSearchQueries("finhackad röd paprika"), ["röd paprika"]);
+  assert.deepEqual(getIcaSearchQueries("keso cottage cheese"), ["keso", "cottage cheese"]);
+  assert.deepEqual(getIcaSearchQueries("basmatiris"), ["basmatiris", "basmati ris"]);
+  assert.deepEqual(getIcaSearchQueries("stora ägg"), ["ägg", "ägg 10-p", "ägg 6-p"]);
+  assert.deepEqual(getIcaSearchQueries("mjöl"), ["vetemjöl", "mjöl"]);
+  assert.deepEqual(getIcaSearchQueries("riven ost"), ["riven ost", "ost riven"]);
+  assert.deepEqual(getIcaSearchQueries("crème fraiche"), [
+    "crème fraiche",
+    "creme fraiche",
+    "crème fraîche",
+  ]);
+});
+
+test("ICA 202 responses are transient and are not negative-cached", async () => {
+  clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
+  let fetchCount = 0;
+  const options = {
+    liveEnabled: true,
+    now: () => 0,
+    debug: true,
+    fetchImpl: async () => {
+      fetchCount += 1;
+      return new Response("", {
+        status: 202,
+        headers: { "content-type": "text/html" },
+      });
+    },
+  };
+
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  const firstFetchCount = fetchCount;
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  assert.ok(fetchCount > firstFetchCount);
+  assert.ok(
+    consumeIcaPricingDiagnostics().some(
+      (attempt) => attempt.failureType === "ica_blocked_or_not_ready",
+    ),
+  );
 });
