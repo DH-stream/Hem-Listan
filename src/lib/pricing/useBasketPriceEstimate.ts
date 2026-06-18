@@ -343,7 +343,7 @@ export const resolveBasketPricingCacheState = (
   return { estimate: EMPTY_ESTIMATE, isLoading: true, shouldFetch: true };
 };
 
-const writeBasketPricingCache = (
+export const writeBasketPricingCache = (
   key: string,
   result: BasketPriceEstimate,
 ): void => {

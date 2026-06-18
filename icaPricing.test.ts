@@ -142,3 +142,65 @@ test("ICA 202 responses are transient and are not negative-cached", async () => 
     ),
   );
 });
+
+test("ICA fetch errors are transient and are not negative-cached", async () => {
+  clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
+  let fetchCount = 0;
+  const options = {
+    liveEnabled: true,
+    now: () => 0,
+    debug: true,
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new DOMException("The operation was aborted", "AbortError");
+    },
+  };
+
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  const firstFetchCount = fetchCount;
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  assert.ok(fetchCount > firstFetchCount);
+  assert.ok(
+    consumeIcaPricingDiagnostics().some(
+      (attempt) =>
+        attempt.failureType === "ica_transient_response" &&
+        attempt.error?.includes("aborted"),
+    ),
+  );
+});
+
+test("ICA 200 blocked HTML shells are transient and are not negative-cached", async () => {
+  clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
+  let fetchCount = 0;
+  const blockedHtml = `<html><body><main><h1>Laddar</h1><p>Försök igen senare</p></main>${" ".repeat(
+    2_400,
+  )}</body></html>`;
+  const options = {
+    liveEnabled: true,
+    now: () => 0,
+    debug: true,
+    fetchImpl: async () => {
+      fetchCount += 1;
+      return new Response(blockedHtml, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    },
+  };
+
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  const firstFetchCount = fetchCount;
+  assert.deepEqual(await searchIcaProducts("salt", "1004392", options), []);
+  assert.ok(fetchCount > firstFetchCount);
+  assert.ok(
+    consumeIcaPricingDiagnostics().some(
+      (attempt) =>
+        attempt.status === 200 &&
+        attempt.htmlLength !== undefined &&
+        attempt.htmlLength >= 2_000 &&
+        attempt.failureType === "ica_blocked_or_not_ready",
+    ),
+  );
+});

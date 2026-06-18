@@ -18,6 +18,7 @@ import {
   readBasketPricingCache,
   resolveBasketPricingCacheState,
   selectActiveBasketEstimate,
+  writeBasketPricingCache,
 } from "./src/lib/pricing/useBasketPriceEstimate";
 import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
@@ -620,6 +621,47 @@ test("basket pricing cache state can show stale same-source cache while refreshi
   assert.equal(state.isLoading, true);
   assert.equal(state.shouldFetch, true);
   assert.equal(state.estimate, result);
+});
+
+test("low-coverage ICA basket cache becomes stale after 60 seconds", () => {
+  const key = createBasketPricingCacheKey(
+    "ica",
+    "1004392",
+    "coverage-list",
+    "53-shopping-rows",
+  );
+  const matches = Array.from({ length: 53 }, (_, index) => ({
+    listItemId: `row-${index}`,
+    listItemName: `vara ${index}`,
+    product:
+      index < 5
+        ? {
+            id: `product-${index}`,
+            chainId: "ica" as const,
+            storeId: "1004392",
+            productName: `Vara ${index}`,
+            priceSek: 10,
+            unitLabel: "st",
+            searchTerms: [`vara ${index}`],
+          }
+        : null,
+    confidence: index < 5 ? ("high" as const) : ("none" as const),
+  }));
+  const beforeWrite = Date.now();
+
+  writeBasketPricingCache(key, {
+    matches,
+    approximateTotalSek: 50,
+  });
+
+  assert.equal(
+    readBasketPricingCache(key, beforeWrite + 59_999).isStale,
+    false,
+  );
+  assert.equal(
+    readBasketPricingCache(key, beforeWrite + 60_001).isStale,
+    true,
+  );
 });
 
 test("pricing source defaults to City Gross and normalizes ICA", () => {

@@ -10,6 +10,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
 const ICA_STRATEGY_VERSION = "v4";
 const MIN_VALID_HTML_LENGTH = 1_000;
+const MIN_SUBSTANTIVE_HTML_LENGTH = 5_000;
 const REQUEST_TIMEOUT_MS = 7_000;
 const ICA_BROWSER_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -480,6 +481,34 @@ const getHtmlDebugHint = (html: string, query: string) => {
   };
 };
 
+const isBlockedOrIncompleteHtml = (
+  html: string,
+  lines: string[],
+  products: ProductPrice[],
+) => {
+  if (products.length > 0) return false;
+  const normalizedHtml = normalizeIcaLookupKey(html);
+  const hasBlockedShellMarker =
+    /\b(?:access denied|forbidden|blocked|not ready|retry later|laddar|nagot gick fel)\b/.test(
+      normalizedHtml,
+    );
+  const hasProductMarker =
+    /<(?:article|product-card)\b|data-(?:product|article)-id=|\/products\/[^"'?\s]+/i.test(
+      html,
+    );
+  const hasPriceLine = lines.some((line) =>
+    /^(?:pris|ord\.pris)\b|\d+(?:[.,:]\d{1,2})?\s*kr\b/i.test(line),
+  );
+  return (
+    html.length < MIN_VALID_HTML_LENGTH ||
+    hasBlockedShellMarker ||
+    (html.length < MIN_SUBSTANTIVE_HTML_LENGTH &&
+      lines.length < 40 &&
+      !hasProductMarker &&
+      !hasPriceLine)
+  );
+};
+
 export const parseIcaHtmlProducts = (
   html: string,
   query: string,
@@ -705,11 +734,11 @@ const fetchIcaProductsFromUrl = async (
       attempt.htmlLength = html.length;
       const lines = htmlToLines(html);
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
-      if (html.length < MIN_VALID_HTML_LENGTH && products.length === 0) {
-        attempt.failureType = "ica_transient_response";
+      attempt.parsedLineCount = lines.length;
+      if (isBlockedOrIncompleteHtml(html, lines, products)) {
+        attempt.failureType = "ica_blocked_or_not_ready";
         return [];
       }
-      attempt.parsedLineCount = lines.length;
       attempt.normalizedProductCount = products.length;
       if (products.length === 0 && searchUrl.pathname.includes("/products/")) {
         attempt.debugHint = getHtmlDebugHint(html, query);
@@ -731,6 +760,7 @@ const fetchIcaProductsFromUrl = async (
     return [];
   } catch (error) {
     attempt.error = error instanceof Error ? error.message : String(error);
+    attempt.failureType = "ica_transient_response";
     throw error;
   } finally {
     icaProviderDiagnostics.push(attempt);
@@ -821,7 +851,7 @@ export async function searchIcaProducts(
   });
   const hadTransientFailure = icaProviderDiagnostics
     .slice(diagnosticStartIndex)
-    .some((attempt) => Boolean(attempt.failureType));
+    .some((attempt) => Boolean(attempt.failureType || attempt.error));
   if (!hadTransientFailure) {
     cache.set(cacheKey, {
       expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
