@@ -51,7 +51,6 @@ export interface IcaProviderDiagnostic {
     | "html_store_selector"
     | "html_202_blocked"
     | "html_no_product_data"
-    | "parsed_products_count"
     | "ica_transient_response";
 }
 
@@ -753,8 +752,6 @@ const fetchIcaProductsFromUrl = async (
         .filter((product): product is ProductPrice => product !== null);
       attempt.rawProductCount = rawProducts.length;
       attempt.normalizedProductCount = products.length;
-      attempt.failureType =
-        products.length > 0 ? "parsed_products_count" : "html_no_product_data";
       pricingApiLog(debug, "ica products parsed", {
         source: "json",
         rawProductCount: rawProducts.length,
@@ -784,8 +781,7 @@ const fetchIcaProductsFromUrl = async (
         return [];
       }
       attempt.normalizedProductCount = products.length;
-      attempt.failureType =
-        products.length > 0 ? "parsed_products_count" : "html_no_product_data";
+      if (products.length === 0) attempt.failureType = "html_no_product_data";
       if (products.length === 0 && searchUrl.pathname.includes("/products/")) {
         attempt.debugHint = getHtmlDebugHint(html, query);
       }

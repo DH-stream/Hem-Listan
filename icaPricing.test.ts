@@ -48,9 +48,11 @@ test("ICA product normalization accepts the current decorated price shape", () =
 
 test("ICA search uses the current web product page search endpoint", async () => {
   clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
   const requestedUrls: string[] = [];
 
   const products = await searchIcaProducts("mjölk", "1004392", {
+    debug: true,
     liveEnabled: true,
     now: () => 0,
     fetchImpl: async (input) => {
@@ -82,6 +84,9 @@ test("ICA search uses the current web product page search endpoint", async () =>
   assert.equal(requestedUrl.searchParams.get("tag"), "web");
   assert.equal(products.length, 1);
   assert.equal(products[0].priceSek, 15.95);
+  const [attempt] = consumeIcaPricingDiagnostics();
+  assert.equal(attempt.normalizedProductCount, 1);
+  assert.equal(attempt.failureType, undefined);
 });
 
 test("ICA search ignores non-product arrays before nested product arrays", async () => {
