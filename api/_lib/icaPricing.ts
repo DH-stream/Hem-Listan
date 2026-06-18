@@ -9,7 +9,7 @@ import { cleanGrocerySearchQuery } from "./pricingMatching.js";
 const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
-const ICA_STRATEGY_VERSION = "v4";
+const ICA_STRATEGY_VERSION = "v5";
 const MIN_VALID_HTML_LENGTH = 1_000;
 const MIN_SUBSTANTIVE_HTML_LENGTH = 5_000;
 const REQUEST_TIMEOUT_MS = 7_000;
@@ -46,7 +46,13 @@ export interface IcaProviderDiagnostic {
   debugHint?: unknown;
   error?: string;
   fromCache?: boolean;
-  failureType?: "ica_transient_response" | "ica_blocked_or_not_ready";
+  failureType?:
+    | "json_endpoint_404"
+    | "html_store_selector"
+    | "html_202_blocked"
+    | "html_no_product_data"
+    | "parsed_products_count"
+    | "ica_transient_response";
 }
 
 interface IcaProductCandidate {
@@ -134,6 +140,20 @@ const firstPrice = (...values: unknown[]) => {
   return null;
 };
 
+const getNestedPrice = (value: unknown) => {
+  const price = asRecord(value);
+  const current = asRecord(price?.current);
+  const original = asRecord(price?.original);
+  return firstPrice(
+    value,
+    price?.amount,
+    current?.amount,
+    current?.value,
+    original?.amount,
+    original?.value,
+  );
+};
+
 const absoluteUrl = (value: unknown, baseUrl: string) => {
   if (typeof value !== "string" || value.trim() === "") return undefined;
   try {
@@ -201,7 +221,7 @@ export const normalizeIcaProduct = (
   );
   const name = firstString(product.name, product.productName, product.title);
   const priceSek = firstPrice(
-    product.price,
+    getNestedPrice(product.price),
     product.currentPrice,
     product.ordinaryPrice,
     priceInfo.currentPrice,
@@ -552,15 +572,24 @@ export const clearIcaPricingCache = () => cache.clear();
 
 const buildIcaJsonSearchUrls = (query: string, storeId: string) => {
   const urls = [
+    new URL(
+      `/stores/${encodeURIComponent(storeId)}/api/webproductpagews/v6/product-pages/search`,
+      ICA_ORIGIN,
+    ),
     new URL(`/stores/${encodeURIComponent(storeId)}/api/products/search`, ICA_ORIGIN),
     new URL(`/api/products/search`, ICA_ORIGIN),
   ];
   urls[0].searchParams.set("q", query);
-  urls[0].searchParams.set("query", query);
-  urls[0].searchParams.set("take", "12");
-  urls[1].searchParams.set("storeId", storeId);
+  urls[0].searchParams.set("tag", "web");
+  urls[0].searchParams.set("includeAdditionalPageInfo", "true");
+  urls[0].searchParams.set("maxProductsToDecorate", "12");
+  urls[0].searchParams.set("maxPageSize", "12");
   urls[1].searchParams.set("q", query);
+  urls[1].searchParams.set("query", query);
   urls[1].searchParams.set("take", "12");
+  urls[2].searchParams.set("storeId", storeId);
+  urls[2].searchParams.set("q", query);
+  urls[2].searchParams.set("take", "12");
   return urls;
 };
 
@@ -665,8 +694,12 @@ const createIcaRequestHeaders = (normalizedStoreId: string) => ({
   "Sec-Fetch-Dest": "document",
   "Sec-Fetch-Mode": "navigate",
   "Sec-Fetch-Site": "same-origin",
+  "ecom-request-source": "web",
   "User-Agent": ICA_BROWSER_USER_AGENT,
 });
+
+const isStoreSelectorHtml = (html: string) =>
+  /chooseStore=true|välj butik|valj butik|choose store/i.test(html);
 
 const fetchIcaProductsFromUrl = async (
   searchUrl: URL,
@@ -701,7 +734,11 @@ const fetchIcaProductsFromUrl = async (
     attempt.contentType = contentType.slice(0, 80);
     pricingApiLog(debug, "ica response", { status: response.status, contentType });
     if (response.status === 202) {
-      attempt.failureType = "ica_blocked_or_not_ready";
+      attempt.failureType = "html_202_blocked";
+      return [];
+    }
+    if (response.status === 404 && mode === "json") {
+      attempt.failureType = "json_endpoint_404";
       return [];
     }
     if (!response.ok) {
@@ -716,6 +753,8 @@ const fetchIcaProductsFromUrl = async (
         .filter((product): product is ProductPrice => product !== null);
       attempt.rawProductCount = rawProducts.length;
       attempt.normalizedProductCount = products.length;
+      attempt.failureType =
+        products.length > 0 ? "parsed_products_count" : "html_no_product_data";
       pricingApiLog(debug, "ica products parsed", {
         source: "json",
         rawProductCount: rawProducts.length,
@@ -736,11 +775,17 @@ const fetchIcaProductsFromUrl = async (
       const lines = htmlToLines(html);
       const products = parseIcaHtmlProducts(html, query, normalizedStoreId, fetchedAt);
       attempt.parsedLineCount = lines.length;
+      if (isStoreSelectorHtml(html)) {
+        attempt.failureType = "html_store_selector";
+        return [];
+      }
       if (isBlockedOrIncompleteHtml(html, lines, products)) {
-        attempt.failureType = "ica_blocked_or_not_ready";
+        attempt.failureType = "html_no_product_data";
         return [];
       }
       attempt.normalizedProductCount = products.length;
+      attempt.failureType =
+        products.length > 0 ? "parsed_products_count" : "html_no_product_data";
       if (products.length === 0 && searchUrl.pathname.includes("/products/")) {
         attempt.debugHint = getHtmlDebugHint(html, query);
       }

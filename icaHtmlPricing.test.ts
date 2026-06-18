@@ -96,7 +96,7 @@ test("ICA search tries query-matched category fallback before generic HTML fallb
     now: () => 0,
     fetchImpl: async (input) => {
       requestedUrls.push(input.toString());
-      if (requestedUrls.length <= 2) {
+      if (requestedUrls.length <= 3) {
         return new Response(JSON.stringify({ products: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },

@@ -31,7 +31,22 @@ test("ICA product normalization accepts colon price strings", () => {
   assert.equal(product?.priceSek, 15.95);
 });
 
-test("ICA search tries the fallback endpoint after a store endpoint fetch error", async () => {
+test("ICA product normalization accepts the current decorated price shape", () => {
+  const product = normalizeIcaProduct(
+    {
+      productId: "milk-2",
+      name: "Mellanmjölk 1,5% 1,5l",
+      price: { current: { amount: "22.95" } },
+      descriptiveSize: "1,5l",
+    },
+    "1004392",
+    "2026-06-18T00:00:00.000Z",
+  );
+
+  assert.equal(product?.priceSek, 22.95);
+});
+
+test("ICA search uses the current web product page search endpoint", async () => {
   clearIcaPricingCache();
   const requestedUrls: string[] = [];
 
@@ -40,29 +55,31 @@ test("ICA search tries the fallback endpoint after a store endpoint fetch error"
     now: () => 0,
     fetchImpl: async (input) => {
       requestedUrls.push(input.toString());
-      if (requestedUrls.length === 1) {
-        throw new Error("store endpoint timed out");
-      }
       return new Response(
         JSON.stringify({
-          products: [
-            {
-              id: "milk-1",
+          productGroups: [{
+            decoratedProducts: [{
+              productId: "milk-1",
               name: "Mellanmjölk 1l",
               brand: "ICA",
-              price: "15:95 kr",
-              size: "1l",
-            },
-          ],
+              price: { current: { amount: "15.95" } },
+              descriptiveSize: "1l",
+            }],
+          }],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     },
   });
 
-  assert.equal(requestedUrls.length, 2);
-  assert.match(requestedUrls[0], /\/stores\/1004392\/api\/products\/search/);
-  assert.match(requestedUrls[1], /\/api\/products\/search/);
+  assert.equal(requestedUrls.length, 1);
+  const requestedUrl = new URL(requestedUrls[0]);
+  assert.equal(
+    requestedUrl.pathname,
+    "/stores/1004392/api/webproductpagews/v6/product-pages/search",
+  );
+  assert.equal(requestedUrl.searchParams.get("q"), "mjölk");
+  assert.equal(requestedUrl.searchParams.get("tag"), "web");
   assert.equal(products.length, 1);
   assert.equal(products[0].priceSek, 15.95);
 });
@@ -138,7 +155,7 @@ test("ICA 202 responses are transient and are not negative-cached", async () => 
   assert.ok(fetchCount > firstFetchCount);
   assert.ok(
     consumeIcaPricingDiagnostics().some(
-      (attempt) => attempt.failureType === "ica_blocked_or_not_ready",
+      (attempt) => attempt.failureType === "html_202_blocked",
     ),
   );
 });
@@ -200,7 +217,7 @@ test("ICA 200 blocked HTML shells are transient and are not negative-cached", as
         attempt.status === 200 &&
         attempt.htmlLength !== undefined &&
         attempt.htmlLength >= 2_000 &&
-        attempt.failureType === "ica_blocked_or_not_ready",
+        attempt.failureType === "html_no_product_data",
     ),
   );
 });
