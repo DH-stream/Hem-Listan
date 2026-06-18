@@ -72,6 +72,29 @@ const missingRows = new Set([
   "aluminiumfolie",
 ]);
 
+const mustPriceRows = [
+  "ägg",
+  "bakpulver",
+  "balsamvinäger",
+  "basmatiris",
+  "blåbär",
+  "citron",
+  "crème fraiche",
+  "mjölk",
+  "potatis",
+  "krossade tomater",
+  "morötter",
+  "gul lök",
+  "riven ost",
+  "röd paprika",
+  "linser",
+  "salt",
+  "oregano",
+  "basilika",
+  "olivolja",
+  "rapsolja",
+] as const;
+
 const productNames: Record<string, string> = {
   ägg: "Ägg Frigående 10-p ICA",
   mjölk: "Mellanmjölk 1,5% 1,5l ICA",
@@ -124,6 +147,7 @@ const normalize = (value: string) =>
   value.normalize("NFKC").toLocaleLowerCase("sv-SE").trim();
 
 test("realistic ICA basket prices at least 40 of 53 common shopping rows", async () => {
+  assert.equal(basketRows.length, 53);
   clearIcaPricingCache();
   const requestedPaths: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {
@@ -132,32 +156,63 @@ test("realistic ICA basket prices at least 40 of 53 common shopping rows", async
     const query = normalize(
       url.searchParams.get("q") ?? url.searchParams.get("query") ?? "",
     );
-    const isSpiceCategory = url.pathname.includes("/categories/skafferi/kryddor");
+    const htmlProducts = (keys: string[]) =>
+      keys
+        .map(
+          (key) =>
+            `<article><h2>${productNames[key]}</h2><p>1 st</p><span>Pris 29,95 kr</span></article>`,
+        )
+        .join("\n");
+    const categoryProducts: Array<[string, string[]]> = [
+      ["/categories/skafferi/kryddor", ["oregano", "basilika"]],
+      ["/categories/skafferi/bakning", ["bakpulver"]],
+      ["/categories/skafferi/olja-vinager", ["balsamvinäger"]],
+      ["/categories/skafferi/konserver-tomat", ["krossade tomater"]],
+      [
+        "/categories/mejeri-ost/bf3acda4-568d-4aad-b971-4c5412307e95",
+        ["mjölk"],
+      ],
+    ];
+    const categoryMatch = categoryProducts.find(([path]) =>
+      url.pathname.includes(path),
+    );
+    if (categoryMatch) {
+      return new Response(
+        htmlProducts(categoryMatch[1]),
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    }
+    if (
+      query === "blåbär frysta" &&
+      url.pathname.endsWith("/search")
+    ) {
+      return new Response(
+        `<article><h2>Blåbär Frysta 500g ICA</h2><p>500 g</p><span>Pris 29,95 kr</span></article>`,
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+      );
+    }
+    const aliasProducts: Record<string, string> = {
+      "ägg 10-p": "ägg",
+      "creme fraiche": "crème fraiche",
+      "basmati ris": "basmatiris",
+    };
+    const directOnlyMisses = new Set([
+      "ägg",
+      "mjölk",
+      "crème fraiche",
+      "creme fraiche",
+      "basmatiris",
+      "blåbär",
+      "bakpulver",
+      "oregano",
+      "basilika",
+      "balsamvinäger",
+      "krossade tomater",
+    ]);
     const productKey =
-      query === "blåbär frysta"
-        ? "blåbär"
-        : productNames[query] && !["blåbär", "oregano", "basilika"].includes(query)
-            ? query
-            : "";
-    const productName =
-      productKey === "blåbär"
-        ? "Blåbär Frysta 500g ICA"
-        : productNames[productKey];
-    if (isSpiceCategory) {
-      return new Response(
-        `
-          <article><h2>Oregano 10g ICA</h2><p>10 g</p><span>Pris 19,95 kr</span></article>
-          <article><h2>Basilika 10g ICA</h2><p>10 g</p><span>Pris 19,95 kr</span></article>
-        `,
-        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
-      );
-    }
-    if (productKey === "blåbär") {
-      return new Response(
-        `<article><h2>${productName}</h2><p>500 g</p><span>Pris 29,95 kr</span></article>`,
-        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
-      );
-    }
+      aliasProducts[query] ??
+      (productNames[query] && !directOnlyMisses.has(query) ? query : "");
+    const productName = productNames[productKey];
 
     return new Response(
       JSON.stringify({
@@ -209,17 +264,13 @@ test("realistic ICA basket prices at least 40 of 53 common shopping rows", async
     pricedRows.length >= 40,
     `Expected at least 40/53 priced rows, got ${pricedRows.length}. Missing: ${unpricedRows.join(", ")}`,
   );
-  assert.equal(pricedRows.length, 46);
   assert.deepEqual(unpricedRows.sort(), Array.from(missingRows).sort());
-  assert.ok(
-    basketRows
-      .slice(0, 21)
-      .every((requiredRow) => pricedRows.includes(requiredRow)),
-    `Required common rows missing prices: ${basketRows
-      .slice(0, 21)
-      .filter((row) => !pricedRows.includes(row))
-      .join(", ")}`,
-  );
+  for (const requiredRow of mustPriceRows) {
+    assert.ok(pricedRows.includes(requiredRow), `${requiredRow} must receive a price`);
+  }
+  assert.ok(requestedPaths.some((path) => path.includes("q=%C3%A4gg+10-p")));
+  assert.ok(requestedPaths.some((path) => path.includes("q=creme+fraiche")));
+  assert.ok(requestedPaths.some((path) => path.includes("q=basmati+ris")));
   assert.ok(
     requestedPaths.some((path) =>
       path.includes("/categories/skafferi/kryddor"),
@@ -227,5 +278,10 @@ test("realistic ICA basket prices at least 40 of 53 common shopping rows", async
   );
   assert.ok(
     requestedPaths.some((path) => path.includes("bl%C3%A5b%C3%A4r+frysta")),
+  );
+  assert.ok(
+    requestedPaths.some((path) =>
+      path.includes("/categories/skafferi/konserver-tomat"),
+    ),
   );
 });

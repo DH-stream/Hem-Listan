@@ -816,28 +816,28 @@ export async function searchIcaProducts(
       ...buildIcaJsonSearchUrls(searchQuery, normalizedStoreId),
       ...buildIcaHtmlSearchUrls(searchQuery, normalizedStoreId),
     ]) {
-    try {
-      const products = await fetchIcaProductsFromUrl(
-        searchUrl,
-        normalizedStoreId,
-        searchQuery,
-        fetchedAt,
-        options,
-        debug,
-      );
-      if (products.length === 0) continue;
-      cache.set(cacheKey, {
-        expiresAt: currentTime + CACHE_TTL_MS,
-        products,
-      });
-      return products;
-    } catch (error) {
-      lastError = error;
-      pricingApiLog(debug, "ica endpoint error", {
-        searchUrl: searchUrl.origin + searchUrl.pathname,
-        error,
-      });
-    }
+      try {
+        const products = await fetchIcaProductsFromUrl(
+          searchUrl,
+          normalizedStoreId,
+          searchQuery,
+          fetchedAt,
+          options,
+          debug,
+        );
+        if (products.length === 0) continue;
+        cache.set(cacheKey, {
+          expiresAt: currentTime + CACHE_TTL_MS,
+          products,
+        });
+        return products;
+      } catch (error) {
+        lastError = error;
+        pricingApiLog(debug, "ica endpoint error", {
+          searchUrl: searchUrl.origin + searchUrl.pathname,
+          error,
+        });
+      }
     }
   }
 
