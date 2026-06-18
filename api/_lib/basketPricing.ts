@@ -8,7 +8,11 @@ import type {
   ProductPrice,
 } from "../../src/lib/pricing/types";
 import { searchCityGrossProducts } from "./cityGrossPricing.js";
-import { searchIcaProducts } from "./icaPricing.js";
+import {
+  consumeIcaPricingDiagnostics,
+  resetIcaPricingDiagnostics,
+  searchIcaProducts,
+} from "./icaPricing.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -125,6 +129,7 @@ const summarizeDiagnostics = (
   diagnostics: PricingQueryDiagnostic[],
   pricedCount: number,
   matchCount: number,
+  providerAttempts?: unknown[],
 ) =>
   JSON.stringify({
     chain: request.chain,
@@ -133,6 +138,7 @@ const summarizeDiagnostics = (
     pricedCount,
     matchCount,
     queries: diagnostics,
+    ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
   });
 
 export async function calculateBasketPriceEstimate(
@@ -141,6 +147,7 @@ export async function calculateBasketPriceEstimate(
 ): Promise<BasketPriceEstimate> {
   const debug = options.debug ?? false;
   const searchProducts = options.searchProducts ?? defaultSearchProductsFor(request);
+  if (debug && request.chain === "ica") resetIcaPricingDiagnostics();
   pricingApiLog(debug, "basket input", {
     chain: request.chain,
     storeId: request.storeId,
@@ -237,6 +244,7 @@ export async function calculateBasketPriceEstimate(
     ) / 100;
 
   const pricedCount = matches.filter((match) => match.product).length;
+  const providerAttempts = debug && request.chain === "ica" ? consumeIcaPricingDiagnostics() : [];
   const result: BasketPriceEstimate = {
     matches,
     approximateTotalSek,
@@ -248,6 +256,7 @@ export async function calculateBasketPriceEstimate(
             diagnostics.sort((a, b) => a.normalizedQuery.localeCompare(b.normalizedQuery)),
             pricedCount,
             matches.length,
+            providerAttempts,
           ),
         }
       : {}),

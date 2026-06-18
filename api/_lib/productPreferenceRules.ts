@@ -18,6 +18,55 @@ const normalizePreferenceText = (value: string) =>
 const containsAny = (value: string, terms: string[]) =>
   terms.some((term) => value.includes(term));
 
+const containsAnyWord = (value: string, terms: string[]) =>
+  terms.some((term) => new RegExp(`\\b${term}\\b`).test(value));
+
+const SIMPLE_PRODUCE_TERMS = [
+  "apple",
+  "apelsin",
+  "banan",
+  "citron",
+  "gurka",
+  "lime",
+  "lok",
+  "morot",
+  "paprika",
+  "potatis",
+  "tomat",
+];
+
+const SIMPLE_PRODUCE_PROCESSED_TERMS = [
+  "barnmat",
+  "barnsnacks",
+  "bar",
+  "chips",
+  "dessert",
+  "dryck",
+  "essens",
+  "fruktmellis",
+  "fruktsmoothie",
+  "fruktstang",
+  "godis",
+  "godispase",
+  "grot",
+  "grotsmoothie",
+  "inlagd",
+  "juice",
+  "kaka",
+  "kex",
+  "krossade",
+  "marmelad",
+  "mellis",
+  "nektar",
+  "passerade",
+  "pure",
+  "smoothie",
+  "snacks",
+  "sylt",
+  "tomatpure",
+  "tonic",
+];
+
 const RECEIPT_INFORMED_RULES: ProductPreferenceRule[] = [
   {
     queryTerms: [
@@ -91,6 +140,7 @@ export const evaluateReceiptInformedPreference = (
 ): ProductPreferenceEvaluation => {
   const normalizedQuery = normalizePreferenceText(query);
   const normalizedProduct = normalizePreferenceText(productName);
+  const normalizedUnitLabel = normalizePreferenceText(unitLabel);
   let score = 0;
   const reasons: string[] = [];
 
@@ -107,6 +157,39 @@ export const evaluateReceiptInformedPreference = (
     if (rule.preferredUnitPatterns?.some((pattern) => pattern.test(unitLabel))) {
       score += rule.score;
       reasons.push("receipt_preferred_size");
+    }
+  }
+
+  const exactSimpleProduceQuery = SIMPLE_PRODUCE_TERMS.includes(normalizedQuery);
+  if (exactSimpleProduceQuery) {
+    const productAndUnit = `${normalizedProduct} ${normalizedUnitLabel}`;
+
+    if (containsAnyWord(productAndUnit, SIMPLE_PRODUCE_PROCESSED_TERMS)) {
+      score -= 28;
+      reasons.push("avoided_processed_produce_product");
+    }
+
+    if (normalizedProduct.startsWith(normalizedQuery)) {
+      score += 12;
+      reasons.push("simple_produce_name_match");
+    }
+
+    if (/\bklass\s*1\b/.test(productAndUnit)) {
+      score += 8;
+      reasons.push("preferred_produce_class_1");
+    } else if (/\bklass\s*2\b/.test(productAndUnit)) {
+      score -= 8;
+      reasons.push("avoided_lower_produce_class");
+    }
+
+    if (/\b(?:losvikt|kr\/kg|kg)\b/.test(productAndUnit)) {
+      score += 6;
+      reasons.push("preferred_weighted_produce");
+    }
+
+    if (/\bmerpack\b/.test(productAndUnit)) {
+      score -= 6;
+      reasons.push("avoided_prepacked_produce_when_unspecified");
     }
   }
 
