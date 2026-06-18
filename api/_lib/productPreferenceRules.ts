@@ -18,6 +18,9 @@ const normalizePreferenceText = (value: string) =>
 const containsAny = (value: string, terms: string[]) =>
   terms.some((term) => value.includes(term));
 
+const containsAnyWord = (value: string, terms: string[]) =>
+  terms.some((term) => new RegExp(`\\b${term}\\b`).test(value));
+
 const SIMPLE_PRODUCE_TERMS = [
   "apple",
   "apelsin",
@@ -161,7 +164,7 @@ export const evaluateReceiptInformedPreference = (
   if (exactSimpleProduceQuery) {
     const productAndUnit = `${normalizedProduct} ${normalizedUnitLabel}`;
 
-    if (containsAny(productAndUnit, SIMPLE_PRODUCE_PROCESSED_TERMS)) {
+    if (containsAnyWord(productAndUnit, SIMPLE_PRODUCE_PROCESSED_TERMS)) {
       score -= 28;
       reasons.push("avoided_processed_produce_product");
     }
