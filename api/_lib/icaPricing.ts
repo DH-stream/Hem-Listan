@@ -4,6 +4,7 @@ import {
   normalizePricingQuery,
   parsePriceSek,
 } from "./pricingProviderUtils.js";
+import { cleanGrocerySearchQuery } from "./pricingMatching.js";
 
 const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -360,22 +361,19 @@ const ICA_QUERY_ALIASES: Record<string, string[]> = {
   "keso cottage cheese": ["keso", "cottage cheese"],
   basmatiris: ["basmatiris", "basmati ris"],
   "smor- & rapsolja": ["smör rapsolja", "flytande smör rapsolja"],
-  "stora agg": ["ägg", "ägg 10-p", "ägg 6-p"],
+  agg: ["ägg", "ägg 10-p", "ägg 6-p"],
   mjol: ["vetemjöl", "mjöl"],
   "riven ost": ["riven ost", "ost riven"],
   "creme fraiche": ["crème fraiche", "creme fraiche", "crème fraîche"],
 };
 
 export const getIcaSearchQueries = (query: string): string[] => {
-  const lookupKey = normalizeIcaLookupKey(query);
-  const simplified = normalizePricingQuery(query)
-    .replace(/\b(?:stort?|stora|skal(?:ad|at|ade)|hack(?:ad|at|ade)|finhack(?:ad|at|ade)|på toppen)\b/g, " ")
-    .replace(/\boch\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleanedQuery = cleanGrocerySearchQuery(query);
+  const lookupKey = normalizeIcaLookupKey(cleanedQuery);
+  const simplified = normalizePricingQuery(cleanedQuery);
   const aliases = ICA_QUERY_ALIASES[lookupKey] ??
     ICA_QUERY_ALIASES[simplified] ??
-    [simplified || query];
+    [simplified || cleanedQuery];
   return Array.from(
     new Set(aliases.map((value) => normalizePricingQuery(value)).filter(Boolean)),
   );

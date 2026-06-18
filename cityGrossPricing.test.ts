@@ -19,7 +19,7 @@ import {
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
-  cleanCityGrossSearchQuery,
+  cleanGrocerySearchQuery,
   matchListItem,
 } from "./api/_lib/pricingMatching";
 
@@ -369,7 +369,7 @@ test("normalizes a Swedish price string", () => {
   assert.equal(parsePriceSek("34,50 kr"), 34.5);
 });
 
-test("cleans quantities and recipe notes from City Gross search queries", () => {
+test("cleans quantities and recipe notes from grocery search queries", () => {
   const examples = [
     ["Röd paprika (1 st)", "Röd paprika"],
     ["Potatis (400 g)", "Potatis"],
@@ -377,10 +377,13 @@ test("cleans quantities and recipe notes from City Gross search queries", () => 
     ["Crème fraiche (1 dl)", "Crème fraiche"],
     ["Kycklingfilé (ca 500 g)", "Kycklingfilé"],
     ["Babyspenat (1 förp)", "Babyspenat"],
+    ["Finhackad röd paprika", "röd paprika"],
+    ["Stort skalat och hackat äpple", "äpple"],
+    ["Sesamfrön på toppen", "Sesamfrön"],
   ];
 
   for (const [input, expected] of examples) {
-    assert.equal(cleanCityGrossSearchQuery(input), expected);
+    assert.equal(cleanGrocerySearchQuery(input), expected);
   }
 });
 

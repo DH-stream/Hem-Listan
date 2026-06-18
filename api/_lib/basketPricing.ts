@@ -1,5 +1,5 @@
 import {
-  cleanCityGrossSearchQuery,
+  cleanGrocerySearchQuery,
   matchListItem,
   normalizePriceQuery,
 } from "./pricingMatching.js";
@@ -159,7 +159,7 @@ export async function calculateBasketPriceEstimate(
   const searchQueryByNormalizedQuery = new Map<string, string>();
 
   request.items.forEach((item) => {
-    const searchQuery = cleanCityGrossSearchQuery(item.name);
+    const searchQuery = cleanGrocerySearchQuery(item.name);
     const normalizedQuery = normalizePriceQuery(searchQuery);
     const currentSearchQuery =
       searchQueryByNormalizedQuery.get(normalizedQuery);
