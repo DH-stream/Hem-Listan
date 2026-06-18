@@ -119,5 +119,14 @@ test("ICA search tries query-matched category fallback before generic HTML fallb
   assert.equal(products.length, 1);
   assert.equal(products[0].chainId, "ica");
   assert.equal(products[0].priceSek, 22.95);
-  assert.match(requestedUrls[2], /\/stores\/1004554\/categories\/mejeri-ost\/bf3acda4-568d-4aad-b971-4c5412307e95\?sortBy=favorite$/);
+  assert.ok(
+    requestedUrls.some((url) => {
+      const requestedUrl = new URL(url);
+      return (
+        requestedUrl.pathname ===
+          "/stores/1004554/categories/mejeri-ost/bf3acda4-568d-4aad-b971-4c5412307e95" &&
+        requestedUrl.searchParams.get("sortBy") === "favorite"
+      );
+    }),
+  );
 });

@@ -54,14 +54,15 @@ test("plain banana prefers raw produce over baby snacks and smoothies", () => {
       id: "banana",
       productName: "Banan Eko ca 180g Klass 1 ICA",
       priceSek: 47.39,
-      unitLabel: "CA 180G (47,39 kr/kg)",
+      unitLabel: "CA 180G",
+      comparePrice: "47,39 kr/kg",
     }),
   ];
 
-  assert.equal(
-    matchListItem({ id: "banana", name: "banan" }, products).product?.id,
-    "banana",
-  );
+  const match = matchListItem({ id: "banana", name: "banan" }, products);
+  assert.equal(match.product?.id, "banana");
+  assert.equal(match.estimatedCheckoutPriceSek, 8.53);
+  assert.equal(match.priceBasis, "weighted_item_estimate");
 });
 
 test("plain tomato prefers fresh tomato over crushed or puree products", () => {

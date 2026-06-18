@@ -182,7 +182,7 @@ export const evaluateReceiptInformedPreference = (
       reasons.push("avoided_lower_produce_class");
     }
 
-    if (/\b(?:losvikt|kr/kg|kg)\b/.test(productAndUnit)) {
+    if (/\b(?:losvikt|kr\/kg|kg)\b/.test(productAndUnit)) {
       score += 6;
       reasons.push("preferred_weighted_produce");
     }
