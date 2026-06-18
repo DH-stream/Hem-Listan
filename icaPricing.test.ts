@@ -9,6 +9,7 @@ import {
   searchIcaProducts,
 } from "./api/_lib/icaPricing";
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
+import { summarizeIcaProviderAttempts } from "./api/_lib/basketPricing";
 
 test("parses Swedish colon price strings", () => {
   assert.equal(parsePriceSek("15:95 kr"), 15.95);
@@ -234,4 +235,51 @@ test("ICA 200 blocked HTML shells are transient and are not negative-cached", as
         attempt.failureType === "html_no_product_data",
     ),
   );
+});
+
+test("ICA basket diagnostics summarize live, cache, blocked, and failed queries", () => {
+  const summary = summarizeIcaProviderAttempts([
+    {
+      query: "polly",
+      storeId: "1004392",
+      urlPath: "/stores/1004392/api/webproductpagews/v6/product-pages/search",
+      searchParams: "q=polly",
+      mode: "json",
+      status: 200,
+      normalizedProductCount: 5,
+      resultType: "json_search_success",
+    },
+    {
+      query: "mjölk",
+      storeId: "1004392",
+      urlPath: "cache",
+      searchParams: "",
+      mode: "json",
+      normalizedProductCount: 2,
+      fromCache: true,
+      resultType: "cache_hit",
+    },
+    {
+      query: "salt",
+      storeId: "1004392",
+      urlPath: "/stores/1004392/api/webproductpagews/v6/product-pages/search",
+      searchParams: "q=salt",
+      mode: "json",
+      status: 202,
+      resultType: "waf_blocked",
+      failureType: "html_202_blocked",
+    },
+  ]);
+
+  assert.equal(summary.liveProductAttemptCount, 1);
+  assert.equal(summary.cacheHitCount, 1);
+  assert.equal(summary.blockedAttemptCount, 1);
+  assert.equal(summary.resultTypeCounts.json_search_success, 1);
+  assert.deepEqual(summary.topFailedQueries, [
+    {
+      query: "salt",
+      failureCount: 1,
+      failureTypes: { html_202_blocked: 1 },
+    },
+  ]);
 });
