@@ -575,7 +575,10 @@ const ICA_CATEGORY_FALLBACKS = [
     keywords: ["banan", "apple", "apelsin", "frukt", "tomat", "gurka", "potatis"],
     path: "frukt-gr%C3%B6nt/21684e2b-854e-48fc-a7e1-3225a5618ca3",
   },
-  { keywords: ["krydda", "salt", "peppar"], path: "skafferi/kryddor" },
+  {
+    keywords: ["krydda", "salt", "peppar", "oregano", "basilika"],
+    path: "skafferi/kryddor",
+  },
   { keywords: ["mjol", "bakpulver", "socker"], path: "skafferi/bakning" },
   { keywords: ["ris", "pasta", "lins"], path: "skafferi/pasta-ris-linser" },
   { keywords: ["olja", "vinager"], path: "skafferi/olja-vinager" },
