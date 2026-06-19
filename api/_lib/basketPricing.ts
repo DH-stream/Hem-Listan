@@ -13,6 +13,7 @@ import {
   resetIcaPricingDiagnostics,
   searchIcaProducts,
 } from "./icaPricing.js";
+import type { IcaProviderDiagnostic } from "./icaPricing.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -130,7 +131,7 @@ const summarizeDiagnostics = (
   diagnostics: PricingQueryDiagnostic[],
   pricedCount: number,
   matchCount: number,
-  providerAttempts?: unknown[],
+  providerAttempts?: IcaProviderDiagnostic[],
 ) =>
   JSON.stringify({
     chain: request.chain,
@@ -140,8 +141,48 @@ const summarizeDiagnostics = (
     matchCount,
     coverageRatio: matchCount > 0 ? pricedCount / matchCount : 0,
     queries: diagnostics,
-    ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
+    ...(providerAttempts && providerAttempts.length > 0
+      ? {
+          providerAttemptSummary: summarizeIcaProviderAttempts(providerAttempts),
+          providerAttempts,
+        }
+      : {}),
   });
+
+export const summarizeIcaProviderAttempts = (attempts: IcaProviderDiagnostic[]) => {
+  const resultTypeCounts: Record<string, number> = {};
+  const failuresByQuery = new Map<string, Record<string, number>>();
+  attempts.forEach((attempt) => {
+    const resultType = attempt.resultType ?? "unclassified";
+    resultTypeCounts[resultType] = (resultTypeCounts[resultType] ?? 0) + 1;
+    if (!attempt.failureType) return;
+    const failures = failuresByQuery.get(attempt.query) ?? {};
+    failures[attempt.failureType] = (failures[attempt.failureType] ?? 0) + 1;
+    failuresByQuery.set(attempt.query, failures);
+  });
+  return {
+    resultTypeCounts,
+    liveProductAttemptCount: attempts.filter(
+      (attempt) =>
+        !attempt.fromCache && (attempt.normalizedProductCount ?? 0) > 0,
+    ).length,
+    cacheHitCount: resultTypeCounts.cache_hit ?? 0,
+    blockedAttemptCount:
+      (resultTypeCounts.waf_blocked ?? 0) +
+      (resultTypeCounts.store_selector ?? 0) +
+      (resultTypeCounts.html_no_product_data ?? 0),
+    topFailedQueries: Array.from(failuresByQuery, ([query, failureTypes]) => ({
+      query,
+      failureCount: Object.values(failureTypes).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+      failureTypes,
+    }))
+      .sort((a, b) => b.failureCount - a.failureCount || a.query.localeCompare(b.query))
+      .slice(0, 10),
+  };
+};
 
 export async function calculateBasketPriceEstimate(
   request: PricingBasketRequest,

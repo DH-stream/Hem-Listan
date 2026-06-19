@@ -511,6 +511,55 @@ test("simple produce queries avoid processed snack products", () => {
   );
 });
 
+test("ICA compound product names get useful match confidence", () => {
+  const products: ProductPrice[] = [
+    {
+      id: "milk",
+      chainId: "ica",
+      storeId: "1004392",
+      productName: "Mellanmjölk Lite längre hållbarhet 1,5% 1,5l ICA",
+      priceSek: 22.95,
+      unitLabel: "1,5 l",
+      searchTerms: ["Mellanmjölk Lite längre hållbarhet 1,5% 1,5l ICA"],
+    },
+    {
+      id: "banana",
+      chainId: "ica",
+      storeId: "1004392",
+      productName: "Banan Eko ca 180g Klass 1 ICA",
+      priceSek: 5.38,
+      unitLabel: "0.18kg (29,95 kr/kg)",
+      searchTerms: ["Banan Eko ca 180g Klass 1 ICA"],
+    },
+    {
+      id: "pork",
+      chainId: "ica",
+      storeId: "1004392",
+      productName: "Stekfläsk Skivat 375g ICA",
+      priceSek: 49.95,
+      unitLabel: "375 g",
+      searchTerms: ["Stekfläsk Skivat 375g ICA"],
+    },
+    {
+      id: "rice",
+      chainId: "ica",
+      storeId: "1004392",
+      productName: "Basmatiris 1kg ICA",
+      priceSek: 32.95,
+      unitLabel: "1 kg",
+      searchTerms: ["Basmatiris 1kg ICA"],
+    },
+  ];
+
+  assert.equal(matchListItem({ id: "milk", name: "mjölk" }, products).confidence, "medium");
+  assert.equal(matchListItem({ id: "banana", name: "banan" }, products).confidence, "medium");
+  assert.equal(
+    matchListItem({ id: "pork", name: "rimmat fläsk" }, products).confidence,
+    "medium",
+  );
+  assert.notEqual(matchListItem({ id: "rice", name: "ris" }, products).confidence, "high");
+});
+
 test("basket pricing deduplicates normalized item queries", async () => {
   const queries: string[] = [];
   const result = await calculateCityGrossBasket(

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearIcaPricingCache,
+  consumeIcaPricingDiagnostics,
   parseIcaHtmlProducts,
+  resetIcaPricingDiagnostics,
   searchIcaProducts,
 } from "./api/_lib/icaPricing";
 
@@ -89,14 +91,16 @@ test("does not interpret ICA multi-buy offer count as a product price", () => {
 
 test("ICA search tries query-matched category fallback before generic HTML fallbacks", async () => {
   clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
   const requestedUrls: string[] = [];
 
   const products = await searchIcaProducts("mjölk", "1004554", {
+    debug: true,
     liveEnabled: true,
     now: () => 0,
     fetchImpl: async (input) => {
       requestedUrls.push(input.toString());
-      if (requestedUrls.length <= 2) {
+      if (requestedUrls.length <= 3) {
         return new Response(JSON.stringify({ products: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -119,6 +123,12 @@ test("ICA search tries query-matched category fallback before generic HTML fallb
   assert.equal(products.length, 1);
   assert.equal(products[0].chainId, "ica");
   assert.equal(products[0].priceSek, 22.95);
+  assert.equal(
+    consumeIcaPricingDiagnostics().find(
+      (attempt) => attempt.normalizedProductCount === 1,
+    )?.resultType,
+    "category_html_success",
+  );
   assert.ok(
     requestedUrls.some((url) => {
       const requestedUrl = new URL(url);
@@ -129,4 +139,36 @@ test("ICA search tries query-matched category fallback before generic HTML fallb
       );
     }),
   );
+});
+
+test("ICA diagnostics identify the historical Banan Eko direct product fallback", async () => {
+  clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
+
+  const products = await searchIcaProducts("banan", "1004392", {
+    debug: true,
+    liveEnabled: true,
+    now: () => 0,
+    fetchImpl: async (input) => {
+      const url = new URL(input.toString());
+      if (url.pathname.includes("/products/banan-eko-ca-180g-klass-1/1477872")) {
+        return new Response(
+          `<html><body><h1>Banan Eko</h1><p>Jämförpris 29,95 kr/kg</p></body></html>`,
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
+      return new Response(JSON.stringify({ products: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  assert.equal(products[0]?.productName, "Banan Eko");
+  const successfulAttempt = consumeIcaPricingDiagnostics().find(
+    (attempt) => attempt.normalizedProductCount === 1,
+  );
+  assert.equal(successfulAttempt?.resultType, "direct_product_success");
+  assert.equal(successfulAttempt?.directProductFallback, true);
+  assert.equal(successfulAttempt?.failureType, undefined);
 });
