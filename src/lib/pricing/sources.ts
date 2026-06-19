@@ -20,6 +20,36 @@ export const SEEDED_ICA_STORES: PricingSource[] = [
     label: "ICA Maxi Kungälv",
     storeUrl: "https://handlaprivatkund.ica.se/stores/1004392",
   },
+  {
+    chain: "ica",
+    storeId: "1004219",
+    label: "Maxi ICA Stormarknad Göteborg",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004219",
+  },
+  {
+    chain: "ica",
+    storeId: "1003458",
+    label: "ICA Kvantum Ale",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1003458",
+  },
+  {
+    chain: "ica",
+    storeId: "1003778",
+    label: "ICA Kvantum Frölunda",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1003778",
+  },
+  {
+    chain: "ica",
+    storeId: "1004247",
+    label: "ICA Focus",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004247",
+  },
+  {
+    chain: "ica",
+    storeId: "1003988",
+    label: "ICA Supermarket Aptiten",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1003988",
+  },
 ];
 
 export const PRICING_SOURCES: PricingSource[] = [

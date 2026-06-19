@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import {
@@ -23,15 +23,28 @@ export default function IcaStoreChoiceModal({
   onClose,
 }: IcaStoreChoiceModalProps) {
   const [step, setStep] = useState<IcaStep>("choice");
+  const [storeQuery, setStoreQuery] = useState("");
   const [resolvingNearest, setResolvingNearest] = useState(false);
+
+  const filteredStores = useMemo(() => {
+    const normalizedQuery = storeQuery.trim().toLocaleLowerCase("sv-SE");
+    if (!normalizedQuery) return SEEDED_ICA_STORES;
+    return SEEDED_ICA_STORES.filter((store) =>
+      [store.label, store.storeId, store.storeUrl]
+        .filter(Boolean)
+        .some((value) => value.toLocaleLowerCase("sv-SE").includes(normalizedQuery)),
+    );
+  }, [storeQuery]);
 
   const handleClose = () => {
     setStep("choice");
+    setStoreQuery("");
     onClose();
   };
 
   const handleSelect = (source: PricingSource) => {
     setStep("choice");
+    setStoreQuery("");
     onSelect(source);
   };
 
@@ -107,29 +120,44 @@ export default function IcaStoreChoiceModal({
                 </button>
               </div>
             ) : (
-              <div className="space-y-2">
-                {SEEDED_ICA_STORES.map((store) => {
-                  const active =
-                    selectedSource.chain === store.chain && selectedSource.storeId === store.storeId;
-                  return (
-                    <button
-                      key={`${store.chain}:${store.storeId}`}
-                      type="button"
-                      className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
-                        active
-                          ? "border-primary bg-primary/10"
-                          : "border-surface-container-high bg-surface-container-lowest hover:bg-surface-container-low"
-                      }`}
-                      onClick={() => handleSelect(store)}
-                    >
-                      <StoreLogo chainId="ica" className="h-8 w-14" />
-                      <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
-                        {store.label}
-                      </span>
-                      {active && <span className="text-sm font-bold text-primary">Vald</span>}
-                    </button>
-                  );
-                })}
+              <div className="space-y-3">
+                <input
+                  type="search"
+                  className="w-full rounded-2xl border border-surface-container-high bg-surface-container-lowest px-4 py-3 font-sans text-sm text-on-surface outline-none transition placeholder:text-on-surface-variant focus:border-primary focus:bg-surface"
+                  placeholder="Sök ICA-butik"
+                  value={storeQuery}
+                  onChange={(event) => setStoreQuery(event.target.value)}
+                />
+                <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                  {filteredStores.length > 0 ? (
+                    filteredStores.map((store) => {
+                      const active =
+                        selectedSource.chain === store.chain && selectedSource.storeId === store.storeId;
+                      return (
+                        <button
+                          key={`${store.chain}:${store.storeId}`}
+                          type="button"
+                          className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                            active
+                              ? "border-primary bg-primary/10"
+                              : "border-surface-container-high bg-surface-container-lowest hover:bg-surface-container-low"
+                          }`}
+                          onClick={() => handleSelect(store)}
+                        >
+                          <StoreLogo chainId="ica" className="h-8 w-14" />
+                          <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
+                            {store.label}
+                          </span>
+                          {active && <span className="text-sm font-bold text-primary">Vald</span>}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 text-center text-sm text-on-surface-variant">
+                      Ingen butik hittades
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </motion.div>

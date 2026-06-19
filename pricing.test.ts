@@ -24,6 +24,7 @@ import {
   DEFAULT_PRICING_SOURCE,
   normalizePricingSource,
   resolveNearestIcaStore,
+  SEEDED_ICA_STORES,
 } from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
 
@@ -335,8 +336,8 @@ test("basket pricing cache key and active item signature are stable", () => {
     createBasketPricingCacheKey("ica", "1004392", "list-1", first),
   );
   assert.notEqual(
-    createBasketPricingCacheKey("ica", "1004392", "list-1", first),
-    createBasketPricingCacheKey("ica", "12345", "list-1", first),
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", first),
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[1].storeId, "list-1", first),
   );
   assert.notEqual(
     first,
@@ -766,8 +767,19 @@ test("pricing source rejects invalid ICA sources", () => {
   assert.equal(normalizePricingSource(null), DEFAULT_PRICING_SOURCE);
 });
 
-test("nearest ICA resolver returns a valid ICA pricing source", async () => {
+test("seeded ICA stores are valid pricing sources", () => {
+  assert.ok(SEEDED_ICA_STORES.length > 1);
+  for (const store of SEEDED_ICA_STORES) {
+    assert.equal(store.chain, "ica");
+    assert.match(store.storeId, /^\d+$/);
+    assert.ok(store.label.trim());
+    assert.equal(normalizePricingSource(store), store);
+  }
+});
+
+test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
   const ica = await resolveNearestIcaStore();
+  assert.equal(ica, SEEDED_ICA_STORES[0]);
   assert.equal(ica.chain, "ica");
   assert.match(ica.storeId, /^\d+$/);
   assert.ok(ica.label.trim());
