@@ -9,6 +9,21 @@ type ApiResponse = ServerResponse & {
 export default async function handler(req: IncomingMessage, res: ApiResponse) {
   const requestUrl = new URL(req.url ?? "/", "http://localhost");
   const query = requestUrl.searchParams.get("q")?.trim() ?? "";
+  console.info("[ica-store-search] handler entered", { query });
+
+  if (query.toLocaleLowerCase("sv-SE") === "healthcheck") {
+    const debug: IcaStoreSearchDebug = {
+      query,
+      upstreamUrl: "https://www.ica.se/butiker/",
+      parsedStoreCount: 0,
+      filteredStoreCount: 0,
+      firstParsedStores: [],
+      source: "cache",
+      fallbackUsed: false,
+    };
+    console.info("[ica-store-search] healthcheck", debug);
+    return res.status(200).json({ stores: [], debug, healthcheck: true });
+  }
 
   if (query.length < 2) {
     const debug: IcaStoreSearchDebug = {

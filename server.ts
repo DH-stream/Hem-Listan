@@ -62,6 +62,22 @@ app.get(
   "/api/ica/stores/search",
   async (req: express.Request, res: express.Response) => {
     const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    console.info("[ica-store-search] handler entered", { query });
+
+    if (query.toLocaleLowerCase("sv-SE") === "healthcheck") {
+      const debug: IcaStoreSearchDebug = {
+        query,
+        upstreamUrl: "https://www.ica.se/butiker/",
+        parsedStoreCount: 0,
+        filteredStoreCount: 0,
+        firstParsedStores: [],
+        source: "cache",
+        fallbackUsed: false,
+      };
+      console.info("[ica-store-search] healthcheck", debug);
+      return res.json({ stores: [], debug, healthcheck: true });
+    }
+
     if (query.length < 2) {
       const debug: IcaStoreSearchDebug = {
         query,

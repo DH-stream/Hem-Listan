@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { PricingSource } from "../../src/lib/pricing/sources";
 
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
@@ -14,7 +12,6 @@ export type IcaStoreSearchResult = PricingSource & {
 };
 
 type FetchLike = typeof fetch;
-const execFileAsync = promisify(execFile);
 
 export type IcaStoreSearchDebug = {
   query: string;
@@ -27,7 +24,6 @@ export type IcaStoreSearchDebug = {
   source: "ica_html" | "cache";
   fallbackUsed: boolean;
   cacheAgeMs?: number;
-  upstreamTransport?: "fetch" | "curl";
   error?: string;
 };
 
@@ -205,42 +201,6 @@ const filterAndBuildResponse = (
   };
 };
 
-const fetchIcaStoresHtml = async (
-  fetchImpl: FetchLike,
-  allowCurlFallback: boolean,
-): Promise<{ html: string; status: number; transport: "fetch" | "curl" }> => {
-  try {
-    const response = await fetchImpl(ICA_STORES_URL, {
-      headers: { "user-agent": "Hem-Listan ICA store search" },
-    });
-    const html = await response.text();
-    if (!response.ok) throw new Error(`ICA store search failed: ${response.status}`);
-    return { html, status: response.status, transport: "fetch" };
-  } catch (error) {
-    if (!allowCurlFallback) throw error;
-    const { stdout } = await execFileAsync(
-      "curl",
-      [
-        "-L",
-        "-sS",
-        "-A",
-        "Hem-Listan ICA store search",
-        "-w",
-        "\n%{http_code}",
-        ICA_STORES_URL,
-      ],
-      { maxBuffer: 5 * 1024 * 1024 },
-    );
-    const statusSeparatorIndex = stdout.lastIndexOf("\n");
-    const html = stdout.slice(0, statusSeparatorIndex);
-    const status = Number(stdout.slice(statusSeparatorIndex + 1));
-    if (!Number.isFinite(status) || status < 200 || status >= 300) {
-      throw new Error(`ICA store search curl fallback failed: ${status || "unknown"}`);
-    }
-    return { html, status, transport: "curl" };
-  }
-};
-
 export async function searchIcaStoresWithDebug(
   query: string,
   options: { fetchImpl?: FetchLike; now?: number } = {},
@@ -258,16 +218,19 @@ export async function searchIcaStoresWithDebug(
     });
   }
 
-  const hasCustomFetch = Boolean(options.fetchImpl);
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
-    const { html, status, transport } = await fetchIcaStoresHtml(fetchImpl, !hasCustomFetch);
+    const response = await fetchImpl(ICA_STORES_URL, {
+      headers: { "user-agent": "Hem-Listan ICA store search" },
+    });
+    const html = await response.text();
+    if (!response.ok) throw new Error(`ICA store search failed: ${response.status}`);
+
     const stores = parseIcaStoresFromHtml(html);
     storeCache = { stores, fetchedAt: now };
     return filterAndBuildResponse(normalizedQuery, stores, {
-      upstreamStatus: status,
+      upstreamStatus: response.status,
       htmlLength: html.length,
-      upstreamTransport: transport,
       source: "ica_html",
     });
   } catch (error) {
