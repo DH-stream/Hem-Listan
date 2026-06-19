@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import {
@@ -8,6 +8,7 @@ import {
   type PricingSource,
   type SeededIcaStore,
 } from "../lib/pricing/sources";
+import { searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
 
 interface IcaStoreChoiceModalProps {
   open: boolean;
@@ -26,25 +27,61 @@ export default function IcaStoreChoiceModal({
 }: IcaStoreChoiceModalProps) {
   const [step, setStep] = useState<IcaStep>("choice");
   const [storeQuery, setStoreQuery] = useState("");
+  const [dynamicStores, setDynamicStores] = useState<IcaStoreSearchResult[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [resolvingNearest, setResolvingNearest] = useState(false);
 
-  const filteredStores = filterSeededIcaStores(storeQuery);
+  const fallbackStores = filterSeededIcaStores(storeQuery).map(seededStoreToSearchResult);
+  const filteredStores = dynamicStores ?? fallbackStores;
 
   const handleClose = () => {
     setStep("choice");
     setStoreQuery("");
+    setDynamicStores(null);
     onClose();
   };
 
   const handleSelect = (source: PricingSource) => {
     setStep("choice");
     setStoreQuery("");
+    setDynamicStores(null);
     onSelect(toPricingSource(source));
   };
 
-  const handleStoreSelect = (store: SeededIcaStore) => {
+  const handleStoreSelect = (store: IcaStoreSearchResult) => {
     handleSelect(store);
   };
+
+
+  useEffect(() => {
+    if (step !== "list") return;
+    const query = storeQuery.trim();
+    if (query.length < 2) {
+      setDynamicStores(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchLoading(true);
+    const timeout = window.setTimeout(() => {
+      searchIcaStores(query)
+        .then((stores) => {
+          if (!cancelled) setDynamicStores(stores);
+        })
+        .catch(() => {
+          if (!cancelled) setDynamicStores(null);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [step, storeQuery]);
 
   const handleNearest = async () => {
     if (resolvingNearest) return;
@@ -126,8 +163,13 @@ export default function IcaStoreChoiceModal({
                   value={storeQuery}
                   onChange={(event) => setStoreQuery(event.target.value)}
                 />
+                {searchLoading && (
+                  <p className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 text-center text-sm text-on-surface-variant">
+                    Söker ICA-butiker…
+                  </p>
+                )}
                 <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                  {filteredStores.length > 0 ? (
+                  {!searchLoading && filteredStores.length > 0 ? (
                     filteredStores.map((store) => {
                       const active =
                         selectedSource.chain === store.chain && selectedSource.storeId === store.storeId;
@@ -150,11 +192,11 @@ export default function IcaStoreChoiceModal({
                         </button>
                       );
                     })
-                  ) : (
+                  ) : !searchLoading ? (
                     <p className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 text-center text-sm text-on-surface-variant">
                       Ingen butik hittades
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}

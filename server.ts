@@ -10,6 +10,7 @@ import {
   calculateCityGrossBasket,
   validateBasketPricingRequest,
 } from "./api/_lib/basketPricing";
+import { searchIcaStores } from "./api/_lib/icaStoreSearch";
 
 const app = express();
 const PORT = 3000;
@@ -50,6 +51,21 @@ app.post(
             }
           : {}),
       });
+    }
+  },
+);
+
+app.get(
+  "/api/ica/stores/search",
+  async (req: express.Request, res: express.Response) => {
+    const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    if (query.length < 2) return res.json({ stores: [] });
+
+    try {
+      return res.json({ stores: await searchIcaStores(query) });
+    } catch (error) {
+      console.error("Failed in /api/ica/stores/search:", error);
+      return res.status(502).json({ error: "ICA store search unavailable", stores: [] });
     }
   },
 );

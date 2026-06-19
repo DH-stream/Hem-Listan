@@ -29,6 +29,12 @@ import {
   toPricingSource,
 } from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
+import {
+  filterIcaStoreSearchResults,
+  parseIcaStoresFromHtml,
+  searchIcaStores as searchIcaStoresFromIca,
+} from "./api/_lib/icaStoreSearch";
+import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
 
 const products: ProductPrice[] = [
   {
@@ -340,6 +346,10 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.notEqual(
     createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", first),
     createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[1].storeId, "list-1", first),
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", first),
+    createBasketPricingCacheKey("ica", "1004888", "list-1", first),
   );
   assert.notEqual(
     first,
@@ -819,6 +829,45 @@ test("nearest ICA resolver returns the default seeded ICA pricing source", async
   assert.match(ica.storeId, /^\d+$/);
   assert.ok(ica.label.trim());
 });
+
+
+
+test("normalizes dynamic ICA store search results", () => {
+  assert.deepEqual(normalizeIcaStoreSearchResult({
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Örnsköldsvik",
+    city: "Örnsköldsvik",
+    address: "Storgatan 1",
+  }), {
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Örnsköldsvik",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+    city: "Örnsköldsvik",
+    address: "Storgatan 1",
+  });
+  assert.equal(normalizeIcaStoreSearchResult({ chain: "ica", storeId: "", label: "ICA" }), null);
+  assert.equal(normalizeIcaStoreSearchResult({ chain: "ica", storeId: "abc", label: "ICA" }), null);
+});
+
+test("ICA store search parses and filters dynamic city results", async () => {
+  const html = `
+    <script>window.state={"stores":[
+      {"storeId":"1","accountNumber":"1004888","storeName":"ICA Supermarket Örnsköldsvik","address":{"street":"Storgatan 1","city":"Örnsköldsvik"},"lat":"63.29","lng":"18.71"},
+      {"storeId":"2","accountNumber":"1004999","storeName":"ICA Nära Domsjö","address":{"street":"Domsjövägen 1","city":"Domsjö"},"lat":"63.26","lng":"18.71"}
+    ]};</script>
+  `;
+  const parsed = parseIcaStoresFromHtml(html);
+  assert.equal(parsed.length, 2);
+  assert.equal(filterIcaStoreSearchResults(parsed, "Örnsköldsvik")[0].storeId, "1004888");
+
+  const results = await searchIcaStoresFromIca("Örnsköldsvik", {
+    fetchImpl: async () => new Response(html),
+  });
+  assert.equal(results[0].storeId, "1004888");
+});
+
 
 test("store logo helper resolves City Gross and ICA logos", () => {
   assert.equal(getStoreLogoPath("city_gross"), "/store-logos/citygross.svg");
