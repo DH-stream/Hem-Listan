@@ -1217,9 +1217,9 @@ export default function ListDetailGrocery({
                               ) : matchByTaskId[item.id]?.product ? (
                                 <div
                                   className={`price-reveal mr-2 flex shrink-0 items-center gap-1.5 ${
-                                    matchByTaskId[item.id].confidence === "high"
-                                      ? "text-primary"
-                                      : "text-on-surface-variant/65"
+                                    matchByTaskId[item.id].confidence === "low"
+                                      ? "text-on-surface-variant/65"
+                                      : "text-primary"
                                   }`}
                                   title={
                                     matchByTaskId[item.id].purchasePlan
@@ -1237,7 +1237,7 @@ export default function ListDetailGrocery({
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
                                     })} kr
-                                    {matchByTaskId[item.id].confidence !== "high" ? " ?" : ""}
+                                    {matchByTaskId[item.id].confidence === "low" ? " ?" : ""}
                                   </span>
                                   <StoreLogo chainId={selectedPricingSource.chain} className="h-4 w-auto max-w-12" />
                                 </div>
