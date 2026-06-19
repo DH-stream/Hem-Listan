@@ -99,7 +99,11 @@ export default function IcaStoreChoiceModal({
   return (
     <AnimatePresence>
       {open && (
-        <div className="absolute inset-0 z-10 flex items-end justify-center px-4 pb-6 sm:items-center sm:p-6">
+        <div
+          className={`absolute inset-0 z-10 flex justify-center px-4 sm:items-center sm:p-6 ${
+            step === "list" ? "items-start pb-4 pt-4" : "items-end pb-6"
+          }`}
+        >
           <motion.button
             type="button"
             aria-label="Stäng ICA-väljaren"
@@ -113,7 +117,9 @@ export default function IcaStoreChoiceModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="ica-store-choice-title"
-            className="relative w-full rounded-3xl border border-surface-container-high bg-surface p-4 shadow-2xl sm:max-w-sm"
+            className={`relative w-full rounded-3xl border border-surface-container-high bg-surface p-4 shadow-2xl sm:max-w-sm ${
+              step === "list" ? "flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden" : ""
+            }`}
             initial={{ y: 24, scale: 0.98, opacity: 0 }}
             animate={{ y: 0, scale: 1, opacity: 1 }}
             exit={{ y: 24, scale: 0.98, opacity: 0 }}
@@ -158,7 +164,7 @@ export default function IcaStoreChoiceModal({
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="flex min-h-0 flex-1 flex-col space-y-3">
                 <input
                   type="search"
                   className="w-full rounded-2xl border border-surface-container-high bg-surface-container-lowest px-4 py-3 font-sans text-sm text-on-surface outline-none transition placeholder:text-on-surface-variant focus:border-primary focus:bg-surface"
@@ -171,7 +177,7 @@ export default function IcaStoreChoiceModal({
                     Söker ICA-butiker…
                   </p>
                 )}
-                <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                   {!searchLoading && filteredStores.length > 0 ? (
                     filteredStores.map((store) => {
                       const active =

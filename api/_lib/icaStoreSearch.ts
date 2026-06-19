@@ -1,10 +1,11 @@
-import type { PricingSource } from "../../src/lib/pricing/sources";
-
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
 const ICA_STORE_CACHE_TTL_MS = 45 * 60 * 1000;
 
-export type IcaStoreSearchResult = PricingSource & {
+export type IcaStoreSearchResult = {
   chain: "ica";
+  storeId: string;
+  label: string;
+  storeUrl?: string;
   city?: string;
   address?: string;
   latitude?: number;
@@ -24,6 +25,7 @@ export type IcaStoreSearchDebug = {
   source: "ica_html" | "cache";
   fallbackUsed: boolean;
   cacheAgeMs?: number;
+  stage?: string;
   error?: string;
 };
 

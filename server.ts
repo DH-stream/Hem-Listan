@@ -17,6 +17,19 @@ import {
 
 const app = express();
 const PORT = 3000;
+const ICA_STORES_URL = "https://www.ica.se/butiker/";
+
+const createIcaStoreSearchFallbackDebug = (query: string, stage: string, error?: unknown) => ({
+  query,
+  upstreamUrl: ICA_STORES_URL,
+  parsedStoreCount: 0,
+  filteredStoreCount: 0,
+  firstParsedStores: [],
+  source: "ica_html" as const,
+  fallbackUsed: false,
+  stage,
+  ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+});
 
 app.use(express.json());
 
@@ -65,29 +78,13 @@ app.get(
     console.info("[ica-store-search] handler entered", { query });
 
     if (query.toLocaleLowerCase("sv-SE") === "healthcheck") {
-      const debug: IcaStoreSearchDebug = {
-        query,
-        upstreamUrl: "https://www.ica.se/butiker/",
-        parsedStoreCount: 0,
-        filteredStoreCount: 0,
-        firstParsedStores: [],
-        source: "cache",
-        fallbackUsed: false,
-      };
+      const debug = createIcaStoreSearchFallbackDebug(query, "healthcheck");
       console.info("[ica-store-search] healthcheck", debug);
-      return res.json({ stores: [], debug, healthcheck: true });
+      return res.json({ ok: true, stores: [], debug });
     }
 
     if (query.length < 2) {
-      const debug: IcaStoreSearchDebug = {
-        query,
-        upstreamUrl: "https://www.ica.se/butiker/",
-        parsedStoreCount: 0,
-        filteredStoreCount: 0,
-        firstParsedStores: [],
-        source: "cache",
-        fallbackUsed: false,
-      };
+      const debug = createIcaStoreSearchFallbackDebug(query, "short_query");
       console.info("[ica-store-search] skipped short query", debug);
       return res.json({ stores: [], debug });
     }
@@ -97,18 +94,9 @@ app.get(
       console.info("[ica-store-search] result", result.debug);
       return res.json(result);
     } catch (error) {
-      const debug: IcaStoreSearchDebug = {
-        query,
-        upstreamUrl: "https://www.ica.se/butiker/",
-        parsedStoreCount: 0,
-        filteredStoreCount: 0,
-        firstParsedStores: [],
-        source: "ica_html",
-        fallbackUsed: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      const debug: IcaStoreSearchDebug = createIcaStoreSearchFallbackDebug(query, "search_failed", error);
       console.error("[ica-store-search] failed", debug);
-      return res.status(502).json({ error: "ICA store search unavailable", stores: [], debug });
+      return res.status(200).json({ error: "ICA store search unavailable", stores: [], debug });
     }
   },
 );
