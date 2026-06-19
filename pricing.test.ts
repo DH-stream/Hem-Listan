@@ -22,9 +22,11 @@ import {
 } from "./src/lib/pricing/useBasketPriceEstimate";
 import {
   DEFAULT_PRICING_SOURCE,
+  filterSeededIcaStores,
   normalizePricingSource,
   resolveNearestIcaStore,
   SEEDED_ICA_STORES,
+  toPricingSource,
 } from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
 
@@ -773,13 +775,26 @@ test("seeded ICA stores are valid pricing sources", () => {
     assert.equal(store.chain, "ica");
     assert.match(store.storeId, /^\d+$/);
     assert.ok(store.label.trim());
-    assert.equal(normalizePricingSource(store), store);
+    assert.deepEqual(normalizePricingSource(store), toPricingSource(store));
   }
+});
+
+
+test("seeded ICA store filter matches manual search fields", () => {
+  assert.equal(filterSeededIcaStores("Frölunda")[0].storeId, "1003778");
+  assert.equal(filterSeededIcaStores("Nödinge")[0].storeId, "1003458");
+  assert.equal(filterSeededIcaStores("Grafiska Vägen")[0].storeId, "1004219");
+  assert.equal(filterSeededIcaStores("Mariatorget")[0].storeId, "1003988");
+  assert.equal(filterSeededIcaStores("Västra Götaland").length > 1, true);
+});
+
+test("seeded ICA store filter returns an empty list for unmatched query", () => {
+  assert.deepEqual(filterSeededIcaStores("ingen-butik-matchar-detta"), []);
 });
 
 test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
   const ica = await resolveNearestIcaStore();
-  assert.equal(ica, SEEDED_ICA_STORES[0]);
+  assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
   assert.equal(ica.chain, "ica");
   assert.match(ica.storeId, /^\d+$/);
   assert.ok(ica.label.trim());

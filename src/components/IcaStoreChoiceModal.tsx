@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import {
+  filterSeededIcaStores,
   resolveNearestIcaStore,
-  SEEDED_ICA_STORES,
+  toPricingSource,
   type PricingSource,
+  type SeededIcaStore,
 } from "../lib/pricing/sources";
 
 interface IcaStoreChoiceModalProps {
@@ -26,15 +28,7 @@ export default function IcaStoreChoiceModal({
   const [storeQuery, setStoreQuery] = useState("");
   const [resolvingNearest, setResolvingNearest] = useState(false);
 
-  const filteredStores = useMemo(() => {
-    const normalizedQuery = storeQuery.trim().toLocaleLowerCase("sv-SE");
-    if (!normalizedQuery) return SEEDED_ICA_STORES;
-    return SEEDED_ICA_STORES.filter((store) =>
-      [store.label, store.storeId, store.storeUrl]
-        .filter(Boolean)
-        .some((value) => value.toLocaleLowerCase("sv-SE").includes(normalizedQuery)),
-    );
-  }, [storeQuery]);
+  const filteredStores = filterSeededIcaStores(storeQuery);
 
   const handleClose = () => {
     setStep("choice");
@@ -45,7 +39,11 @@ export default function IcaStoreChoiceModal({
   const handleSelect = (source: PricingSource) => {
     setStep("choice");
     setStoreQuery("");
-    onSelect(source);
+    onSelect(toPricingSource(source));
+  };
+
+  const handleStoreSelect = (store: SeededIcaStore) => {
+    handleSelect(store);
   };
 
   const handleNearest = async () => {
@@ -142,7 +140,7 @@ export default function IcaStoreChoiceModal({
                               ? "border-primary bg-primary/10"
                               : "border-surface-container-high bg-surface-container-lowest hover:bg-surface-container-low"
                           }`}
-                          onClick={() => handleSelect(store)}
+                          onClick={() => handleStoreSelect(store)}
                         >
                           <StoreLogo chainId="ica" className="h-8 w-14" />
                           <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
