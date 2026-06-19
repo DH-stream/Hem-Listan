@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
+import IcaStoreChoiceModal from "./IcaStoreChoiceModal";
 import { PRICING_SOURCES, type PricingSource } from "../lib/pricing/sources";
 
 interface PricingSourceSheetProps {
@@ -15,6 +17,26 @@ export default function PricingSourceSheet({
   onSelect,
   onClose,
 }: PricingSourceSheetProps) {
+  const [icaStoreChoiceOpen, setIcaStoreChoiceOpen] = useState(false);
+
+  const handleClose = () => {
+    setIcaStoreChoiceOpen(false);
+    onClose();
+  };
+
+  const handleSelect = (source: PricingSource) => {
+    if (source.chain === "ica") {
+      setIcaStoreChoiceOpen(true);
+      return;
+    }
+    onSelect(source);
+  };
+
+  const handleIcaStoreSelect = (source: PricingSource) => {
+    setIcaStoreChoiceOpen(false);
+    onSelect(source);
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -26,7 +48,7 @@ export default function PricingSourceSheet({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
           />
           <motion.div
             role="dialog"
@@ -42,7 +64,7 @@ export default function PricingSourceSheet({
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h2 id="pricing-source-title" className="font-display text-lg font-bold text-on-surface">
-                  Välj butik
+                  Välj priskälla
                 </h2>
                 <p className="mt-1 text-sm text-on-surface-variant">
                   Välj priskälla för den här enheten.
@@ -52,7 +74,7 @@ export default function PricingSourceSheet({
                 type="button"
                 className="rounded-full p-2 text-on-surface-variant hover:bg-surface-container"
                 aria-label="Stäng"
-                onClick={onClose}
+                onClick={handleClose}
               >
                 ×
               </button>
@@ -70,7 +92,7 @@ export default function PricingSourceSheet({
                         ? "border-primary bg-primary/10"
                         : "border-surface-container-high bg-surface-container-lowest hover:bg-surface-container-low"
                     }`}
-                    onClick={() => onSelect(source)}
+                    onClick={() => handleSelect(source)}
                   >
                     <StoreLogo chainId={source.chain} className="h-8 w-14" />
                     <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
@@ -81,6 +103,12 @@ export default function PricingSourceSheet({
                 );
               })}
             </div>
+            <IcaStoreChoiceModal
+              open={icaStoreChoiceOpen}
+              selectedSource={selectedSource}
+              onSelect={handleIcaStoreSelect}
+              onClose={() => setIcaStoreChoiceOpen(false)}
+            />
           </motion.div>
         </div>
       )}

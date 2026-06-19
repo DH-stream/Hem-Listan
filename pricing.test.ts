@@ -20,7 +20,11 @@ import {
   selectActiveBasketEstimate,
   writeBasketPricingCache,
 } from "./src/lib/pricing/useBasketPriceEstimate";
-import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
+import {
+  DEFAULT_PRICING_SOURCE,
+  normalizePricingSource,
+  resolveNearestIcaStore,
+} from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
 
 const products: ProductPrice[] = [
@@ -329,6 +333,10 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.notEqual(
     createBasketPricingCacheKey("city_gross", "public", "list-1", first),
     createBasketPricingCacheKey("ica", "1004392", "list-1", first),
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", "1004392", "list-1", first),
+    createBasketPricingCacheKey("ica", "12345", "list-1", first),
   );
   assert.notEqual(
     first,
@@ -713,12 +721,56 @@ test("low-coverage ICA basket cache becomes stale after 60 seconds", () => {
   );
 });
 
-test("pricing source defaults to City Gross and normalizes ICA", () => {
+test("pricing source accepts static City Gross", () => {
   assert.equal(DEFAULT_PRICING_SOURCE.chain, "city_gross");
+  const cityGross = normalizePricingSource({ chain: "city_gross", storeId: "public" });
+  assert.equal(cityGross.chain, "city_gross");
+  assert.equal(cityGross.storeId, "public");
+  assert.equal(cityGross.label, "City Gross");
+});
+
+test("pricing source accepts static ICA", () => {
   const ica = normalizePricingSource({ chain: "ica", storeId: "1004392" });
   assert.equal(ica.chain, "ica");
   assert.equal(ica.storeId, "1004392");
   assert.equal(ica.label, "ICA Maxi Kungälv");
+});
+
+test("pricing source accepts dynamic ICA store with numeric store id and label", () => {
+  const ica = normalizePricingSource({
+    chain: "ica",
+    storeId: "12345",
+    label: "ICA Nära Test",
+    storeUrl: "https://example.test/ica/12345",
+  });
+  assert.equal(ica.chain, "ica");
+  assert.equal(ica.storeId, "12345");
+  assert.equal(ica.label, "ICA Nära Test");
+  assert.equal(ica.storeUrl, "https://example.test/ica/12345");
+});
+
+test("pricing source defaults ICA store url when missing", () => {
+  const ica = normalizePricingSource({
+    chain: "ica",
+    storeId: "98765",
+    label: "ICA Supermarket Test",
+  });
+  assert.equal(ica.storeUrl, "https://handlaprivatkund.ica.se/stores/98765");
+});
+
+test("pricing source rejects invalid ICA sources", () => {
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "abc", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "12345" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "unknown", storeId: "12345", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource(null), DEFAULT_PRICING_SOURCE);
+});
+
+test("nearest ICA resolver returns a valid ICA pricing source", async () => {
+  const ica = await resolveNearestIcaStore();
+  assert.equal(ica.chain, "ica");
+  assert.match(ica.storeId, /^\d+$/);
+  assert.ok(ica.label.trim());
 });
 
 test("store logo helper resolves City Gross and ICA logos", () => {
