@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import IcaStoreChoiceModal from "./IcaStoreChoiceModal";
-import { PRICING_SOURCES, type PricingSource } from "../lib/pricing/sources";
+import { DEFAULT_CITY_GROSS_STORE_ID, SEEDED_ICA_STORES, type PricingSource } from "../lib/pricing/sources";
 
 interface PricingSourceSheetProps {
   open: boolean;
@@ -80,7 +80,19 @@ export default function PricingSourceSheet({
               </button>
             </div>
             <div className="space-y-2">
-              {PRICING_SOURCES.map((source) => {
+              {[
+                {
+                  chain: "city_gross" as const,
+                  storeId: DEFAULT_CITY_GROSS_STORE_ID,
+                  label: "City Gross",
+                },
+                {
+                  chain: "ica" as const,
+                  storeId:
+                    selectedSource.chain === "ica" ? selectedSource.storeId : SEEDED_ICA_STORES[0].storeId,
+                  label: "ICA",
+                },
+              ].map((source) => {
                 const active =
                   source.chain === selectedSource.chain && source.storeId === selectedSource.storeId;
                 return (
@@ -96,7 +108,12 @@ export default function PricingSourceSheet({
                   >
                     <StoreLogo chainId={source.chain} className="h-8 w-14" />
                     <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
-                      {source.label}
+                      <span className="block">{source.label}</span>
+                      {source.chain === "ica" && selectedSource.chain === "ica" && (
+                        <span className="mt-0.5 block text-xs font-normal text-on-surface-variant">
+                          Vald butik: {selectedSource.label}
+                        </span>
+                      )}
                     </span>
                     {active && <span className="text-sm font-bold text-primary">Vald</span>}
                   </button>

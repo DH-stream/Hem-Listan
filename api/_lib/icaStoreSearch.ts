@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { PricingSource } from "../../src/lib/pricing/sources";
 
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
+const ICA_STORE_CACHE_TTL_MS = 45 * 60 * 1000;
 
 export type IcaStoreSearchResult = PricingSource & {
   chain: "ica";
@@ -11,6 +14,27 @@ export type IcaStoreSearchResult = PricingSource & {
 };
 
 type FetchLike = typeof fetch;
+const execFileAsync = promisify(execFile);
+
+export type IcaStoreSearchDebug = {
+  query: string;
+  upstreamUrl: string;
+  upstreamStatus?: number;
+  htmlLength?: number;
+  parsedStoreCount: number;
+  filteredStoreCount: number;
+  firstParsedStores: Array<Pick<IcaStoreSearchResult, "storeId" | "label" | "city" | "address">>;
+  source: "ica_html" | "cache";
+  fallbackUsed: boolean;
+  cacheAgeMs?: number;
+  upstreamTransport?: "fetch" | "curl";
+  error?: string;
+};
+
+export type IcaStoreSearchResponse = {
+  stores: IcaStoreSearchResult[];
+  debug: IcaStoreSearchDebug;
+};
 
 type RawIcaStore = {
   accountNumber?: unknown;
@@ -18,6 +42,12 @@ type RawIcaStore = {
   address?: { street?: unknown; city?: unknown };
   lat?: unknown;
   lng?: unknown;
+};
+
+let storeCache: { stores: IcaStoreSearchResult[]; fetchedAt: number } | null = null;
+
+export const clearIcaStoreSearchCacheForTests = () => {
+  storeCache = null;
 };
 
 const normalizeSearchValue = (value: string): string =>
@@ -142,19 +172,120 @@ export const filterIcaStoreSearchResults = (
     .map((result) => result.store);
 };
 
+const createDebug = (
+  query: string,
+  stores: IcaStoreSearchResult[],
+  filtered: IcaStoreSearchResult[],
+  details: Partial<IcaStoreSearchDebug> = {},
+): IcaStoreSearchDebug => ({
+  query,
+  upstreamUrl: ICA_STORES_URL,
+  parsedStoreCount: stores.length,
+  filteredStoreCount: filtered.length,
+  firstParsedStores: stores.slice(0, 5).map((store) => ({
+    storeId: store.storeId,
+    label: store.label,
+    city: store.city,
+    address: store.address,
+  })),
+  source: "ica_html",
+  fallbackUsed: false,
+  ...details,
+});
+
+const filterAndBuildResponse = (
+  query: string,
+  stores: IcaStoreSearchResult[],
+  details: Partial<IcaStoreSearchDebug>,
+): IcaStoreSearchResponse => {
+  const filtered = filterIcaStoreSearchResults(stores, query).slice(0, 20);
+  return {
+    stores: filtered,
+    debug: createDebug(query, stores, filtered, details),
+  };
+};
+
+const fetchIcaStoresHtml = async (
+  fetchImpl: FetchLike,
+  allowCurlFallback: boolean,
+): Promise<{ html: string; status: number; transport: "fetch" | "curl" }> => {
+  try {
+    const response = await fetchImpl(ICA_STORES_URL, {
+      headers: { "user-agent": "Hem-Listan ICA store search" },
+    });
+    const html = await response.text();
+    if (!response.ok) throw new Error(`ICA store search failed: ${response.status}`);
+    return { html, status: response.status, transport: "fetch" };
+  } catch (error) {
+    if (!allowCurlFallback) throw error;
+    const { stdout } = await execFileAsync(
+      "curl",
+      [
+        "-L",
+        "-sS",
+        "-A",
+        "Hem-Listan ICA store search",
+        "-w",
+        "\n%{http_code}",
+        ICA_STORES_URL,
+      ],
+      { maxBuffer: 5 * 1024 * 1024 },
+    );
+    const statusSeparatorIndex = stdout.lastIndexOf("\n");
+    const html = stdout.slice(0, statusSeparatorIndex);
+    const status = Number(stdout.slice(statusSeparatorIndex + 1));
+    if (!Number.isFinite(status) || status < 200 || status >= 300) {
+      throw new Error(`ICA store search curl fallback failed: ${status || "unknown"}`);
+    }
+    return { html, status, transport: "curl" };
+  }
+};
+
+export async function searchIcaStoresWithDebug(
+  query: string,
+  options: { fetchImpl?: FetchLike; now?: number } = {},
+): Promise<IcaStoreSearchResponse> {
+  const normalizedQuery = query.trim();
+  const now = options.now ?? Date.now();
+  if (normalizedQuery.length < 2) {
+    return filterAndBuildResponse(normalizedQuery, [], { source: "cache" });
+  }
+
+  if (storeCache && now - storeCache.fetchedAt < ICA_STORE_CACHE_TTL_MS) {
+    return filterAndBuildResponse(normalizedQuery, storeCache.stores, {
+      source: "cache",
+      cacheAgeMs: now - storeCache.fetchedAt,
+    });
+  }
+
+  const hasCustomFetch = Boolean(options.fetchImpl);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const { html, status, transport } = await fetchIcaStoresHtml(fetchImpl, !hasCustomFetch);
+    const stores = parseIcaStoresFromHtml(html);
+    storeCache = { stores, fetchedAt: now };
+    return filterAndBuildResponse(normalizedQuery, stores, {
+      upstreamStatus: status,
+      htmlLength: html.length,
+      upstreamTransport: transport,
+      source: "ica_html",
+    });
+  } catch (error) {
+    if (storeCache) {
+      return filterAndBuildResponse(normalizedQuery, storeCache.stores, {
+        source: "cache",
+        fallbackUsed: true,
+        cacheAgeMs: now - storeCache.fetchedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
+  }
+}
+
 export async function searchIcaStores(
   query: string,
-  options: { fetchImpl?: FetchLike } = {},
+  options: { fetchImpl?: FetchLike; now?: number } = {},
 ): Promise<IcaStoreSearchResult[]> {
-  const normalizedQuery = query.trim();
-  if (normalizedQuery.length < 2) return [];
-
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const response = await fetchImpl(ICA_STORES_URL, {
-    headers: { "user-agent": "Hem-Listan ICA store search" },
-  });
-  if (!response.ok) throw new Error(`ICA store search failed: ${response.status}`);
-
-  const html = await response.text();
-  return filterIcaStoreSearchResults(parseIcaStoresFromHtml(html), normalizedQuery).slice(0, 20);
+  return (await searchIcaStoresWithDebug(query, options)).stores;
 }

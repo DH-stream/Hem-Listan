@@ -6,7 +6,6 @@ import {
   resolveNearestIcaStore,
   toPricingSource,
   type PricingSource,
-  type SeededIcaStore,
 } from "../lib/pricing/sources";
 import { searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
 
@@ -69,7 +68,11 @@ export default function IcaStoreChoiceModal({
         .then((stores) => {
           if (!cancelled) setDynamicStores(stores);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          console.warn("[ica-store-search] using seeded fallback", {
+            query,
+            error: error instanceof Error ? error.message : String(error),
+          });
           if (!cancelled) setDynamicStores(null);
         })
         .finally(() => {
@@ -186,7 +189,12 @@ export default function IcaStoreChoiceModal({
                         >
                           <StoreLogo chainId="ica" className="h-8 w-14" />
                           <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
-                            {store.label}
+                            <span className="block">{store.label}</span>
+                            {(store.city || store.address) && (
+                              <span className="mt-0.5 block text-xs font-normal text-on-surface-variant">
+                                {[store.city, store.address].filter(Boolean).join(" · ")}
+                              </span>
+                            )}
                           </span>
                           {active && <span className="text-sm font-bold text-primary">Vald</span>}
                         </button>

@@ -52,10 +52,35 @@ export const seededStoreToSearchResult = (store: SeededIcaStore): IcaStoreSearch
 
 export async function searchIcaStores(query: string): Promise<IcaStoreSearchResult[]> {
   const response = await fetch(`/api/ica/stores/search?q=${encodeURIComponent(query)}`);
-  if (!response.ok) throw new Error("ICA store search unavailable");
+  if (!response.ok) {
+    let errorPayload: unknown = null;
+    try {
+      errorPayload = await response.clone().json();
+    } catch {
+      errorPayload = null;
+    }
+    console.warn("[ica-store-search] API request failed", {
+      query,
+      status: response.status,
+      payload: errorPayload,
+    });
+    throw new Error("ICA store search unavailable");
+  }
   const payload: unknown = await response.json();
   if (!isRecord(payload) || !Array.isArray(payload.stores)) return [];
-  return payload.stores
+  const stores = payload.stores
     .map(normalizeIcaStoreSearchResult)
     .filter((store): store is IcaStoreSearchResult => Boolean(store));
+  console.info("[ica-store-search] API result", {
+    query,
+    resultCount: stores.length,
+    firstResults: stores.slice(0, 5).map((store) => ({
+      storeId: store.storeId,
+      label: store.label,
+      city: store.city,
+      address: store.address,
+    })),
+    debug: payload.debug,
+  });
+  return stores;
 }

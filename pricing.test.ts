@@ -30,9 +30,11 @@ import {
 } from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
 import {
+  clearIcaStoreSearchCacheForTests,
   filterIcaStoreSearchResults,
   parseIcaStoresFromHtml,
   searchIcaStores as searchIcaStoresFromIca,
+  searchIcaStoresWithDebug,
 } from "./api/_lib/icaStoreSearch";
 import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
 
@@ -852,6 +854,7 @@ test("normalizes dynamic ICA store search results", () => {
 });
 
 test("ICA store search parses and filters dynamic city results", async () => {
+  clearIcaStoreSearchCacheForTests();
   const html = `
     <script>window.state={"stores":[
       {"storeId":"1","accountNumber":"1004888","storeName":"ICA Supermarket Örnsköldsvik","address":{"street":"Storgatan 1","city":"Örnsköldsvik"},"lat":"63.29","lng":"18.71"},
@@ -866,6 +869,42 @@ test("ICA store search parses and filters dynamic city results", async () => {
     fetchImpl: async () => new Response(html),
   });
   assert.equal(results[0].storeId, "1004888");
+});
+
+test("ICA store search returns debug data and reuses parsed store cache", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const html = `
+    <script>window.state={"stores":[
+      {"accountNumber":"1004048","storeName":"ICA Supermarket Knalleland","address":{"street":"Bergslenagatan 7","city":"Borås"}},
+      {"accountNumber":"1003722","storeName":"Maxi ICA Stormarknad Borås","address":{"street":"Trandögatan 16","city":"Borås"}}
+    ]};</script>
+  `;
+  let fetchCount = 0;
+  const fetchImpl = async () => {
+    fetchCount += 1;
+    return new Response(html, { status: 200 });
+  };
+
+  const first = await searchIcaStoresWithDebug("Borås", { fetchImpl, now: 1_000 });
+  assert.equal(first.stores.length, 2);
+  assert.equal(first.debug.upstreamStatus, 200);
+  assert.equal(first.debug.htmlLength, html.length);
+  assert.equal(first.debug.parsedStoreCount, 2);
+  assert.equal(first.debug.filteredStoreCount, 2);
+  assert.equal(first.debug.source, "ica_html");
+  assert.equal(first.debug.fallbackUsed, false);
+  assert.deepEqual(first.debug.firstParsedStores.map((store) => store.storeId), ["1004048", "1003722"]);
+
+  const second = await searchIcaStoresWithDebug("Borås", {
+    fetchImpl: async () => {
+      throw new Error("cache should prevent refetch");
+    },
+    now: 2_000,
+  });
+  assert.equal(fetchCount, 1);
+  assert.equal(second.stores.length, 2);
+  assert.equal(second.debug.source, "cache");
+  assert.equal(second.debug.cacheAgeMs, 1_000);
 });
 
 
