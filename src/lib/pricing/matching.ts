@@ -65,6 +65,16 @@ const editDistance = (left: string, right: string) => {
   return previous[right.length];
 };
 
+const confidenceDescriptorWords = new Set([
+  "rimmat",
+  "rimmad",
+  "rokt",
+  "skivad",
+  "skivat",
+  "farsk",
+  "farskt",
+]);
+
 const confidenceFor = (
   query: string,
   candidate: string,
@@ -79,6 +89,26 @@ const confidenceFor = (
   const queryWords = query.split(" ");
   const candidateWords = new Set(candidate.split(" "));
   if (queryWords.every((word) => candidateWords.has(word))) return "medium";
+
+  const essentialQueryWords = queryWords.filter(
+    (word) => !confidenceDescriptorWords.has(word),
+  );
+  const candidateWordList = Array.from(candidateWords);
+  if (
+    essentialQueryWords.length > 0 &&
+    essentialQueryWords.every(
+      (word) =>
+        candidateWords.has(word) ||
+        (word.length >= 4 &&
+          candidateWordList.some(
+            (candidateWord) =>
+              candidateWord.length > word.length + 2 &&
+              candidateWord.endsWith(word),
+          )),
+    )
+  ) {
+    return "medium";
+  }
 
   if (
     maxLength >= 5 &&
