@@ -35,6 +35,16 @@ export const SEEDED_ICA_STORES: SeededIcaStore[] = [
   },
   {
     chain: "ica",
+    storeId: "1004426",
+    label: "ICA Nära Skafferiet",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004426",
+    city: "Kungälv",
+    address: "Ivar Claessonsgatan 34",
+    region: "Västra Götaland",
+    aliases: ["Skafferiet", "ICA Skafferiet", "ICA Nära Kungälv", "Kungälv"],
+  },
+  {
+    chain: "ica",
     storeId: "1004219",
     label: "Maxi ICA Stormarknad Göteborg",
     storeUrl: "https://handlaprivatkund.ica.se/stores/1004219",
@@ -119,15 +129,40 @@ const isValidIcaStoreId = (storeId: string): boolean => /^\d+$/.test(storeId.tri
 const buildIcaStoreUrl = (storeId: string): string =>
   `https://handlaprivatkund.ica.se/stores/${storeId}`;
 
+const normalizeStoreSearchValue = (value: string): string =>
+  value.trim().toLocaleLowerCase("sv-SE");
+
+const getSeededIcaStoreSearchRank = (store: SeededIcaStore, query: string): number => {
+  const label = normalizeStoreSearchValue(store.label);
+  const city = store.city ? normalizeStoreSearchValue(store.city) : "";
+  const address = store.address ? normalizeStoreSearchValue(store.address) : "";
+  const region = store.region ? normalizeStoreSearchValue(store.region) : "";
+  const aliases = store.aliases?.map(normalizeStoreSearchValue) ?? [];
+
+  if (city === query) return 100;
+  if (aliases.some((alias) => alias === query)) return 90;
+  if (label === query) return 85;
+  if (label.includes(query)) return 80;
+  if (aliases.some((alias) => alias.includes(query))) return 70;
+  if (city.includes(query)) return 65;
+  if (address.includes(query)) return 50;
+  if (region.includes(query)) return 10;
+
+  return 0;
+};
+
 export const filterSeededIcaStores = (query: string): SeededIcaStore[] => {
-  const normalizedQuery = query.trim().toLocaleLowerCase("sv-SE");
+  const normalizedQuery = normalizeStoreSearchValue(query);
   if (!normalizedQuery) return SEEDED_ICA_STORES;
 
-  return SEEDED_ICA_STORES.filter((store) =>
-    [store.label, store.city, store.address, store.region, ...(store.aliases ?? [])].some((value) =>
-      value?.toLocaleLowerCase("sv-SE").includes(normalizedQuery),
-    ),
-  );
+  return SEEDED_ICA_STORES.map((store, index) => ({
+    index,
+    rank: getSeededIcaStoreSearchRank(store, normalizedQuery),
+    store,
+  }))
+    .filter((result) => result.rank > 0)
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .map((result) => result.store);
 };
 
 export async function resolveNearestIcaStore(): Promise<PricingSource> {

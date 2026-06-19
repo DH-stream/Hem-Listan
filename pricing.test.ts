@@ -780,12 +780,32 @@ test("seeded ICA stores are valid pricing sources", () => {
 });
 
 
+test("seeded ICA store filter ranks city matches before broad regional matches", () => {
+  const results = filterSeededIcaStores("kungälv");
+  const storeIds = results.map((store) => store.storeId);
+  const maxiIndex = storeIds.indexOf("1004392");
+  const skafferietIndex = storeIds.indexOf("1004426");
+  const gothenburgIndex = storeIds.indexOf("1004219");
+
+  assert.notEqual(maxiIndex, -1);
+  assert.notEqual(skafferietIndex, -1);
+  assert.ok(gothenburgIndex === -1 || maxiIndex < gothenburgIndex);
+  assert.ok(gothenburgIndex === -1 || skafferietIndex < gothenburgIndex);
+});
+
 test("seeded ICA store filter matches manual search fields", () => {
+  assert.equal(filterSeededIcaStores("skafferiet")[0].storeId, "1004426");
+  assert.equal(filterSeededIcaStores("ivar claessonsgatan")[0].storeId, "1004426");
   assert.equal(filterSeededIcaStores("Frölunda")[0].storeId, "1003778");
   assert.equal(filterSeededIcaStores("Nödinge")[0].storeId, "1003458");
   assert.equal(filterSeededIcaStores("Grafiska Vägen")[0].storeId, "1004219");
   assert.equal(filterSeededIcaStores("Mariatorget")[0].storeId, "1003988");
-  assert.equal(filterSeededIcaStores("Västra Götaland").length > 1, true);
+});
+
+test("seeded ICA store filter supports broad regional matches", () => {
+  const results = filterSeededIcaStores("Västra Götaland");
+  assert.equal(results.length > 1, true);
+  assert.ok(results.every((store) => store.region === "Västra Götaland"));
 });
 
 test("seeded ICA store filter returns an empty list for unmatched query", () => {
