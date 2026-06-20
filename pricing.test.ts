@@ -955,7 +955,7 @@ test("nearest physical store is skipped when price probe fails and next price-ca
   assert.equal(repeated.debug.geocodeCacheHitCount, 2);
 });
 
-test("nearest ICA pipeline returns no store so seeded fallback remains final fallback", async () => {
+test("nearest ICA pipeline returns null so manual search can handle failure", async () => {
   clearIcaStoreSearchCacheForTests();
   const { fetchImpl } = createNearestStoreFetch();
 
@@ -977,7 +977,7 @@ test("nearest ICA pipeline returns no store so seeded fallback remains final fal
 
   try {
     const ica = await resolveNearestIcaStore({ latitude: 57.721, longitude: 12.94 });
-    assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
+    assert.equal(ica, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -995,7 +995,7 @@ test("nearest ICA resolver returns the default seeded ICA pricing source", async
   assert.ok(ica.label.trim());
 });
 
-test("nearest ICA resolver falls back when nearest API returns no store", async () => {
+test("nearest ICA resolver returns null when nearest API returns no store", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ store: null, stores: [], debug: { fallbackUsed: false } }), {
@@ -1005,7 +1005,7 @@ test("nearest ICA resolver falls back when nearest API returns no store", async 
 
   try {
     const ica = await resolveNearestIcaStore({ latitude: 57.7089, longitude: 11.9746 });
-    assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
+    assert.equal(ica, null);
   } finally {
     globalThis.fetch = originalFetch;
   }

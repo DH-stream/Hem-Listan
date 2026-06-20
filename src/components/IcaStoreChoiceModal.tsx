@@ -3,18 +3,18 @@ import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import {
   filterSeededIcaStores,
-  resolveNearestIcaStore,
   toPricingSource,
   type PricingSource,
 } from "../lib/pricing/sources";
 import { getCurrentUserPosition } from "../lib/pricing/geolocation";
-import { searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
+import { findNearestIcaStore, searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
 
 interface IcaStoreChoiceModalProps {
   open: boolean;
   selectedSource: PricingSource;
   onSelect: (source: PricingSource) => void;
   onClose: () => void;
+  onToast?: (message: string) => void;
 }
 
 type IcaStep = "choice" | "list";
@@ -29,6 +29,7 @@ export default function IcaStoreChoiceModal({
   selectedSource,
   onSelect,
   onClose,
+  onToast,
 }: IcaStoreChoiceModalProps) {
   const [step, setStep] = useState<IcaStep>("choice");
   const [storeQuery, setStoreQuery] = useState("");
@@ -101,17 +102,39 @@ export default function IcaStoreChoiceModal({
     };
   }, [step, storeQuery]);
 
+  const openManualSearchAfterNearestFailure = () => {
+    setStep("list");
+    setStoreQuery("");
+    setDynamicStores(null);
+    onToast?.("Kunde inte hitta närmaste ICA. Sök efter butik istället.");
+  };
+
   const handleNearest = async () => {
     if (resolvingNearest) return;
     setResolvingNearest(true);
+    console.info("[ica-store-nearest] requesting browser geolocation");
     try {
       const coords = await getCurrentUserPosition();
-      handleSelect(await resolveNearestIcaStore(coords));
+      console.info("[ica-store-nearest] browser geolocation resolved", coords);
+      const nearest = await findNearestIcaStore(coords);
+
+      if (nearest) {
+        console.info("[ica-store-nearest] selected nearest store", {
+          storeId: nearest.storeId,
+          label: nearest.label,
+        });
+        onToast?.(`${nearest.label} valdes baserat på din plats`);
+        handleSelect(nearest);
+        return;
+      }
+
+      console.warn("[ica-store-nearest] no usable nearest store, opening manual search");
+      openManualSearchAfterNearestFailure();
     } catch (error) {
-      console.warn("[ica-store-nearest] geolocation failed; using seeded fallback", {
+      console.warn("[ica-store-nearest] nearest/geolocation failed, opening manual search", {
         error: error instanceof Error ? error.message : String(error),
       });
-      handleSelect(await resolveNearestIcaStore());
+      openManualSearchAfterNearestFailure();
     } finally {
       setResolvingNearest(false);
     }

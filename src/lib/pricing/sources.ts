@@ -167,15 +167,16 @@ export const filterSeededIcaStores = (query: string): SeededIcaStore[] => {
     .map((result) => result.store);
 };
 
-export async function resolveNearestIcaStore(coords?: UserCoordinates): Promise<PricingSource> {
+export async function resolveNearestIcaStore(coords?: UserCoordinates): Promise<PricingSource | null> {
   if (coords) {
     try {
       const nearestStore = await findNearestIcaStore(coords);
-      if (nearestStore) return toPricingSource(nearestStore);
+      return nearestStore ? toPricingSource(nearestStore) : null;
     } catch (error) {
-      console.warn("[ica-store-nearest] using seeded fallback", {
+      console.warn("[ica-store-nearest] nearest lookup failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      return null;
     }
   }
 
