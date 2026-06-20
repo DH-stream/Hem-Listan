@@ -120,13 +120,13 @@ export default function PricingSourceSheet({
                 );
               })}
             </div>
-            <IcaStoreChoiceModal
-              open={icaStoreChoiceOpen}
-              selectedSource={selectedSource}
-              onSelect={handleIcaStoreSelect}
-              onClose={() => setIcaStoreChoiceOpen(false)}
-            />
           </motion.div>
+          <IcaStoreChoiceModal
+            open={icaStoreChoiceOpen}
+            selectedSource={selectedSource}
+            onSelect={handleIcaStoreSelect}
+            onClose={() => setIcaStoreChoiceOpen(false)}
+          />
         </div>
       )}
     </AnimatePresence>

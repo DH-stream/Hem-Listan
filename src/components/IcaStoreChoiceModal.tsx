@@ -114,7 +114,7 @@ export default function IcaStoreChoiceModal({
     <AnimatePresence>
       {open && (
         <div
-          className="absolute inset-0 z-10 flex items-end justify-center overflow-y-auto overscroll-none px-4 pb-6 pt-4 sm:items-center sm:p-6"
+          className="fixed inset-0 z-10 flex items-end justify-center overflow-y-auto overscroll-none px-4 pb-6 pt-4 sm:items-center sm:p-6"
         >
           <motion.button
             type="button"
