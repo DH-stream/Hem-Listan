@@ -8,6 +8,10 @@
     },
     "api/ica/stores/search.ts": {
       "includeFiles": "api/_lib/**"
+    },
+    "api/ica/stores/nearest.ts": {
+      "includeFiles": "api/_lib/**",
+      "maxDuration": 10
     }
   },
   "rewrites": [

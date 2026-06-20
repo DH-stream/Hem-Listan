@@ -7,6 +7,7 @@ import {
   toPricingSource,
   type PricingSource,
 } from "../lib/pricing/sources";
+import { getCurrentUserPosition } from "../lib/pricing/geolocation";
 import { searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
 
 interface IcaStoreChoiceModalProps {
@@ -104,6 +105,12 @@ export default function IcaStoreChoiceModal({
     if (resolvingNearest) return;
     setResolvingNearest(true);
     try {
+      const coords = await getCurrentUserPosition();
+      handleSelect(await resolveNearestIcaStore(coords));
+    } catch (error) {
+      console.warn("[ica-store-nearest] geolocation failed; using seeded fallback", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       handleSelect(await resolveNearestIcaStore());
     } finally {
       setResolvingNearest(false);

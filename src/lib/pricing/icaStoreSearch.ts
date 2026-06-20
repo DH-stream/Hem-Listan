@@ -1,4 +1,5 @@
 import type { PricingSource, SeededIcaStore } from "./sources";
+import type { UserCoordinates } from "./geolocation";
 
 export type IcaStoreSearchResult = PricingSource & {
   chain: "ica";
@@ -83,4 +84,25 @@ export async function searchIcaStores(query: string): Promise<IcaStoreSearchResu
     debug: payload.debug,
   });
   return stores;
+}
+
+
+export async function findNearestIcaStore(coords: UserCoordinates): Promise<IcaStoreSearchResult | null> {
+  const query = new URLSearchParams({
+    lat: String(coords.latitude),
+    lng: String(coords.longitude),
+  });
+  const response = await fetch(`/api/ica/stores/nearest?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error("ICA nearest store unavailable");
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) return null;
+  const store = normalizeIcaStoreSearchResult(payload.store);
+  console.info("[ica-store-nearest] API result", {
+    selectedStoreId: store?.storeId,
+    selectedLabel: store?.label,
+    debug: payload.debug,
+  });
+  return store;
 }

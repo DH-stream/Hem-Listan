@@ -1,3 +1,5 @@
+import { findNearestIcaStore } from "./icaStoreSearch";
+import type { UserCoordinates } from "./geolocation";
 import type { GroceryChainId } from "./types";
 
 export type PricingChain = "city_gross" | "ica";
@@ -165,7 +167,18 @@ export const filterSeededIcaStores = (query: string): SeededIcaStore[] => {
     .map((result) => result.store);
 };
 
-export async function resolveNearestIcaStore(): Promise<PricingSource> {
+export async function resolveNearestIcaStore(coords?: UserCoordinates): Promise<PricingSource> {
+  if (coords) {
+    try {
+      const nearestStore = await findNearestIcaStore(coords);
+      if (nearestStore) return toPricingSource(nearestStore);
+    } catch (error) {
+      console.warn("[ica-store-nearest] using seeded fallback", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return toPricingSource(SEEDED_ICA_STORES[0]);
 }
 

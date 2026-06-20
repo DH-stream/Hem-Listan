@@ -35,8 +35,11 @@ import {
   parseIcaStoresFromHtml,
   searchIcaStores as searchIcaStoresFromIca,
   searchIcaStoresWithDebug,
+  distanceKm,
+  rankIcaStoresByDistance,
 } from "./api/_lib/icaStoreSearch";
 import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
+import { getCurrentUserPosition } from "./src/lib/pricing/geolocation";
 
 const products: ProductPrice[] = [
   {
@@ -824,6 +827,33 @@ test("seeded ICA store filter returns an empty list for unmatched query", () => 
   assert.deepEqual(filterSeededIcaStores("ingen-butik-matchar-detta"), []);
 });
 
+test("Haversine distance helper measures distance in kilometers", () => {
+  const distance = distanceKm(
+    { latitude: 57.7089, longitude: 11.9746 },
+    { latitude: 59.3293, longitude: 18.0686 },
+  );
+
+  assert.ok(distance > 395);
+  assert.ok(distance < 405);
+});
+
+test("nearest ICA distance ranking picks closest store and ignores stores without coordinates", () => {
+  const ranked = rankIcaStoresByDistance(
+    [
+      { chain: "ica", storeId: "1", label: "Far", latitude: 59.3293, longitude: 18.0686 },
+      { chain: "ica", storeId: "2", label: "No coordinates" },
+      { chain: "ica", storeId: "3", label: "Close", latitude: 57.7100, longitude: 11.9800 },
+    ],
+    { latitude: 57.7089, longitude: 11.9746 },
+  );
+
+  assert.deepEqual(ranked.map((store) => store.storeId), ["3", "1"]);
+});
+
+test("geolocation helper falls back when browser geolocation is unavailable", async () => {
+  await assert.rejects(getCurrentUserPosition(), /geolocation/i);
+});
+
 test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
   const ica = await resolveNearestIcaStore();
   assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
@@ -832,7 +862,45 @@ test("nearest ICA resolver returns the default seeded ICA pricing source", async
   assert.ok(ica.label.trim());
 });
 
+test("nearest ICA resolver falls back when nearest API returns no store", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ store: null, stores: [], debug: { fallbackUsed: false } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
 
+  try {
+    const ica = await resolveNearestIcaStore({ latitude: 57.7089, longitude: 11.9746 });
+    assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+
+test("selected nearest ICA store normalizes as a clean pricing source", () => {
+  const normalized = normalizePricingSource({
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Nära",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+    latitude: 57.7,
+    longitude: 11.9,
+  });
+
+  assert.deepEqual(normalized, {
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Nära",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+  });
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", "banan"),
+    createBasketPricingCacheKey("ica", normalized.storeId, "list-1", "banan"),
+  );
+});
 
 test("normalizes dynamic ICA store search results", () => {
   assert.deepEqual(normalizeIcaStoreSearchResult({

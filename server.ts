@@ -11,6 +11,7 @@ import {
   validateBasketPricingRequest,
 } from "./api/_lib/basketPricing";
 import {
+  findNearestIcaStoreWithDebug,
   searchIcaStoresWithDebug,
   type IcaStoreSearchDebug,
 } from "./api/_lib/icaStoreSearch";
@@ -97,6 +98,50 @@ app.get(
       const debug: IcaStoreSearchDebug = createIcaStoreSearchFallbackDebug(query, "search_failed", error);
       console.error("[ica-store-search] failed", debug);
       return res.status(200).json({ error: "ICA store search unavailable", stores: [], debug });
+    }
+  },
+);
+
+app.get(
+  "/api/ica/stores/nearest",
+  async (req: express.Request, res: express.Response) => {
+    const lat = typeof req.query.lat === "string" ? Number(req.query.lat) : Number.NaN;
+    const lng = typeof req.query.lng === "string" ? Number(req.query.lng) : Number.NaN;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({
+        store: null,
+        stores: [],
+        error: "Valid lat and lng query parameters are required",
+        debug: {
+          lat,
+          lng,
+          parsedStoreCount: 0,
+          storesWithCoordinatesCount: 0,
+          nearestDistanceKm: null,
+          fallbackUsed: true,
+          stage: "invalid_coordinates",
+        },
+      });
+    }
+
+    try {
+      const result = await findNearestIcaStoreWithDebug({ latitude: lat, longitude: lng });
+      console.info("[ica-store-nearest] result", result.debug);
+      return res.json(result);
+    } catch (error) {
+      const debug = {
+        lat,
+        lng,
+        parsedStoreCount: 0,
+        storesWithCoordinatesCount: 0,
+        nearestDistanceKm: null,
+        fallbackUsed: true,
+        stage: "nearest_failed",
+        error: error instanceof Error ? error.message : String(error),
+      };
+      console.error("[ica-store-nearest] failed", debug);
+      return res.status(200).json({ store: null, stores: [], error: "ICA nearest store unavailable", debug });
     }
   },
 );

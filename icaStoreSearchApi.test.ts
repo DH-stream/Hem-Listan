@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createIcaStoreSearchHandler } from "./api/ica/stores/search";
+import { createIcaNearestStoreHandler } from "./api/ica/stores/nearest";
 
 type TestResponse = ServerResponse & {
   status(statusCode: number): TestResponse;
@@ -122,4 +123,52 @@ test("ICA store search success returns fake module stores", async () => {
   assert.equal(response.statusCode, 200);
   assert.equal((response.responseBody as { stores?: Array<{ storeId: string }> }).stores?.[0]?.storeId, "1004888");
   assert.equal((response.responseBody as { debug?: { filteredStoreCount?: number } }).debug?.filteredStoreCount, 1);
+});
+
+
+test("ICA nearest store route ranks fake module stores", async () => {
+  const handler = createIcaNearestStoreHandler(async () => ({
+    findNearestIcaStoreWithDebug: async () => ({
+      store: { chain: "ica" as const, storeId: "1004888", label: "ICA Nära Test" },
+      stores: [{ chain: "ica" as const, storeId: "1004888", label: "ICA Nära Test" }],
+      debug: {
+        lat: 57.7,
+        lng: 11.9,
+        parsedStoreCount: 2,
+        storesWithCoordinatesCount: 1,
+        nearestDistanceKm: 1.2,
+        fallbackUsed: false,
+      },
+    }),
+  }));
+  const response = createResponse();
+
+  await handler(createRequest("/api/ica/stores/nearest?lat=57.7&lng=11.9"), response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal((response.responseBody as { store?: { storeId: string } }).store?.storeId, "1004888");
+  assert.equal((response.responseBody as { debug?: { storesWithCoordinatesCount?: number } }).debug?.storesWithCoordinatesCount, 1);
+});
+
+test("ICA nearest store route returns no store when module has no coordinate matches", async () => {
+  const handler = createIcaNearestStoreHandler(async () => ({
+    findNearestIcaStoreWithDebug: async () => ({
+      store: null,
+      stores: [],
+      debug: {
+        lat: 57.7,
+        lng: 11.9,
+        parsedStoreCount: 1,
+        storesWithCoordinatesCount: 0,
+        nearestDistanceKm: null,
+        fallbackUsed: false,
+      },
+    }),
+  }));
+  const response = createResponse();
+
+  await handler(createRequest("/api/ica/stores/nearest?lat=57.7&lng=11.9"), response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal((response.responseBody as { store?: unknown }).store, null);
 });

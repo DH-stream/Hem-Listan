@@ -34,6 +34,27 @@ export type IcaStoreSearchResponse = {
   debug: IcaStoreSearchDebug;
 };
 
+export type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+export type IcaNearestStoreDebug = {
+  lat: number;
+  lng: number;
+  parsedStoreCount: number;
+  storesWithCoordinatesCount: number;
+  nearestDistanceKm: number | null;
+  fallbackUsed: boolean;
+  error?: string;
+};
+
+export type IcaNearestStoreResponse = {
+  store: IcaStoreSearchResult | null;
+  stores: IcaStoreSearchResult[];
+  debug: IcaNearestStoreDebug;
+};
+
 type RawIcaStore = {
   accountNumber?: unknown;
   storeName?: unknown;
@@ -203,21 +224,15 @@ const filterAndBuildResponse = (
   };
 };
 
-export async function searchIcaStoresWithDebug(
-  query: string,
+async function loadIcaStores(
   options: { fetchImpl?: FetchLike; now?: number } = {},
-): Promise<IcaStoreSearchResponse> {
-  const normalizedQuery = query.trim();
+): Promise<{ stores: IcaStoreSearchResult[]; details: Partial<IcaStoreSearchDebug> }> {
   const now = options.now ?? Date.now();
-  if (normalizedQuery.length < 2) {
-    return filterAndBuildResponse(normalizedQuery, [], { source: "cache" });
-  }
-
   if (storeCache && now - storeCache.fetchedAt < ICA_STORE_CACHE_TTL_MS) {
-    return filterAndBuildResponse(normalizedQuery, storeCache.stores, {
-      source: "cache",
-      cacheAgeMs: now - storeCache.fetchedAt,
-    });
+    return {
+      stores: storeCache.stores,
+      details: { source: "cache", cacheAgeMs: now - storeCache.fetchedAt },
+    };
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -230,11 +245,86 @@ export async function searchIcaStoresWithDebug(
 
     const stores = parseIcaStoresFromHtml(html);
     storeCache = { stores, fetchedAt: now };
-    return filterAndBuildResponse(normalizedQuery, stores, {
-      upstreamStatus: response.status,
-      htmlLength: html.length,
-      source: "ica_html",
-    });
+    return {
+      stores,
+      details: { upstreamStatus: response.status, htmlLength: html.length, source: "ica_html" },
+    };
+  } catch (error) {
+    if (storeCache) {
+      return {
+        stores: storeCache.stores,
+        details: {
+          source: "cache",
+          fallbackUsed: true,
+          cacheAgeMs: now - storeCache.fetchedAt,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+    throw error;
+  }
+}
+
+export function distanceKm(a: Coordinates, b: Coordinates): number {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLatitude = toRadians(b.latitude - a.latitude);
+  const deltaLongitude = toRadians(b.longitude - a.longitude);
+  const latitudeA = toRadians(a.latitude);
+  const latitudeB = toRadians(b.latitude);
+  const haversine =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(latitudeA) * Math.cos(latitudeB) * Math.sin(deltaLongitude / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+export function rankIcaStoresByDistance(
+  stores: IcaStoreSearchResult[],
+  coords: Coordinates,
+): Array<IcaStoreSearchResult & { distanceKm: number }> {
+  return stores
+    .flatMap((store) => {
+      if (typeof store.latitude !== "number" || typeof store.longitude !== "number") return [];
+      const distance = distanceKm(coords, { latitude: store.latitude, longitude: store.longitude });
+      return [{ ...store, distanceKm: distance }];
+    })
+    .sort((a, b) => a.distanceKm - b.distanceKm || a.storeId.localeCompare(b.storeId));
+}
+
+export async function findNearestIcaStoreWithDebug(
+  coords: Coordinates,
+  options: { fetchImpl?: FetchLike; now?: number; limit?: number } = {},
+): Promise<IcaNearestStoreResponse> {
+  const { stores } = await loadIcaStores(options);
+  const ranked = rankIcaStoresByDistance(stores, coords);
+  const nearbyStores = ranked.slice(0, options.limit ?? 5);
+  return {
+    store: nearbyStores[0] ?? null,
+    stores: nearbyStores,
+    debug: {
+      lat: coords.latitude,
+      lng: coords.longitude,
+      parsedStoreCount: stores.length,
+      storesWithCoordinatesCount: ranked.length,
+      nearestDistanceKm: nearbyStores[0]?.distanceKm ?? null,
+      fallbackUsed: false,
+    },
+  };
+}
+
+export async function searchIcaStoresWithDebug(
+  query: string,
+  options: { fetchImpl?: FetchLike; now?: number } = {},
+): Promise<IcaStoreSearchResponse> {
+  const normalizedQuery = query.trim();
+  const now = options.now ?? Date.now();
+  if (normalizedQuery.length < 2) {
+    return filterAndBuildResponse(normalizedQuery, [], { source: "cache" });
+  }
+
+  try {
+    const { stores, details } = await loadIcaStores(options);
+    return filterAndBuildResponse(normalizedQuery, stores, details);
   } catch (error) {
     if (storeCache) {
       return filterAndBuildResponse(normalizedQuery, storeCache.stores, {
