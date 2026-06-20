@@ -12,6 +12,10 @@
     "api/ica/stores/nearest.ts": {
       "includeFiles": "api/_lib/**",
       "maxDuration": 10
+    },
+    "api/location/reverse.ts": {
+      "includeFiles": "api/_lib/**",
+      "maxDuration": 10
     }
   },
   "rewrites": [

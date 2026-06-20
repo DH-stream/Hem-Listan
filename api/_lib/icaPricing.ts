@@ -40,6 +40,7 @@ interface IcaSearchOptions {
   now?: () => number;
   liveEnabled?: boolean;
   bypassNegativeCache?: boolean;
+  skipCache?: boolean;
 }
 
 export interface IcaProviderDiagnostic {
@@ -860,7 +861,7 @@ export async function searchIcaProducts(
   const cacheKey = `ica:${ICA_STRATEGY_VERSION}:${normalizedStoreId}:${searchQueries.join("|")}`;
   const now = options.now ?? Date.now;
   const currentTime = now();
-  const cached = cache.get(cacheKey);
+  const cached = options.skipCache ? undefined : cache.get(cacheKey);
   if (
     cached &&
     cached.expiresAt > currentTime &&
@@ -900,10 +901,12 @@ export async function searchIcaProducts(
           debug,
         );
         if (products.length === 0) continue;
-        cache.set(cacheKey, {
-          expiresAt: currentTime + CACHE_TTL_MS,
-          products,
-        });
+        if (!options.skipCache) {
+          cache.set(cacheKey, {
+            expiresAt: currentTime + CACHE_TTL_MS,
+            products,
+          });
+        }
         return products;
       } catch (error) {
         lastError = error;
@@ -927,7 +930,7 @@ export async function searchIcaProducts(
   const hadTransientFailure = icaProviderDiagnostics
     .slice(diagnosticStartIndex)
     .some((attempt) => Boolean(attempt.failureType || attempt.error));
-  if (!hadTransientFailure) {
+  if (!hadTransientFailure && !options.skipCache) {
     cache.set(cacheKey, {
       expiresAt: currentTime + NEGATIVE_CACHE_TTL_MS,
       products: [],

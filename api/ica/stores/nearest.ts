@@ -8,12 +8,12 @@ type ApiResponse = ServerResponse & {
 type IcaNearestModule = Pick<typeof import("../../_lib/icaStoreSearch.js"), "findNearestIcaStoreWithDebug">;
 type LoadIcaNearest = () => Promise<IcaNearestModule>;
 
-const fallbackDebug = (lat: number, lng: number, stage: string, error?: unknown) => ({
-  lat,
-  lng,
-  parsedStoreCount: 0,
-  storesWithCoordinatesCount: 0,
-  nearestDistanceKm: null,
+const fallbackDebug = (stage: string, error?: unknown) => ({
+  candidateCount: 0,
+  geocodedCandidateCount: 0,
+  priceProbeCount: 0,
+  skippedBecauseNoPriceCount: 0,
+  selectedDistanceKm: null,
   fallbackUsed: true,
   stage,
   ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
@@ -38,7 +38,7 @@ export function createIcaNearestStoreHandler(
         store: null,
         stores: [],
         error: "Valid lat and lng query parameters are required",
-        debug: fallbackDebug(lat ?? Number.NaN, lng ?? Number.NaN, "invalid_coordinates"),
+        debug: fallbackDebug("invalid_coordinates"),
       });
     }
 
@@ -48,7 +48,7 @@ export function createIcaNearestStoreHandler(
       console.info("[ica-store-nearest] result", result.debug);
       return res.status(200).json(result);
     } catch (error) {
-      const debug = fallbackDebug(lat, lng, "nearest_failed", error);
+      const debug = fallbackDebug("nearest_failed", error);
       console.error("[ica-store-nearest] failed", debug);
       return res.status(200).json({
         store: null,

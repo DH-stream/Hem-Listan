@@ -1,5 +1,9 @@
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
 const ICA_STORE_CACHE_TTL_MS = 45 * 60 * 1000;
+const GEOCODE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PRICE_PROBE_QUERY = "banan";
+const PRICE_PROBE_LIMIT = 8;
+const NOMINATIM_ORIGIN = "https://nominatim.openstreetmap.org";
 
 export type IcaStoreSearchResult = {
   chain: "ica";
@@ -40,20 +44,38 @@ export type Coordinates = {
 };
 
 export type IcaNearestStoreDebug = {
-  lat: number;
-  lng: number;
-  parsedStoreCount: number;
-  storesWithCoordinatesCount: number;
-  nearestDistanceKm: number | null;
+  userPlaceQuery?: string;
+  candidateCount: number;
+  geocodedCandidateCount: number;
+  priceProbeCount: number;
+  skippedBecauseNoPriceCount: number;
+  selectedDistanceKm: number | null;
   fallbackUsed: boolean;
   error?: string;
 };
 
+export type IcaNearestStoreCandidate = IcaStoreSearchResult & {
+  distanceKm?: number;
+  priceCapable?: boolean;
+  priceProbeStatus?: "not_probed" | "priced" | "no_price" | "error";
+};
+
 export type IcaNearestStoreResponse = {
   store: IcaStoreSearchResult | null;
-  stores: IcaStoreSearchResult[];
+  stores: IcaNearestStoreCandidate[];
   debug: IcaNearestStoreDebug;
 };
+
+export type ReverseGeocodeResult = {
+  query: string;
+  city?: string;
+  address?: string;
+  municipality?: string;
+  region?: string;
+  debug: { source: "nominatim"; fallbackUsed: boolean; error?: string };
+};
+
+type GeocodeResult = Coordinates & { source: "nominatim" | "cache" };
 
 type RawIcaStore = {
   accountNumber?: unknown;
@@ -64,9 +86,11 @@ type RawIcaStore = {
 };
 
 let storeCache: { stores: IcaStoreSearchResult[]; fetchedAt: number } | null = null;
+let geocodeCache = new Map<string, { coords: Coordinates; fetchedAt: number }>();
 
 export const clearIcaStoreSearchCacheForTests = () => {
   storeCache = null;
+  geocodeCache = new Map();
 };
 
 const normalizeSearchValue = (value: string): string =>
@@ -163,6 +187,89 @@ export const parseIcaStoresFromHtml = (html: string): IcaStoreSearchResult[] => 
 
   return Array.from(stores.values());
 };
+
+
+const getAddressComponent = (address: Record<string, unknown>, keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = address[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+};
+
+const parseNominatimCoordinates = (value: unknown): Coordinates | null => {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const latitude = parseNumber(record.lat);
+  const longitude = parseNumber(record.lon);
+  if (latitude === undefined || longitude === undefined) return null;
+  return { latitude, longitude };
+};
+
+const normalizeGeocodeCacheKey = (value: string): string => normalizeSearchValue(value);
+
+export async function reverseGeocodeLocation(
+  coords: Coordinates,
+  options: { fetchImpl?: FetchLike } = {},
+): Promise<ReverseGeocodeResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const url = new URL("/reverse", NOMINATIM_ORIGIN);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(coords.latitude));
+  url.searchParams.set("lon", String(coords.longitude));
+  url.searchParams.set("addressdetails", "1");
+
+  const response = await fetchImpl(url, { headers: { "user-agent": "Hem-Listan nearest ICA store" } });
+  if (!response.ok) throw new Error(`Reverse geocoding failed: ${response.status}`);
+  const payload = (await response.json()) as Record<string, unknown>;
+  const address = payload.address && typeof payload.address === "object" ? payload.address as Record<string, unknown> : {};
+  const city = getAddressComponent(address, ["city", "town", "village", "hamlet", "suburb"]);
+  const municipality = getAddressComponent(address, ["municipality", "county"]);
+  const region = getAddressComponent(address, ["state", "region"]);
+  const query = city ?? municipality ?? region;
+  if (!query) throw new Error("Reverse geocoding returned no searchable place");
+
+  return {
+    query,
+    ...(city ? { city } : {}),
+    ...(typeof payload.display_name === "string" ? { address: payload.display_name } : {}),
+    ...(municipality ? { municipality } : {}),
+    ...(region ? { region } : {}),
+    debug: { source: "nominatim", fallbackUsed: false },
+  };
+}
+
+export async function geocodeAddress(
+  address: string | undefined,
+  city: string | undefined,
+  country = "Sweden",
+  options: { fetchImpl?: FetchLike; now?: number; cacheKey?: string } = {},
+): Promise<GeocodeResult | null> {
+  const query = [address, city, country].filter(Boolean).join(", ");
+  if (!query.trim()) return null;
+  const now = options.now ?? Date.now();
+  const cacheKey = normalizeGeocodeCacheKey(options.cacheKey ? `${options.cacheKey}:${query}` : query);
+  const cached = geocodeCache.get(cacheKey);
+  if (cached && now - cached.fetchedAt < GEOCODE_CACHE_TTL_MS) {
+    return { ...cached.coords, source: "cache" };
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const url = new URL("/search", NOMINATIM_ORIGIN);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("countrycodes", "se");
+  url.searchParams.set("q", query);
+
+  const response = await fetchImpl(url, { headers: { "user-agent": "Hem-Listan nearest ICA store" } });
+  if (!response.ok) throw new Error(`Store geocoding failed: ${response.status}`);
+  const payload = await response.json();
+  const firstResult = Array.isArray(payload) ? payload[0] : null;
+  const coords = parseNominatimCoordinates(firstResult);
+  if (!coords) return null;
+  geocodeCache.set(cacheKey, { coords, fetchedAt: now });
+  return { ...coords, source: "nominatim" };
+}
 
 const rankStore = (store: IcaStoreSearchResult, query: string): number => {
   const label = normalizeSearchValue(store.label);
@@ -291,22 +398,108 @@ export function rankIcaStoresByDistance(
     .sort((a, b) => a.distanceKm - b.distanceKm || a.storeId.localeCompare(b.storeId));
 }
 
+const toStoreSearchResultResponse = (store: IcaStoreSearchResult): IcaStoreSearchResult => ({
+  chain: store.chain,
+  storeId: store.storeId,
+  label: store.label,
+  ...(store.storeUrl ? { storeUrl: store.storeUrl } : {}),
+  ...(store.city ? { city: store.city } : {}),
+  ...(store.address ? { address: store.address } : {}),
+});
+
+async function probeIcaStorePriceCapability(
+  store: IcaStoreSearchResult,
+  options: { priceProbe?: (store: IcaStoreSearchResult) => Promise<boolean> } = {},
+): Promise<{ priceCapable: boolean; priceProbeStatus: IcaNearestStoreCandidate["priceProbeStatus"] }> {
+  try {
+    if (options.priceProbe) {
+      return (await options.priceProbe(store))
+        ? { priceCapable: true, priceProbeStatus: "priced" }
+        : { priceCapable: false, priceProbeStatus: "no_price" };
+    }
+    const { searchIcaProducts } = await import("./icaPricing.js");
+    const products = await searchIcaProducts(PRICE_PROBE_QUERY, store.storeId, {
+      skipCache: true,
+      bypassNegativeCache: true,
+    });
+    return products.some((product) => Number.isFinite(product.priceSek) && product.priceSek > 0)
+      ? { priceCapable: true, priceProbeStatus: "priced" }
+      : { priceCapable: false, priceProbeStatus: "no_price" };
+  } catch {
+    return { priceCapable: false, priceProbeStatus: "error" };
+  }
+}
+
 export async function findNearestIcaStoreWithDebug(
   coords: Coordinates,
-  options: { fetchImpl?: FetchLike; now?: number; limit?: number } = {},
+  options: {
+    fetchImpl?: FetchLike;
+    now?: number;
+    limit?: number;
+    priceProbeLimit?: number;
+    priceProbe?: (store: IcaStoreSearchResult) => Promise<boolean>;
+  } = {},
 ): Promise<IcaNearestStoreResponse> {
-  const { stores } = await loadIcaStores(options);
-  const ranked = rankIcaStoresByDistance(stores, coords);
-  const nearbyStores = ranked.slice(0, options.limit ?? 5);
+  const reverse = await reverseGeocodeLocation(coords, options);
+  const searchResult = await searchIcaStoresWithDebug(reverse.query, options);
+  const candidates = searchResult.stores;
+  const geocodedCandidates = (
+    await Promise.all(
+      candidates.map(async (store) => {
+        try {
+          const geocoded = await geocodeAddress(store.address, store.city, "Sweden", {
+            fetchImpl: options.fetchImpl,
+            now: options.now,
+            cacheKey: store.storeId,
+          });
+          if (!geocoded) return null;
+          return {
+            ...store,
+            distanceKm: distanceKm(coords, geocoded),
+            priceProbeStatus: "not_probed" as const,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    )
+  )
+    .filter((store): store is NonNullable<typeof store> => Boolean(store))
+    .sort((a, b) => a.distanceKm - b.distanceKm || a.storeId.localeCompare(b.storeId));
+
+  const stores: IcaNearestStoreCandidate[] = [];
+  let selected: IcaNearestStoreCandidate | null = null;
+  let priceProbeCount = 0;
+  let skippedBecauseNoPriceCount = 0;
+
+  for (const candidate of geocodedCandidates.slice(0, options.priceProbeLimit ?? PRICE_PROBE_LIMIT)) {
+    priceProbeCount += 1;
+    const probe = await probeIcaStorePriceCapability(candidate, options);
+    const probedCandidate = { ...candidate, ...probe };
+    stores.push(probedCandidate);
+    if (probe.priceCapable) {
+      selected = probedCandidate;
+      break;
+    }
+    skippedBecauseNoPriceCount += 1;
+  }
+
+  const probedIds = new Set(stores.map((store) => store.storeId));
+  for (const candidate of geocodedCandidates) {
+    if (stores.length >= (options.limit ?? 5)) break;
+    if (!probedIds.has(candidate.storeId)) stores.push(candidate);
+  }
+
   return {
-    store: nearbyStores[0] ?? null,
-    stores: nearbyStores,
+    store: selected ? toStoreSearchResultResponse(selected) : null,
+    stores,
     debug: {
-      lat: coords.latitude,
-      lng: coords.longitude,
-      parsedStoreCount: stores.length,
-      storesWithCoordinatesCount: ranked.length,
-      nearestDistanceKm: nearbyStores[0]?.distanceKm ?? null,
+      userPlaceQuery: reverse.query,
+      candidateCount: candidates.length,
+      geocodedCandidateCount: geocodedCandidates.length,
+      priceProbeCount,
+      skippedBecauseNoPriceCount,
+      selectedDistanceKm: selected?.distanceKm ?? null,
       fallbackUsed: false,
     },
   };

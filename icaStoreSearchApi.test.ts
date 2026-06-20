@@ -132,11 +132,12 @@ test("ICA nearest store route ranks fake module stores", async () => {
       store: { chain: "ica" as const, storeId: "1004888", label: "ICA Nära Test" },
       stores: [{ chain: "ica" as const, storeId: "1004888", label: "ICA Nära Test" }],
       debug: {
-        lat: 57.7,
-        lng: 11.9,
-        parsedStoreCount: 2,
-        storesWithCoordinatesCount: 1,
-        nearestDistanceKm: 1.2,
+        userPlaceQuery: "Borås",
+        candidateCount: 2,
+        geocodedCandidateCount: 1,
+        priceProbeCount: 1,
+        skippedBecauseNoPriceCount: 0,
+        selectedDistanceKm: 1.2,
         fallbackUsed: false,
       },
     }),
@@ -147,7 +148,7 @@ test("ICA nearest store route ranks fake module stores", async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal((response.responseBody as { store?: { storeId: string } }).store?.storeId, "1004888");
-  assert.equal((response.responseBody as { debug?: { storesWithCoordinatesCount?: number } }).debug?.storesWithCoordinatesCount, 1);
+  assert.equal((response.responseBody as { debug?: { geocodedCandidateCount?: number } }).debug?.geocodedCandidateCount, 1);
 });
 
 test("ICA nearest store route returns no store when module has no coordinate matches", async () => {
@@ -156,11 +157,12 @@ test("ICA nearest store route returns no store when module has no coordinate mat
       store: null,
       stores: [],
       debug: {
-        lat: 57.7,
-        lng: 11.9,
-        parsedStoreCount: 1,
-        storesWithCoordinatesCount: 0,
-        nearestDistanceKm: null,
+        userPlaceQuery: "Borås",
+        candidateCount: 1,
+        geocodedCandidateCount: 0,
+        priceProbeCount: 0,
+        skippedBecauseNoPriceCount: 0,
+        selectedDistanceKm: null,
         fallbackUsed: false,
       },
     }),

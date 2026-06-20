@@ -36,7 +36,9 @@ import {
   searchIcaStores as searchIcaStoresFromIca,
   searchIcaStoresWithDebug,
   distanceKm,
+  geocodeAddress,
   rankIcaStoresByDistance,
+  findNearestIcaStoreWithDebug,
 } from "./api/_lib/icaStoreSearch";
 import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
 import { getCurrentUserPosition } from "./src/lib/pricing/geolocation";
@@ -848,6 +850,126 @@ test("nearest ICA distance ranking picks closest store and ignores stores withou
   );
 
   assert.deepEqual(ranked.map((store) => store.storeId), ["3", "1"]);
+});
+
+const createNearestStoreFetch = (priceProbeOrder: string[] = []) => {
+  const html = [
+    JSON.stringify({
+      accountNumber: "1000001",
+      storeName: "ICA Nära Fysisk",
+      address: { street: "Nära gatan 1", city: "Borås" },
+    }),
+    JSON.stringify({
+      accountNumber: "1000002",
+      storeName: "ICA Kvantum Pris",
+      address: { street: "Prisgatan 2", city: "Borås" },
+    }),
+  ].join("\n");
+
+  const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = new URL(input instanceof URL ? input.toString() : String(input));
+    if (url.hostname === "nominatim.openstreetmap.org" && url.pathname === "/reverse") {
+      return new Response(JSON.stringify({
+        display_name: "Borås, Västra Götaland, Sverige",
+        address: { city: "Borås", municipality: "Borås", state: "Västra Götaland" },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.hostname === "www.ica.se") {
+      return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
+    }
+    if (url.hostname === "nominatim.openstreetmap.org" && url.pathname === "/search") {
+      const query = url.searchParams.get("q") ?? "";
+      const coords = query.includes("Nära gatan")
+        ? { lat: "57.7200", lon: "12.9400" }
+        : { lat: "57.7300", lon: "12.9500" };
+      return new Response(JSON.stringify([coords]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected fetch URL ${url.toString()}`);
+  }) as typeof fetch;
+
+  const priceProbe = async (store: { storeId: string }) => {
+    priceProbeOrder.push(store.storeId);
+    return store.storeId === "1000002";
+  };
+
+  return { fetchImpl, priceProbe, priceProbeOrder };
+};
+
+test("reverse geocode result is used as ICA search query for nearest stores", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const { fetchImpl, priceProbe } = createNearestStoreFetch();
+
+  const result = await findNearestIcaStoreWithDebug(
+    { latitude: 57.721, longitude: 12.94 },
+    { fetchImpl, priceProbe, now: 1 },
+  );
+
+  assert.equal(result.debug.userPlaceQuery, "Borås");
+  assert.equal(result.debug.candidateCount, 2);
+});
+
+test("store address geocoding converts address and city to coordinates", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const requestedQueries: string[] = [];
+  const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = new URL(input instanceof URL ? input.toString() : String(input));
+    requestedQueries.push(url.searchParams.get("q") ?? "");
+    return new Response(JSON.stringify([{ lat: "57.7200", lon: "12.9400" }]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const coords = await geocodeAddress("Nära gatan 1", "Borås", "Sweden", { fetchImpl, now: 1 });
+
+  assert.deepEqual(coords, { latitude: 57.72, longitude: 12.94, source: "nominatim" });
+  assert.equal(requestedQueries[0], "Nära gatan 1, Borås, Sweden");
+});
+
+test("nearest physical store is skipped when price probe fails and next price-capable store is selected", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const { fetchImpl, priceProbe, priceProbeOrder } = createNearestStoreFetch();
+
+  const result = await findNearestIcaStoreWithDebug(
+    { latitude: 57.721, longitude: 12.94 },
+    { fetchImpl, priceProbe, now: 1 },
+  );
+
+  assert.deepEqual(priceProbeOrder, ["1000001", "1000002"]);
+  assert.equal(result.store?.storeId, "1000002");
+  assert.equal(result.stores[0].storeId, "1000001");
+  assert.equal(result.stores[0].priceCapable, false);
+  assert.equal(result.stores[1].priceCapable, true);
+  assert.equal(result.debug.skippedBecauseNoPriceCount, 1);
+  assert.equal(result.debug.selectedDistanceKm, result.stores[1].distanceKm);
+});
+
+test("nearest ICA pipeline returns no store so seeded fallback remains final fallback", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const { fetchImpl } = createNearestStoreFetch();
+
+  const result = await findNearestIcaStoreWithDebug(
+    { latitude: 57.721, longitude: 12.94 },
+    { fetchImpl, priceProbe: async () => false, now: 1 },
+  );
+
+  assert.equal(result.store, null);
+  assert.equal(result.debug.priceProbeCount, 2);
+  assert.equal(result.debug.skippedBecauseNoPriceCount, 2);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ store: null, stores: [], debug: result.debug }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    const ica = await resolveNearestIcaStore({ latitude: 57.721, longitude: 12.94 });
+    assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("geolocation helper falls back when browser geolocation is unavailable", async () => {

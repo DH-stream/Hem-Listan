@@ -12,6 +12,7 @@ import {
 } from "./api/_lib/basketPricing";
 import {
   findNearestIcaStoreWithDebug,
+  reverseGeocodeLocation,
   searchIcaStoresWithDebug,
   type IcaStoreSearchDebug,
 } from "./api/_lib/icaStoreSearch";
@@ -73,6 +74,36 @@ app.post(
 );
 
 app.get(
+  "/api/location/reverse",
+  async (req: express.Request, res: express.Response) => {
+    const lat = typeof req.query.lat === "string" ? Number(req.query.lat) : Number.NaN;
+    const lng = typeof req.query.lng === "string" ? Number(req.query.lng) : Number.NaN;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({
+        query: "",
+        error: "Valid lat and lng query parameters are required",
+        debug: { fallbackUsed: true, stage: "invalid_coordinates" },
+      });
+    }
+
+    try {
+      return res.json(await reverseGeocodeLocation({ latitude: lat, longitude: lng }));
+    } catch (error) {
+      return res.status(200).json({
+        query: "",
+        error: "Reverse geocoding unavailable",
+        debug: {
+          fallbackUsed: true,
+          stage: "reverse_geocode_failed",
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  },
+);
+
+app.get(
   "/api/ica/stores/search",
   async (req: express.Request, res: express.Response) => {
     const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
@@ -114,11 +145,11 @@ app.get(
         stores: [],
         error: "Valid lat and lng query parameters are required",
         debug: {
-          lat,
-          lng,
-          parsedStoreCount: 0,
-          storesWithCoordinatesCount: 0,
-          nearestDistanceKm: null,
+          candidateCount: 0,
+          geocodedCandidateCount: 0,
+          priceProbeCount: 0,
+          skippedBecauseNoPriceCount: 0,
+          selectedDistanceKm: null,
           fallbackUsed: true,
           stage: "invalid_coordinates",
         },
@@ -131,11 +162,11 @@ app.get(
       return res.json(result);
     } catch (error) {
       const debug = {
-        lat,
-        lng,
-        parsedStoreCount: 0,
-        storesWithCoordinatesCount: 0,
-        nearestDistanceKm: null,
+        candidateCount: 0,
+        geocodedCandidateCount: 0,
+        priceProbeCount: 0,
+        skippedBecauseNoPriceCount: 0,
+        selectedDistanceKm: null,
         fallbackUsed: true,
         stage: "nearest_failed",
         error: error instanceof Error ? error.message : String(error),
