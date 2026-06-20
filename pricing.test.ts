@@ -24,7 +24,6 @@ import {
   DEFAULT_PRICING_SOURCE,
   filterSeededIcaStores,
   normalizePricingSource,
-  resolveNearestIcaStore,
   SEEDED_ICA_STORES,
   toPricingSource,
 } from "./src/lib/pricing/sources";
@@ -36,7 +35,8 @@ import {
   searchIcaStores as searchIcaStoresFromIca,
   searchIcaStoresWithDebug,
 } from "./api/_lib/icaStoreSearch";
-import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
+import { normalizeIcaStoreSearchResult, reverseGeocodeUserLocation } from "./src/lib/pricing/icaStoreSearch";
+import { getCurrentUserPosition } from "./src/lib/pricing/geolocation";
 
 const products: ProductPrice[] = [
   {
@@ -824,15 +824,76 @@ test("seeded ICA store filter returns an empty list for unmatched query", () => 
   assert.deepEqual(filterSeededIcaStores("ingen-butik-matchar-detta"), []);
 });
 
-test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
-  const ica = await resolveNearestIcaStore();
-  assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
-  assert.equal(ica.chain, "ica");
-  assert.match(ica.storeId, /^\d+$/);
-  assert.ok(ica.label.trim());
+test("geolocation helper falls back when browser geolocation is unavailable", async () => {
+  await assert.rejects(getCurrentUserPosition(), /geolocation/i);
 });
 
+test("nearby ICA helper uses reverse geocode result as the manual store search query", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrls.push(input instanceof URL ? input.toString() : String(input));
+    return new Response(
+      JSON.stringify({
+        query: "Kungälv",
+        city: "Kungälv",
+        debug: { fallbackUsed: false },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
 
+  try {
+    const location = await reverseGeocodeUserLocation({ latitude: 57.8700, longitude: 11.9800 });
+    assert.deepEqual(location, { query: "Kungälv" });
+    assert.equal(requestedUrls[0], "/api/location/reverse?lat=57.87&lng=11.98");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("nearby ICA helper rejects reverse geocode failures so manual search can open empty", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ query: "", debug: { fallbackUsed: true } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      reverseGeocodeUserLocation({ latitude: 57.8700, longitude: 11.9800 }),
+      /no place query/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("selected dynamic ICA store normalizes as a clean pricing source", () => {
+  const normalized = normalizePricingSource({
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Nära",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+    latitude: 57.7,
+    longitude: 11.9,
+  });
+
+  assert.deepEqual(normalized, {
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Nära",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+  });
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", "banan"),
+    createBasketPricingCacheKey("ica", normalized.storeId, "list-1", "banan"),
+  );
+});
 
 test("normalizes dynamic ICA store search results", () => {
   assert.deepEqual(normalizeIcaStoreSearchResult({

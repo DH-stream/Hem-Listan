@@ -1,5 +1,7 @@
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
 const ICA_STORE_CACHE_TTL_MS = 45 * 60 * 1000;
+const REVERSE_GEOCODE_TIMEOUT_MS = 900;
+const NOMINATIM_ORIGIN = "https://nominatim.openstreetmap.org";
 
 export type IcaStoreSearchResult = {
   chain: "ica";
@@ -32,6 +34,20 @@ export type IcaStoreSearchDebug = {
 export type IcaStoreSearchResponse = {
   stores: IcaStoreSearchResult[];
   debug: IcaStoreSearchDebug;
+};
+
+export type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+export type ReverseGeocodeResult = {
+  query: string;
+  city?: string;
+  address?: string;
+  municipality?: string;
+  region?: string;
+  debug: { source: "nominatim"; fallbackUsed: boolean; error?: string };
 };
 
 type RawIcaStore = {
@@ -143,6 +159,56 @@ export const parseIcaStoresFromHtml = (html: string): IcaStoreSearchResult[] => 
   return Array.from(stores.values());
 };
 
+const withTimeoutFetch = (fetchImpl: FetchLike, timeoutMs: number): FetchLike =>
+  (async (input, init = {}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchImpl(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }) as FetchLike;
+
+const getAddressComponent = (address: Record<string, unknown>, keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = address[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+};
+
+export async function reverseGeocodeLocation(
+  coords: Coordinates,
+  options: { fetchImpl?: FetchLike } = {},
+): Promise<ReverseGeocodeResult> {
+  const fetchImpl = withTimeoutFetch(options.fetchImpl ?? fetch, REVERSE_GEOCODE_TIMEOUT_MS);
+  const url = new URL("/reverse", NOMINATIM_ORIGIN);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(coords.latitude));
+  url.searchParams.set("lon", String(coords.longitude));
+  url.searchParams.set("addressdetails", "1");
+
+  const response = await fetchImpl(url, { headers: { "user-agent": "Hem-Listan ICA nearby store search" } });
+  if (!response.ok) throw new Error(`Reverse geocoding failed: ${response.status}`);
+  const payload = (await response.json()) as Record<string, unknown>;
+  const address = payload.address && typeof payload.address === "object" ? payload.address as Record<string, unknown> : {};
+  const city = getAddressComponent(address, ["city", "town", "village", "hamlet", "suburb"]);
+  const municipality = getAddressComponent(address, ["municipality", "county"]);
+  const region = getAddressComponent(address, ["state", "region"]);
+  const query = city ?? municipality ?? region;
+  if (!query) throw new Error("Reverse geocoding returned no searchable place");
+
+  return {
+    query,
+    ...(city ? { city } : {}),
+    ...(typeof payload.display_name === "string" ? { address: payload.display_name } : {}),
+    ...(municipality ? { municipality } : {}),
+    ...(region ? { region } : {}),
+    debug: { source: "nominatim", fallbackUsed: false },
+  };
+}
+
 const rankStore = (store: IcaStoreSearchResult, query: string): number => {
   const label = normalizeSearchValue(store.label);
   const city = store.city ? normalizeSearchValue(store.city) : "";
@@ -203,21 +269,15 @@ const filterAndBuildResponse = (
   };
 };
 
-export async function searchIcaStoresWithDebug(
-  query: string,
+async function loadIcaStores(
   options: { fetchImpl?: FetchLike; now?: number } = {},
-): Promise<IcaStoreSearchResponse> {
-  const normalizedQuery = query.trim();
+): Promise<{ stores: IcaStoreSearchResult[]; details: Partial<IcaStoreSearchDebug> }> {
   const now = options.now ?? Date.now();
-  if (normalizedQuery.length < 2) {
-    return filterAndBuildResponse(normalizedQuery, [], { source: "cache" });
-  }
-
   if (storeCache && now - storeCache.fetchedAt < ICA_STORE_CACHE_TTL_MS) {
-    return filterAndBuildResponse(normalizedQuery, storeCache.stores, {
-      source: "cache",
-      cacheAgeMs: now - storeCache.fetchedAt,
-    });
+    return {
+      stores: storeCache.stores,
+      details: { source: "cache", cacheAgeMs: now - storeCache.fetchedAt },
+    };
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -230,11 +290,39 @@ export async function searchIcaStoresWithDebug(
 
     const stores = parseIcaStoresFromHtml(html);
     storeCache = { stores, fetchedAt: now };
-    return filterAndBuildResponse(normalizedQuery, stores, {
-      upstreamStatus: response.status,
-      htmlLength: html.length,
-      source: "ica_html",
-    });
+    return {
+      stores,
+      details: { upstreamStatus: response.status, htmlLength: html.length, source: "ica_html" },
+    };
+  } catch (error) {
+    if (storeCache) {
+      return {
+        stores: storeCache.stores,
+        details: {
+          source: "cache",
+          fallbackUsed: true,
+          cacheAgeMs: now - storeCache.fetchedAt,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+    throw error;
+  }
+}
+
+export async function searchIcaStoresWithDebug(
+  query: string,
+  options: { fetchImpl?: FetchLike; now?: number } = {},
+): Promise<IcaStoreSearchResponse> {
+  const normalizedQuery = query.trim();
+  const now = options.now ?? Date.now();
+  if (normalizedQuery.length < 2) {
+    return filterAndBuildResponse(normalizedQuery, [], { source: "cache" });
+  }
+
+  try {
+    const { stores, details } = await loadIcaStores(options);
+    return filterAndBuildResponse(normalizedQuery, stores, details);
   } catch (error) {
     if (storeCache) {
       return filterAndBuildResponse(normalizedQuery, storeCache.stores, {

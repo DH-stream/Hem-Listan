@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import {
   filterSeededIcaStores,
-  resolveNearestIcaStore,
   toPricingSource,
   type PricingSource,
 } from "../lib/pricing/sources";
-import { searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
+import { getCurrentUserPosition } from "../lib/pricing/geolocation";
+import { reverseGeocodeUserLocation, searchIcaStores, seededStoreToSearchResult, type IcaStoreSearchResult } from "../lib/pricing/icaStoreSearch";
 
 interface IcaStoreChoiceModalProps {
   open: boolean;
   selectedSource: PricingSource;
   onSelect: (source: PricingSource) => void;
   onClose: () => void;
+  onToast?: (message: string) => void;
 }
 
 type IcaStep = "choice" | "list";
@@ -28,12 +29,14 @@ export default function IcaStoreChoiceModal({
   selectedSource,
   onSelect,
   onClose,
+  onToast,
 }: IcaStoreChoiceModalProps) {
   const [step, setStep] = useState<IcaStep>("choice");
   const [storeQuery, setStoreQuery] = useState("");
   const [dynamicStores, setDynamicStores] = useState<IcaStoreSearchResult[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [resolvingNearest, setResolvingNearest] = useState(false);
+  const [resolvingNearby, setResolvingNearby] = useState(false);
+  const skipNextSearchQueryRef = useRef<string | null>(null);
 
   const fallbackStores = filterSeededIcaStores(storeQuery).map(seededStoreToSearchResult);
   const filteredStores = dynamicStores ?? fallbackStores;
@@ -75,6 +78,11 @@ export default function IcaStoreChoiceModal({
       return;
     }
 
+    if (skipNextSearchQueryRef.current === query) {
+      skipNextSearchQueryRef.current = null;
+      return;
+    }
+
     let cancelled = false;
     setSearchLoading(true);
     const timeout = window.setTimeout(() => {
@@ -100,13 +108,40 @@ export default function IcaStoreChoiceModal({
     };
   }, [step, storeQuery]);
 
-  const handleNearest = async () => {
-    if (resolvingNearest) return;
-    setResolvingNearest(true);
+  const openManualSearchAfterNearbyFailure = () => {
+    setStep("list");
+    setStoreQuery("");
+    setDynamicStores(null);
+    onToast?.("Kunde inte använda din plats. Sök efter butik istället.");
+  };
+
+  const handleNearby = async () => {
+    if (resolvingNearby) return;
+    setResolvingNearby(true);
+    console.info("[ica-store-nearby] requesting browser geolocation");
     try {
-      handleSelect(await resolveNearestIcaStore());
+      const coords = await getCurrentUserPosition();
+      console.info("[ica-store-nearby] browser geolocation resolved", coords);
+      const location = await reverseGeocodeUserLocation(coords);
+      const query = location.query.trim();
+      if (!query) throw new Error("Reverse geocode returned no place query");
+
+      console.info("[ica-store-nearby] opening store search from location", { query });
+      skipNextSearchQueryRef.current = query;
+      setStep("list");
+      setStoreQuery(query);
+      setSearchLoading(true);
+      const stores = await searchIcaStores(query);
+      setDynamicStores(stores);
+      onToast?.(`Butiker nära ${query} hittades`);
+    } catch (error) {
+      console.warn("[ica-store-nearby] failed, opening manual search", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      openManualSearchAfterNearbyFailure();
     } finally {
-      setResolvingNearest(false);
+      setSearchLoading(false);
+      setResolvingNearby(false);
     }
   };
 
@@ -169,9 +204,9 @@ export default function IcaStoreChoiceModal({
                   <button
                     type="button"
                     className="w-full rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 text-left transition hover:bg-surface-container-low"
-                    onClick={handleNearest}
+                    onClick={handleNearby}
                   >
-                    <span className="block font-sans text-base font-bold text-on-surface">Närmast mig</span>
+                    <span className="block font-sans text-base font-bold text-on-surface">Nära mig</span>
                     <span className="mt-1 block text-sm text-on-surface-variant">Använd butik nära dig</span>
                   </button>
                   <button

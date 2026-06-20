@@ -268,7 +268,14 @@ export default function ListDetailGrocery({
   }, [highlightedMealClientId, list.meals]);
 
   const [pricingSourceSheetOpen, setPricingSourceSheetOpen] = useState(false);
+  const [pricingSourceToast, setPricingSourceToast] = useState<string | null>(null);
   const { selectedPricingSource, setSelectedPricingSource } = usePricingSource();
+
+  useEffect(() => {
+    if (!pricingSourceToast) return;
+    const timeout = window.setTimeout(() => setPricingSourceToast(null), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [pricingSourceToast]);
   const progressRows = createShoppingProgressRows(list.tasks);
   const completedShoppingRows = progressRows.filter((row) => row.checked);
   const totalTasks = progressRows.length;
@@ -1517,11 +1524,27 @@ export default function ListDetailGrocery({
         open={pricingSourceSheetOpen}
         selectedSource={selectedPricingSource}
         onClose={() => setPricingSourceSheetOpen(false)}
+        onToast={setPricingSourceToast}
         onSelect={(source) => {
           setSelectedPricingSource(source);
           setPricingSourceSheetOpen(false);
         }}
       />
+      <AnimatePresence>
+        {pricingSourceToast && (
+          <motion.div
+            key="pricing-source-toast"
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-5 left-1/2 z-[70] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl bg-inverse-surface px-4 py-3 text-center text-sm font-semibold text-inverse-on-surface shadow-xl"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+          >
+            {pricingSourceToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
