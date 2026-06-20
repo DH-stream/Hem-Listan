@@ -40,7 +40,7 @@ import {
   rankIcaStoresByDistance,
   findNearestIcaStoreWithDebug,
 } from "./api/_lib/icaStoreSearch";
-import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
+import { normalizeIcaStoreSearchResult, reverseGeocodeUserLocation } from "./src/lib/pricing/icaStoreSearch";
 import { getCurrentUserPosition } from "./src/lib/pricing/geolocation";
 
 const products: ProductPrice[] = [
@@ -985,6 +985,51 @@ test("nearest ICA pipeline returns null so manual search can handle failure", as
 
 test("geolocation helper falls back when browser geolocation is unavailable", async () => {
   await assert.rejects(getCurrentUserPosition(), /geolocation/i);
+});
+
+test("nearby ICA helper uses reverse geocode result as the manual store search query", async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrls.push(input instanceof URL ? input.toString() : String(input));
+    return new Response(
+      JSON.stringify({
+        query: "Kungälv",
+        city: "Kungälv",
+        debug: { fallbackUsed: false },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const location = await reverseGeocodeUserLocation({ latitude: 57.8700, longitude: 11.9800 });
+    assert.deepEqual(location, { query: "Kungälv" });
+    assert.equal(requestedUrls[0], "/api/location/reverse?lat=57.87&lng=11.98");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("nearby ICA helper rejects reverse geocode failures so manual search can open empty", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ query: "", debug: { fallbackUsed: true } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      reverseGeocodeUserLocation({ latitude: 57.8700, longitude: 11.9800 }),
+      /no place query/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
