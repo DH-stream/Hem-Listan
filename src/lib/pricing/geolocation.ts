@@ -3,7 +3,7 @@ export type UserCoordinates = {
   longitude: number;
 };
 
-const GEOLOCATION_TIMEOUT_MS = 10_000;
+const GEOLOCATION_TIMEOUT_MS = 3_500;
 
 export function getCurrentUserPosition(): Promise<UserCoordinates> {
   if (typeof navigator === "undefined" || !navigator.geolocation) {

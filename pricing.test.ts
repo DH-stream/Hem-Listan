@@ -942,6 +942,17 @@ test("nearest physical store is skipped when price probe fails and next price-ca
   assert.equal(result.stores[1].priceCapable, true);
   assert.equal(result.debug.skippedBecauseNoPriceCount, 1);
   assert.equal(result.debug.selectedDistanceKm, result.stores[1].distanceKm);
+  assert.equal(result.debug.priceProbeCount, 2);
+
+  const repeated = await findNearestIcaStoreWithDebug(
+    { latitude: 57.721, longitude: 12.94 },
+    { fetchImpl, priceProbe, now: 2 },
+  );
+
+  assert.equal(repeated.store?.storeId, "1000002");
+  assert.equal(repeated.debug.priceProbeCount, 0);
+  assert.equal(repeated.debug.priceCapabilityCacheHitCount, 2);
+  assert.equal(repeated.debug.geocodeCacheHitCount, 2);
 });
 
 test("nearest ICA pipeline returns no store so seeded fallback remains final fallback", async () => {

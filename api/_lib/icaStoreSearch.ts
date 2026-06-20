@@ -1,8 +1,17 @@
 const ICA_STORES_URL = "https://www.ica.se/butiker/";
 const ICA_STORE_CACHE_TTL_MS = 45 * 60 * 1000;
-const GEOCODE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GEOCODE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PRICE_CAPABLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PRICE_NOT_CAPABLE_CACHE_TTL_MS = 45 * 60 * 1000;
 const PRICE_PROBE_QUERY = "banan";
-const PRICE_PROBE_LIMIT = 8;
+const NEAREST_STORE_BUDGET_MS = 4500;
+const GEOCODE_CANDIDATE_LIMIT = 8;
+const GEOCODE_CONCURRENCY = 3;
+const GEOCODE_REQUEST_TIMEOUT_MS = 900;
+const REVERSE_GEOCODE_TIMEOUT_MS = 900;
+const CITY_SEARCH_TIMEOUT_MS = 1200;
+const PRICE_PROBE_LIMIT = 4;
+const PRICE_PROBE_TIMEOUT_MS = 1000;
 const NOMINATIM_ORIGIN = "https://nominatim.openstreetmap.org";
 
 export type IcaStoreSearchResult = {
@@ -46,10 +55,19 @@ export type Coordinates = {
 export type IcaNearestStoreDebug = {
   userPlaceQuery?: string;
   candidateCount: number;
+  geocodeAttemptCount: number;
   geocodedCandidateCount: number;
   priceProbeCount: number;
   skippedBecauseNoPriceCount: number;
   selectedDistanceKm: number | null;
+  totalMs: number;
+  reverseGeocodeMs: number;
+  citySearchMs: number;
+  geocodeMs: number;
+  priceProbeMs: number;
+  geocodeCacheHitCount: number;
+  priceCapabilityCacheHitCount: number;
+  timedOut: boolean;
   fallbackUsed: boolean;
   error?: string;
 };
@@ -87,10 +105,12 @@ type RawIcaStore = {
 
 let storeCache: { stores: IcaStoreSearchResult[]; fetchedAt: number } | null = null;
 let geocodeCache = new Map<string, { coords: Coordinates; fetchedAt: number }>();
+let priceCapabilityCache = new Map<string, { priceCapable: boolean; fetchedAt: number }>();
 
 export const clearIcaStoreSearchCacheForTests = () => {
   storeCache = null;
   geocodeCache = new Map();
+  priceCapabilityCache = new Map();
 };
 
 const normalizeSearchValue = (value: string): string =>
@@ -189,6 +209,40 @@ export const parseIcaStoresFromHtml = (html: string): IcaStoreSearchResult[] => 
 };
 
 
+const elapsedMs = (start: number, now = Date.now()) => Math.max(0, now - start);
+
+const isTimedOut = (deadline: number, now = Date.now()) => now >= deadline;
+
+const withTimeoutFetch = (fetchImpl: FetchLike, timeoutMs: number): FetchLike =>
+  (async (input, init = {}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchImpl(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }) as FetchLike;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+      }
+    }),
+  );
+  return results;
+}
+
 const getAddressComponent = (address: Record<string, unknown>, keys: string[]): string | undefined => {
   for (const key of keys) {
     const value = address[key];
@@ -212,7 +266,7 @@ export async function reverseGeocodeLocation(
   coords: Coordinates,
   options: { fetchImpl?: FetchLike } = {},
 ): Promise<ReverseGeocodeResult> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = withTimeoutFetch(options.fetchImpl ?? fetch, REVERSE_GEOCODE_TIMEOUT_MS);
   const url = new URL("/reverse", NOMINATIM_ORIGIN);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("lat", String(coords.latitude));
@@ -254,7 +308,7 @@ export async function geocodeAddress(
     return { ...cached.coords, source: "cache" };
   }
 
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = withTimeoutFetch(options.fetchImpl ?? fetch, GEOCODE_REQUEST_TIMEOUT_MS);
   const url = new URL("/search", NOMINATIM_ORIGIN);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("limit", "1");
@@ -407,26 +461,60 @@ const toStoreSearchResultResponse = (store: IcaStoreSearchResult): IcaStoreSearc
   ...(store.address ? { address: store.address } : {}),
 });
 
+const getCachedPriceCapability = (storeId: string, now: number): boolean | null => {
+  const cached = priceCapabilityCache.get(`ica-price-capable:${storeId}`);
+  if (!cached) return null;
+  const ttl = cached.priceCapable ? PRICE_CAPABLE_CACHE_TTL_MS : PRICE_NOT_CAPABLE_CACHE_TTL_MS;
+  if (now - cached.fetchedAt > ttl) return null;
+  return cached.priceCapable;
+};
+
+const setCachedPriceCapability = (storeId: string, priceCapable: boolean, now: number) => {
+  priceCapabilityCache.set(`ica-price-capable:${storeId}`, { priceCapable, fetchedAt: now });
+};
+
 async function probeIcaStorePriceCapability(
   store: IcaStoreSearchResult,
-  options: { priceProbe?: (store: IcaStoreSearchResult) => Promise<boolean> } = {},
-): Promise<{ priceCapable: boolean; priceProbeStatus: IcaNearestStoreCandidate["priceProbeStatus"] }> {
+  options: { priceProbe?: (store: IcaStoreSearchResult) => Promise<boolean>; now?: number } = {},
+): Promise<{
+  priceCapable: boolean;
+  priceProbeStatus: IcaNearestStoreCandidate["priceProbeStatus"];
+  fromCache: boolean;
+}> {
+  const now = options.now ?? Date.now();
+  const cached = getCachedPriceCapability(store.storeId, now);
+  if (cached !== null) {
+    return {
+      priceCapable: cached,
+      priceProbeStatus: cached ? "priced" : "no_price",
+      fromCache: true,
+    };
+  }
+
   try {
-    if (options.priceProbe) {
-      return (await options.priceProbe(store))
-        ? { priceCapable: true, priceProbeStatus: "priced" }
-        : { priceCapable: false, priceProbeStatus: "no_price" };
-    }
-    const { searchIcaProducts } = await import("./icaPricing.js");
-    const products = await searchIcaProducts(PRICE_PROBE_QUERY, store.storeId, {
-      skipCache: true,
-      bypassNegativeCache: true,
+    const probePromise = options.priceProbe
+      ? options.priceProbe(store)
+      : import("./icaPricing.js").then(async ({ searchIcaProducts }) => {
+          const products = await searchIcaProducts(PRICE_PROBE_QUERY, store.storeId, {
+            skipCache: true,
+            bypassNegativeCache: true,
+            requestTimeoutMs: PRICE_PROBE_TIMEOUT_MS,
+          });
+          return products.some((product) => Number.isFinite(product.priceSek) && product.priceSek > 0);
+        });
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), PRICE_PROBE_TIMEOUT_MS);
     });
-    return products.some((product) => Number.isFinite(product.priceSek) && product.priceSek > 0)
-      ? { priceCapable: true, priceProbeStatus: "priced" }
-      : { priceCapable: false, priceProbeStatus: "no_price" };
+    const priceCapable = await Promise.race([probePromise, timeoutPromise]);
+    setCachedPriceCapability(store.storeId, priceCapable, now);
+    return {
+      priceCapable,
+      priceProbeStatus: priceCapable ? "priced" : "no_price",
+      fromCache: false,
+    };
   } catch {
-    return { priceCapable: false, priceProbeStatus: "error" };
+    setCachedPriceCapability(store.storeId, false, now);
+    return { priceCapable: false, priceProbeStatus: "error", fromCache: false };
   }
 }
 
@@ -440,69 +528,141 @@ export async function findNearestIcaStoreWithDebug(
     priceProbe?: (store: IcaStoreSearchResult) => Promise<boolean>;
   } = {},
 ): Promise<IcaNearestStoreResponse> {
-  const reverse = await reverseGeocodeLocation(coords, options);
-  const searchResult = await searchIcaStoresWithDebug(reverse.query, options);
-  const candidates = searchResult.stores;
-  const geocodedCandidates = (
-    await Promise.all(
-      candidates.map(async (store) => {
-        try {
-          const geocoded = await geocodeAddress(store.address, store.city, "Sweden", {
-            fetchImpl: options.fetchImpl,
-            now: options.now,
-            cacheKey: store.storeId,
-          });
-          if (!geocoded) return null;
-          return {
-            ...store,
-            distanceKm: distanceKm(coords, geocoded),
-            priceProbeStatus: "not_probed" as const,
-          };
-        } catch {
-          return null;
-        }
-      }),
-    )
-  )
-    .filter((store): store is NonNullable<typeof store> => Boolean(store))
-    .sort((a, b) => a.distanceKm - b.distanceKm || a.storeId.localeCompare(b.storeId));
-
-  const stores: IcaNearestStoreCandidate[] = [];
-  let selected: IcaNearestStoreCandidate | null = null;
+  const startedAt = Date.now();
+  const deadline = startedAt + NEAREST_STORE_BUDGET_MS;
+  const timings = { reverseGeocodeMs: 0, citySearchMs: 0, geocodeMs: 0, priceProbeMs: 0 };
+  let userPlaceQuery: string | undefined;
+  let candidates: IcaStoreSearchResult[] = [];
+  let geocodeAttemptCount = 0;
+  let geocodeCacheHitCount = 0;
   let priceProbeCount = 0;
+  let priceCapabilityCacheHitCount = 0;
   let skippedBecauseNoPriceCount = 0;
+  let timedOut = false;
 
-  for (const candidate of geocodedCandidates.slice(0, options.priceProbeLimit ?? PRICE_PROBE_LIMIT)) {
-    priceProbeCount += 1;
-    const probe = await probeIcaStorePriceCapability(candidate, options);
-    const probedCandidate = { ...candidate, ...probe };
-    stores.push(probedCandidate);
-    if (probe.priceCapable) {
-      selected = probedCandidate;
-      break;
+  const buildDebug = (selected: IcaNearestStoreCandidate | null, geocodedCount: number, error?: unknown): IcaNearestStoreDebug => ({
+    ...(userPlaceQuery ? { userPlaceQuery } : {}),
+    candidateCount: candidates.length,
+    geocodeAttemptCount,
+    geocodedCandidateCount: geocodedCount,
+    priceProbeCount,
+    skippedBecauseNoPriceCount,
+    selectedDistanceKm: selected?.distanceKm ?? null,
+    totalMs: elapsedMs(startedAt),
+    ...timings,
+    geocodeCacheHitCount,
+    priceCapabilityCacheHitCount,
+    timedOut,
+    fallbackUsed: false,
+    ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+  });
+
+  try {
+    const reverseStart = Date.now();
+    const reverse = await reverseGeocodeLocation(coords, { fetchImpl: options.fetchImpl });
+    timings.reverseGeocodeMs = elapsedMs(reverseStart);
+    userPlaceQuery = reverse.query;
+    if (isTimedOut(deadline)) timedOut = true;
+
+    const citySearchStart = Date.now();
+    const searchResult = timedOut
+      ? { stores: [] }
+      : await searchIcaStoresWithDebug(reverse.query, {
+          fetchImpl: withTimeoutFetch(options.fetchImpl ?? fetch, Math.min(CITY_SEARCH_TIMEOUT_MS, Math.max(200, deadline - Date.now()))),
+          now: options.now,
+        });
+    timings.citySearchMs = elapsedMs(citySearchStart);
+    candidates = searchResult.stores.slice(0, GEOCODE_CANDIDATE_LIMIT);
+    if (isTimedOut(deadline)) timedOut = true;
+
+    const geocodeStart = Date.now();
+    const geocodedCandidates = timedOut
+      ? []
+      : (
+          await mapWithConcurrency(candidates, GEOCODE_CONCURRENCY, async (store) => {
+            if (isTimedOut(deadline)) {
+              timedOut = true;
+              return null;
+            }
+            geocodeAttemptCount += 1;
+            try {
+              const geocoded = await geocodeAddress(store.address, store.city, "Sweden", {
+                fetchImpl: options.fetchImpl,
+                now: options.now,
+                cacheKey: store.storeId,
+              });
+              if (!geocoded) return null;
+              if (geocoded.source === "cache") geocodeCacheHitCount += 1;
+              return {
+                ...store,
+                distanceKm: distanceKm(coords, geocoded),
+                priceProbeStatus: "not_probed" as const,
+              };
+            } catch {
+              return null;
+            }
+          })
+        )
+          .filter((store): store is NonNullable<typeof store> => Boolean(store))
+          .sort((a, b) => a.distanceKm - b.distanceKm || a.storeId.localeCompare(b.storeId));
+    timings.geocodeMs = elapsedMs(geocodeStart);
+    if (isTimedOut(deadline)) timedOut = true;
+
+    const stores: IcaNearestStoreCandidate[] = [];
+    let selected: IcaNearestStoreCandidate | null = null;
+    const priceProbeStart = Date.now();
+    for (const candidate of geocodedCandidates.slice(0, options.priceProbeLimit ?? PRICE_PROBE_LIMIT)) {
+      if (isTimedOut(deadline)) {
+        timedOut = true;
+        break;
+      }
+      const probe = await probeIcaStorePriceCapability(candidate, {
+        priceProbe: options.priceProbe,
+        now: options.now,
+      });
+      if (probe.fromCache) priceCapabilityCacheHitCount += 1;
+      else priceProbeCount += 1;
+      const { fromCache: _fromCache, ...probeResult } = probe;
+      const probedCandidate = { ...candidate, ...probeResult };
+      stores.push(probedCandidate);
+      if (probe.priceCapable) {
+        selected = probedCandidate;
+        break;
+      }
+      skippedBecauseNoPriceCount += 1;
     }
-    skippedBecauseNoPriceCount += 1;
-  }
+    timings.priceProbeMs = elapsedMs(priceProbeStart);
 
-  const probedIds = new Set(stores.map((store) => store.storeId));
-  for (const candidate of geocodedCandidates) {
-    if (stores.length >= (options.limit ?? 5)) break;
-    if (!probedIds.has(candidate.storeId)) stores.push(candidate);
-  }
+    if (!selected) {
+      for (const store of candidates) {
+        const cached = getCachedPriceCapability(store.storeId, options.now ?? Date.now());
+        if (cached === true) {
+          priceCapabilityCacheHitCount += 1;
+          selected = { ...store, priceCapable: true, priceProbeStatus: "priced" };
+          stores.push(selected);
+          break;
+        }
+      }
+    }
 
-  return {
-    store: selected ? toStoreSearchResultResponse(selected) : null,
-    stores,
-    debug: {
-      userPlaceQuery: reverse.query,
-      candidateCount: candidates.length,
-      geocodedCandidateCount: geocodedCandidates.length,
-      priceProbeCount,
-      skippedBecauseNoPriceCount,
-      selectedDistanceKm: selected?.distanceKm ?? null,
-      fallbackUsed: false,
-    },
-  };
+    const probedIds = new Set(stores.map((store) => store.storeId));
+    for (const candidate of geocodedCandidates) {
+      if (stores.length >= (options.limit ?? 5)) break;
+      if (!probedIds.has(candidate.storeId)) stores.push(candidate);
+    }
+
+    return {
+      store: selected ? toStoreSearchResultResponse(selected) : null,
+      stores,
+      debug: buildDebug(selected, geocodedCandidates.length),
+    };
+  } catch (error) {
+    return {
+      store: null,
+      stores: [],
+      debug: buildDebug(null, 0, error),
+    };
+  }
 }
 
 export async function searchIcaStoresWithDebug(

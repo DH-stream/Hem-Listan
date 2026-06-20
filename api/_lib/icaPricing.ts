@@ -41,6 +41,7 @@ interface IcaSearchOptions {
   liveEnabled?: boolean;
   bypassNegativeCache?: boolean;
   skipCache?: boolean;
+  requestTimeoutMs?: number;
 }
 
 export interface IcaProviderDiagnostic {
@@ -731,7 +732,7 @@ const fetchIcaProductsFromUrl = async (
     mode,
   };
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
   try {
     pricingApiLog(debug, "ica fetch", {
       searchUrl: searchUrl.origin + searchUrl.pathname,
