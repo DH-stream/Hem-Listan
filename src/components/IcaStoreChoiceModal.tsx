@@ -32,6 +32,7 @@ export default function IcaStoreChoiceModal({
 
   const fallbackStores = filterSeededIcaStores(storeQuery).map(seededStoreToSearchResult);
   const filteredStores = dynamicStores ?? fallbackStores;
+  const isListStep = step === "list";
 
   const handleClose = () => {
     setStep("choice");
@@ -100,8 +101,10 @@ export default function IcaStoreChoiceModal({
     <AnimatePresence>
       {open && (
         <div
-          className={`absolute inset-0 z-10 flex justify-center px-4 sm:items-center sm:p-6 ${
-            step === "list" ? "items-start pb-4 pt-4" : "items-end pb-6"
+          className={`absolute inset-0 z-10 flex justify-center px-4 ${
+            isListStep
+              ? "items-start overflow-hidden pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[max(env(safe-area-inset-top),1rem)]"
+              : "items-end pb-6 sm:items-center sm:p-6"
           }`}
         >
           <motion.button
@@ -117,8 +120,10 @@ export default function IcaStoreChoiceModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="ica-store-choice-title"
-            className={`relative w-full rounded-3xl border border-surface-container-high bg-surface p-4 shadow-2xl sm:max-w-sm ${
-              step === "list" ? "flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden" : ""
+            className={`relative w-full rounded-3xl border border-surface-container-high bg-surface p-4 shadow-2xl ${
+              isListStep
+                ? "flex h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:max-w-md"
+                : "sm:max-w-sm"
             }`}
             initial={{ y: 24, scale: 0.98, opacity: 0 }}
             animate={{ y: 0, scale: 1, opacity: 1 }}
@@ -130,7 +135,7 @@ export default function IcaStoreChoiceModal({
                 <h3 id="ica-store-choice-title" className="font-display text-lg font-bold text-on-surface">
                   Välj ICA-butik
                 </h3>
-                {step === "list" && (
+                {isListStep && (
                   <p className="mt-1 text-sm text-on-surface-variant">Sök eller välj butik själv.</p>
                 )}
               </div>
@@ -164,7 +169,7 @@ export default function IcaStoreChoiceModal({
                 </button>
               </div>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col space-y-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
                 <input
                   type="search"
                   className="w-full rounded-2xl border border-surface-container-high bg-surface-container-lowest px-4 py-3 font-sans text-sm text-on-surface outline-none transition placeholder:text-on-surface-variant focus:border-primary focus:bg-surface"
@@ -177,7 +182,7 @@ export default function IcaStoreChoiceModal({
                     Söker ICA-butiker…
                   </p>
                 )}
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pb-2 pr-1">
                   {!searchLoading && filteredStores.length > 0 ? (
                     filteredStores.map((store) => {
                       const active =
