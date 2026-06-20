@@ -11,6 +11,7 @@ import {
   validateBasketPricingRequest,
 } from "./api/_lib/basketPricing";
 import {
+  reverseGeocodeLocation,
   searchIcaStoresWithDebug,
   type IcaStoreSearchDebug,
 } from "./api/_lib/icaStoreSearch";
@@ -66,6 +67,36 @@ app.post(
                 error instanceof Error ? error.message : String(error),
             }
           : {}),
+      });
+    }
+  },
+);
+
+app.get(
+  "/api/location/reverse",
+  async (req: express.Request, res: express.Response) => {
+    const lat = typeof req.query.lat === "string" ? Number(req.query.lat) : Number.NaN;
+    const lng = typeof req.query.lng === "string" ? Number(req.query.lng) : Number.NaN;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({
+        query: "",
+        error: "Valid lat and lng query parameters are required",
+        debug: { fallbackUsed: true, stage: "invalid_coordinates" },
+      });
+    }
+
+    try {
+      return res.json(await reverseGeocodeLocation({ latitude: lat, longitude: lng }));
+    } catch (error) {
+      return res.status(200).json({
+        query: "",
+        error: "Reverse geocoding unavailable",
+        debug: {
+          fallbackUsed: true,
+          stage: "reverse_geocode_failed",
+          error: error instanceof Error ? error.message : String(error),
+        },
       });
     }
   },

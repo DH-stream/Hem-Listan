@@ -9,6 +9,7 @@ interface PricingSourceSheetProps {
   selectedSource: PricingSource;
   onSelect: (source: PricingSource) => void;
   onClose: () => void;
+  onToast?: (message: string) => void;
 }
 
 export default function PricingSourceSheet({
@@ -16,6 +17,7 @@ export default function PricingSourceSheet({
   selectedSource,
   onSelect,
   onClose,
+  onToast,
 }: PricingSourceSheetProps) {
   const [icaStoreChoiceOpen, setIcaStoreChoiceOpen] = useState(false);
 
@@ -126,6 +128,7 @@ export default function PricingSourceSheet({
             selectedSource={selectedSource}
             onSelect={handleIcaStoreSelect}
             onClose={() => setIcaStoreChoiceOpen(false)}
+            onToast={onToast}
           />
         </div>
       )}

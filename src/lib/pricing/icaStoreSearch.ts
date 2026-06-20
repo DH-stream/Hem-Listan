@@ -1,4 +1,5 @@
 import type { PricingSource, SeededIcaStore } from "./sources";
+import type { UserCoordinates } from "./geolocation";
 
 export type IcaStoreSearchResult = PricingSource & {
   chain: "ica";
@@ -83,4 +84,27 @@ export async function searchIcaStores(query: string): Promise<IcaStoreSearchResu
     debug: payload.debug,
   });
   return stores;
+}
+
+export async function reverseGeocodeUserLocation(coords: UserCoordinates): Promise<{ query: string }> {
+  const query = new URLSearchParams({
+    lat: String(coords.latitude),
+    lng: String(coords.longitude),
+  });
+  const response = await fetch(`/api/location/reverse?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error("Location reverse geocode unavailable");
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || typeof payload.query !== "string" || !payload.query.trim()) {
+    throw new Error("Location reverse geocode returned no place query");
+  }
+  console.info("[ica-store-nearby] reverse geocode result", {
+    query: payload.query,
+    city: payload.city,
+    municipality: payload.municipality,
+    region: payload.region,
+    debug: payload.debug,
+  });
+  return { query: payload.query.trim() };
 }

@@ -165,10 +165,6 @@ export const filterSeededIcaStores = (query: string): SeededIcaStore[] => {
     .map((result) => result.store);
 };
 
-export async function resolveNearestIcaStore(): Promise<PricingSource> {
-  return toPricingSource(SEEDED_ICA_STORES[0]);
-}
-
 export const normalizePricingSource = (value: unknown): PricingSource => {
   if (!value || typeof value !== "object") return DEFAULT_PRICING_SOURCE;
   const candidate = value as Partial<PricingSource>;
