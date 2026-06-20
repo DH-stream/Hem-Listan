@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
-import { PRICING_SOURCES, type PricingSource } from "../lib/pricing/sources";
+import IcaStoreChoiceModal from "./IcaStoreChoiceModal";
+import { DEFAULT_CITY_GROSS_STORE_ID, SEEDED_ICA_STORES, type PricingSource } from "../lib/pricing/sources";
 
 interface PricingSourceSheetProps {
   open: boolean;
@@ -15,6 +17,26 @@ export default function PricingSourceSheet({
   onSelect,
   onClose,
 }: PricingSourceSheetProps) {
+  const [icaStoreChoiceOpen, setIcaStoreChoiceOpen] = useState(false);
+
+  const handleClose = () => {
+    setIcaStoreChoiceOpen(false);
+    onClose();
+  };
+
+  const handleSelect = (source: PricingSource) => {
+    if (source.chain === "ica") {
+      setIcaStoreChoiceOpen(true);
+      return;
+    }
+    onSelect(source);
+  };
+
+  const handleIcaStoreSelect = (source: PricingSource) => {
+    setIcaStoreChoiceOpen(false);
+    onSelect(source);
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -26,7 +48,7 @@ export default function PricingSourceSheet({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
           />
           <motion.div
             role="dialog"
@@ -42,7 +64,7 @@ export default function PricingSourceSheet({
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
                 <h2 id="pricing-source-title" className="font-display text-lg font-bold text-on-surface">
-                  Välj butik
+                  Välj priskälla
                 </h2>
                 <p className="mt-1 text-sm text-on-surface-variant">
                   Välj priskälla för den här enheten.
@@ -52,13 +74,25 @@ export default function PricingSourceSheet({
                 type="button"
                 className="rounded-full p-2 text-on-surface-variant hover:bg-surface-container"
                 aria-label="Stäng"
-                onClick={onClose}
+                onClick={handleClose}
               >
                 ×
               </button>
             </div>
             <div className="space-y-2">
-              {PRICING_SOURCES.map((source) => {
+              {[
+                {
+                  chain: "city_gross" as const,
+                  storeId: DEFAULT_CITY_GROSS_STORE_ID,
+                  label: "City Gross",
+                },
+                {
+                  chain: "ica" as const,
+                  storeId:
+                    selectedSource.chain === "ica" ? selectedSource.storeId : SEEDED_ICA_STORES[0].storeId,
+                  label: "ICA",
+                },
+              ].map((source) => {
                 const active =
                   source.chain === selectedSource.chain && source.storeId === selectedSource.storeId;
                 return (
@@ -70,11 +104,16 @@ export default function PricingSourceSheet({
                         ? "border-primary bg-primary/10"
                         : "border-surface-container-high bg-surface-container-lowest hover:bg-surface-container-low"
                     }`}
-                    onClick={() => onSelect(source)}
+                    onClick={() => handleSelect(source)}
                   >
                     <StoreLogo chainId={source.chain} className="h-8 w-14" />
                     <span className="flex-1 font-sans text-sm font-semibold text-on-surface">
-                      {source.label}
+                      <span className="block">{source.label}</span>
+                      {source.chain === "ica" && selectedSource.chain === "ica" && (
+                        <span className="mt-0.5 block text-xs font-normal text-on-surface-variant">
+                          Vald butik: {selectedSource.label}
+                        </span>
+                      )}
                     </span>
                     {active && <span className="text-sm font-bold text-primary">Vald</span>}
                   </button>
@@ -82,6 +121,12 @@ export default function PricingSourceSheet({
               })}
             </div>
           </motion.div>
+          <IcaStoreChoiceModal
+            open={icaStoreChoiceOpen}
+            selectedSource={selectedSource}
+            onSelect={handleIcaStoreSelect}
+            onClose={() => setIcaStoreChoiceOpen(false)}
+          />
         </div>
       )}
     </AnimatePresence>

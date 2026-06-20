@@ -20,8 +20,23 @@ import {
   selectActiveBasketEstimate,
   writeBasketPricingCache,
 } from "./src/lib/pricing/useBasketPriceEstimate";
-import { DEFAULT_PRICING_SOURCE, normalizePricingSource } from "./src/lib/pricing/sources";
+import {
+  DEFAULT_PRICING_SOURCE,
+  filterSeededIcaStores,
+  normalizePricingSource,
+  resolveNearestIcaStore,
+  SEEDED_ICA_STORES,
+  toPricingSource,
+} from "./src/lib/pricing/sources";
 import { getStoreLogoPath } from "./src/components/StoreLogo";
+import {
+  clearIcaStoreSearchCacheForTests,
+  filterIcaStoreSearchResults,
+  parseIcaStoresFromHtml,
+  searchIcaStores as searchIcaStoresFromIca,
+  searchIcaStoresWithDebug,
+} from "./api/_lib/icaStoreSearch";
+import { normalizeIcaStoreSearchResult } from "./src/lib/pricing/icaStoreSearch";
 
 const products: ProductPrice[] = [
   {
@@ -329,6 +344,14 @@ test("basket pricing cache key and active item signature are stable", () => {
   assert.notEqual(
     createBasketPricingCacheKey("city_gross", "public", "list-1", first),
     createBasketPricingCacheKey("ica", "1004392", "list-1", first),
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", first),
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[1].storeId, "list-1", first),
+  );
+  assert.notEqual(
+    createBasketPricingCacheKey("ica", SEEDED_ICA_STORES[0].storeId, "list-1", first),
+    createBasketPricingCacheKey("ica", "1004888", "list-1", first),
   );
   assert.notEqual(
     first,
@@ -713,13 +736,177 @@ test("low-coverage ICA basket cache becomes stale after 60 seconds", () => {
   );
 });
 
-test("pricing source defaults to City Gross and normalizes ICA", () => {
+test("pricing source accepts static City Gross", () => {
   assert.equal(DEFAULT_PRICING_SOURCE.chain, "city_gross");
+  const cityGross = normalizePricingSource({ chain: "city_gross", storeId: "public" });
+  assert.equal(cityGross.chain, "city_gross");
+  assert.equal(cityGross.storeId, "public");
+  assert.equal(cityGross.label, "City Gross");
+});
+
+test("pricing source accepts static ICA", () => {
   const ica = normalizePricingSource({ chain: "ica", storeId: "1004392" });
   assert.equal(ica.chain, "ica");
   assert.equal(ica.storeId, "1004392");
   assert.equal(ica.label, "ICA Maxi Kungälv");
 });
+
+test("pricing source accepts dynamic ICA store with numeric store id and label", () => {
+  const ica = normalizePricingSource({
+    chain: "ica",
+    storeId: "12345",
+    label: "ICA Nära Test",
+    storeUrl: "https://example.test/ica/12345",
+  });
+  assert.equal(ica.chain, "ica");
+  assert.equal(ica.storeId, "12345");
+  assert.equal(ica.label, "ICA Nära Test");
+  assert.equal(ica.storeUrl, "https://example.test/ica/12345");
+});
+
+test("pricing source defaults ICA store url when missing", () => {
+  const ica = normalizePricingSource({
+    chain: "ica",
+    storeId: "98765",
+    label: "ICA Supermarket Test",
+  });
+  assert.equal(ica.storeUrl, "https://handlaprivatkund.ica.se/stores/98765");
+});
+
+test("pricing source rejects invalid ICA sources", () => {
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "abc", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "ica", storeId: "12345" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource({ chain: "unknown", storeId: "12345", label: "ICA" }), DEFAULT_PRICING_SOURCE);
+  assert.equal(normalizePricingSource(null), DEFAULT_PRICING_SOURCE);
+});
+
+test("seeded ICA stores are valid pricing sources", () => {
+  assert.ok(SEEDED_ICA_STORES.length > 1);
+  for (const store of SEEDED_ICA_STORES) {
+    assert.equal(store.chain, "ica");
+    assert.match(store.storeId, /^\d+$/);
+    assert.ok(store.label.trim());
+    assert.deepEqual(normalizePricingSource(store), toPricingSource(store));
+  }
+});
+
+
+test("seeded ICA store filter ranks city matches before broad regional matches", () => {
+  const results = filterSeededIcaStores("kungälv");
+  const storeIds = results.map((store) => store.storeId);
+  const maxiIndex = storeIds.indexOf("1004392");
+  const skafferietIndex = storeIds.indexOf("1004426");
+  const gothenburgIndex = storeIds.indexOf("1004219");
+
+  assert.notEqual(maxiIndex, -1);
+  assert.notEqual(skafferietIndex, -1);
+  assert.ok(gothenburgIndex === -1 || maxiIndex < gothenburgIndex);
+  assert.ok(gothenburgIndex === -1 || skafferietIndex < gothenburgIndex);
+});
+
+test("seeded ICA store filter matches manual search fields", () => {
+  assert.equal(filterSeededIcaStores("skafferiet")[0].storeId, "1004426");
+  assert.equal(filterSeededIcaStores("ivar claessonsgatan")[0].storeId, "1004426");
+  assert.equal(filterSeededIcaStores("Frölunda")[0].storeId, "1003778");
+  assert.equal(filterSeededIcaStores("Nödinge")[0].storeId, "1003458");
+  assert.equal(filterSeededIcaStores("Grafiska Vägen")[0].storeId, "1004219");
+  assert.equal(filterSeededIcaStores("Mariatorget")[0].storeId, "1003988");
+});
+
+test("seeded ICA store filter supports broad regional matches", () => {
+  const results = filterSeededIcaStores("Västra Götaland");
+  assert.equal(results.length > 1, true);
+  assert.ok(results.every((store) => store.region === "Västra Götaland"));
+});
+
+test("seeded ICA store filter returns an empty list for unmatched query", () => {
+  assert.deepEqual(filterSeededIcaStores("ingen-butik-matchar-detta"), []);
+});
+
+test("nearest ICA resolver returns the default seeded ICA pricing source", async () => {
+  const ica = await resolveNearestIcaStore();
+  assert.deepEqual(ica, toPricingSource(SEEDED_ICA_STORES[0]));
+  assert.equal(ica.chain, "ica");
+  assert.match(ica.storeId, /^\d+$/);
+  assert.ok(ica.label.trim());
+});
+
+
+
+test("normalizes dynamic ICA store search results", () => {
+  assert.deepEqual(normalizeIcaStoreSearchResult({
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Örnsköldsvik",
+    city: "Örnsköldsvik",
+    address: "Storgatan 1",
+  }), {
+    chain: "ica",
+    storeId: "1004888",
+    label: "ICA Supermarket Örnsköldsvik",
+    storeUrl: "https://handlaprivatkund.ica.se/stores/1004888",
+    city: "Örnsköldsvik",
+    address: "Storgatan 1",
+  });
+  assert.equal(normalizeIcaStoreSearchResult({ chain: "ica", storeId: "", label: "ICA" }), null);
+  assert.equal(normalizeIcaStoreSearchResult({ chain: "ica", storeId: "abc", label: "ICA" }), null);
+});
+
+test("ICA store search parses and filters dynamic city results", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const html = `
+    <script>window.state={"stores":[
+      {"storeId":"1","accountNumber":"1004888","storeName":"ICA Supermarket Örnsköldsvik","address":{"street":"Storgatan 1","city":"Örnsköldsvik"},"lat":"63.29","lng":"18.71"},
+      {"storeId":"2","accountNumber":"1004999","storeName":"ICA Nära Domsjö","address":{"street":"Domsjövägen 1","city":"Domsjö"},"lat":"63.26","lng":"18.71"}
+    ]};</script>
+  `;
+  const parsed = parseIcaStoresFromHtml(html);
+  assert.equal(parsed.length, 2);
+  assert.equal(filterIcaStoreSearchResults(parsed, "Örnsköldsvik")[0].storeId, "1004888");
+
+  const results = await searchIcaStoresFromIca("Örnsköldsvik", {
+    fetchImpl: async () => new Response(html),
+  });
+  assert.equal(results[0].storeId, "1004888");
+});
+
+test("ICA store search returns debug data and reuses parsed store cache", async () => {
+  clearIcaStoreSearchCacheForTests();
+  const html = `
+    <script>window.state={"stores":[
+      {"accountNumber":"1004048","storeName":"ICA Supermarket Knalleland","address":{"street":"Bergslenagatan 7","city":"Borås"}},
+      {"accountNumber":"1003722","storeName":"Maxi ICA Stormarknad Borås","address":{"street":"Trandögatan 16","city":"Borås"}}
+    ]};</script>
+  `;
+  let fetchCount = 0;
+  const fetchImpl = async () => {
+    fetchCount += 1;
+    return new Response(html, { status: 200 });
+  };
+
+  const first = await searchIcaStoresWithDebug("Borås", { fetchImpl, now: 1_000 });
+  assert.equal(first.stores.length, 2);
+  assert.equal(first.debug.upstreamStatus, 200);
+  assert.equal(first.debug.htmlLength, html.length);
+  assert.equal(first.debug.parsedStoreCount, 2);
+  assert.equal(first.debug.filteredStoreCount, 2);
+  assert.equal(first.debug.source, "ica_html");
+  assert.equal(first.debug.fallbackUsed, false);
+  assert.deepEqual(first.debug.firstParsedStores.map((store) => store.storeId), ["1004048", "1003722"]);
+
+  const second = await searchIcaStoresWithDebug("Borås", {
+    fetchImpl: async () => {
+      throw new Error("cache should prevent refetch");
+    },
+    now: 2_000,
+  });
+  assert.equal(fetchCount, 1);
+  assert.equal(second.stores.length, 2);
+  assert.equal(second.debug.source, "cache");
+  assert.equal(second.debug.cacheAgeMs, 1_000);
+});
+
 
 test("store logo helper resolves City Gross and ICA logos", () => {
   assert.equal(getStoreLogoPath("city_gross"), "/store-logos/citygross.svg");

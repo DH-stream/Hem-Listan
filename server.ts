@@ -10,9 +10,26 @@ import {
   calculateCityGrossBasket,
   validateBasketPricingRequest,
 } from "./api/_lib/basketPricing";
+import {
+  searchIcaStoresWithDebug,
+  type IcaStoreSearchDebug,
+} from "./api/_lib/icaStoreSearch";
 
 const app = express();
 const PORT = 3000;
+const ICA_STORES_URL = "https://www.ica.se/butiker/";
+
+const createIcaStoreSearchFallbackDebug = (query: string, stage: string, error?: unknown) => ({
+  query,
+  upstreamUrl: ICA_STORES_URL,
+  parsedStoreCount: 0,
+  filteredStoreCount: 0,
+  firstParsedStores: [],
+  source: "ica_html" as const,
+  fallbackUsed: false,
+  stage,
+  ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+});
 
 app.use(express.json());
 
@@ -50,6 +67,36 @@ app.post(
             }
           : {}),
       });
+    }
+  },
+);
+
+app.get(
+  "/api/ica/stores/search",
+  async (req: express.Request, res: express.Response) => {
+    const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    console.info("[ica-store-search] handler entered", { query });
+
+    if (query.toLocaleLowerCase("sv-SE") === "healthcheck") {
+      const debug = createIcaStoreSearchFallbackDebug(query, "healthcheck");
+      console.info("[ica-store-search] healthcheck", debug);
+      return res.json({ ok: true, stores: [], debug });
+    }
+
+    if (query.length < 2) {
+      const debug = createIcaStoreSearchFallbackDebug(query, "short_query");
+      console.info("[ica-store-search] skipped short query", debug);
+      return res.json({ stores: [], debug });
+    }
+
+    try {
+      const result = await searchIcaStoresWithDebug(query);
+      console.info("[ica-store-search] result", result.debug);
+      return res.json(result);
+    } catch (error) {
+      const debug: IcaStoreSearchDebug = createIcaStoreSearchFallbackDebug(query, "search_failed", error);
+      console.error("[ica-store-search] failed", debug);
+      return res.status(200).json({ error: "ICA store search unavailable", stores: [], debug });
     }
   },
 );

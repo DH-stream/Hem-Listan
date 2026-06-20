@@ -5,6 +5,9 @@
     },
     "api/pricing/basket.ts": {
       "includeFiles": "api/_lib/**"
+    },
+    "api/ica/stores/search.ts": {
+      "includeFiles": "api/_lib/**"
     }
   },
   "rewrites": [
