@@ -2,6 +2,8 @@ import type { ProductPrice } from "../../src/lib/pricing/types";
 import {
   MAX_PRICING_QUERY_LENGTH,
   normalizePricingQuery,
+  normalizeKgUnitPriceToEstimatedItemPrice,
+  parseApproxWeightKg,
   parsePriceSek,
 } from "./pricingProviderUtils.js";
 
@@ -44,9 +46,66 @@ interface WillysProductResult {
   comparePriceUnit?: unknown;
   image?: { url?: unknown };
   thumbnail?: { url?: unknown };
+  displayVolume?: unknown;
+  productLine2?: unknown;
+  description?: unknown;
   online?: unknown;
   outOfStock?: unknown;
 }
+
+
+const WILLYS_SINGLE_PIECE_FALLBACK_WEIGHTS_KG: Record<string, number> = {
+  banan: 0.18,
+  citron: 0.12,
+  lime: 0.08,
+  apelsin: 0.18,
+  "äpple": 0.15,
+  "päron": 0.17,
+  kiwi: 0.09,
+  avokado: 0.17,
+  "vitlök": 0.06,
+};
+
+const WILLYS_BULK_PRODUCE_TERMS = [
+  "potatis",
+  "lök",
+  "tomat",
+  "vindruvor",
+  "morötter",
+  "äpplen",
+  "bananer",
+];
+
+const normalizeProduceText = (value: string) =>
+  value
+    .normalize("NFKC")
+    .toLocaleLowerCase("sv-SE")
+    .replace(/[^a-zåäö0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getWillysSinglePieceFallbackWeightKg = (product: WillysProductResult) => {
+  const haystack = normalizeProduceText(
+    [product.name, product.code]
+      .filter((value): value is string => typeof value === "string")
+      .join(" "),
+  );
+  if (!haystack) return null;
+  if (WILLYS_BULK_PRODUCE_TERMS.some((term) => {
+    const normalizedTerm = normalizeProduceText(term);
+    return new RegExp(`(^| )${normalizedTerm}( |$)`).test(haystack);
+  })) {
+    return null;
+  }
+
+  for (const [term, weightKg] of Object.entries(WILLYS_SINGLE_PIECE_FALLBACK_WEIGHTS_KG)) {
+    const normalizedTerm = normalizeProduceText(term);
+    if (new RegExp(`(^| )${normalizedTerm}( |$)`).test(haystack)) {
+      return weightKg;
+    }
+  }
+  return null;
+};
 
 const cache = new Map<string, CacheEntry>();
 let diagnostics: WillysProviderDiagnostic[] = [];
@@ -103,19 +162,33 @@ export const normalizeWillysProduct = (
       ? product.comparePriceUnit.trim()
       : undefined;
 
+  const providerWeightKg = parseApproxWeightKg(
+    product.displayVolume,
+    product.productLine2,
+    product.description,
+  );
+  const unitLabel =
+    typeof product.priceUnit === "string" && product.priceUnit.trim()
+      ? product.priceUnit.trim()
+      : "st";
+  const kgEstimate = normalizeKgUnitPriceToEstimatedItemPrice(
+    priceSek,
+    unitLabel,
+    providerWeightKg ?? getWillysSinglePieceFallbackWeightKg(product),
+  );
+  const normalizedComparePrice =
+    kgEstimate?.comparePrice ??
+    (comparePrice && comparePriceUnit ? `${comparePrice}/${comparePriceUnit}` : comparePrice);
+
   return {
     id: code ? `willys-${code}` : `willys-${productName.toLocaleLowerCase("sv-SE")}`,
     chainId: "willys",
     storeId: WILLYS_STORE_ID,
     productName,
-    priceSek,
-    unitLabel:
-      typeof product.priceUnit === "string" && product.priceUnit.trim()
-        ? product.priceUnit.trim()
-        : "st",
+    priceSek: kgEstimate?.priceSek ?? priceSek,
+    unitLabel: kgEstimate?.unitLabel ?? unitLabel,
     searchTerms: [productName, code].filter(Boolean),
-    comparePrice:
-      comparePrice && comparePriceUnit ? `${comparePrice}/${comparePriceUnit}` : comparePrice,
+    comparePrice: normalizedComparePrice,
     imageUrl: absoluteUrl(product.image?.url) ?? absoluteUrl(product.thumbnail?.url),
     isCampaign: false,
     fetchedAt,

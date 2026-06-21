@@ -8,7 +8,7 @@ import {
 } from "./api/_lib/willysPricing";
 
 const fixtureProducts = [
-  { code: "banan", name: "Banan Klass 1", priceValue: 26.9, priceUnit: "kg", comparePrice: "26,90 kr", comparePriceUnit: "kg", image: { url: "/images/banan.jpg" }, online: true, outOfStock: false },
+  { code: "banan", name: "Banan Klass 1", priceValue: 18.8, priceUnit: "kr/kg", displayVolume: "ca: 180g", image: { url: "/images/banan.jpg" }, online: true, outOfStock: false },
   { code: "mjolk", name: "Mellanmjölk 1,5% 1 l", priceValue: 16.95, priceUnit: "st", thumbnail: { url: "https://assets.willys.se/mjolk.jpg" }, online: true, outOfStock: false },
   { code: "pasta", name: "Pasta Spaghetti 1 kg", priceValue: 21.95, priceUnit: "st", online: true, outOfStock: false },
   { code: "agg", name: "Ägg Frigående 12-pack", priceValue: 39.95, priceUnit: "st", online: true, outOfStock: false },
@@ -29,11 +29,61 @@ test("normalizes Willys product result", () => {
   assert.equal(product.storeId, "public");
   assert.equal(product.id, "willys-banan");
   assert.equal(product.productName, "Banan Klass 1");
-  assert.equal(product.priceSek, 26.9);
-  assert.equal(product.unitLabel, "kg");
+  assert.equal(product.priceSek, 3.38);
+  assert.equal(product.unitLabel, "st");
+  assert.equal(product.comparePrice, "18,80 kr/kg");
   assert.equal(product.imageUrl, "https://www.willys.se/images/banan.jpg");
   assert.equal(product.productUrl, undefined);
   assert.deepEqual(product.searchTerms, ["Banan Klass 1", "banan"]);
+});
+
+
+test("Willys banana without explicit weight uses controlled fallback", () => {
+  const product = normalizeWillysProduct({
+    code: "banan",
+    name: "Banan Klass 1",
+    priceValue: 18.8,
+    priceUnit: "kr/kg",
+  });
+
+  assert.ok(product);
+  assert.equal(product.priceSek, 3.38);
+  assert.equal(product.unitLabel, "st");
+  assert.equal(product.comparePrice, "18,80 kr/kg");
+});
+
+test("Willys milk and non-kg products remain unchanged", () => {
+  const product = normalizeWillysProduct(fixtureProducts[1]);
+
+  assert.ok(product);
+  assert.equal(product.priceSek, 16.95);
+  assert.equal(product.unitLabel, "st");
+});
+
+test("Willys kg-priced unknown product without weight remains kg price", () => {
+  const product = normalizeWillysProduct({
+    code: "okand",
+    name: "Okänd lösvikt",
+    priceValue: 44.9,
+    priceUnit: "kr/kg",
+  });
+
+  assert.ok(product);
+  assert.equal(product.priceSek, 44.9);
+  assert.equal(product.unitLabel, "kr/kg");
+});
+
+test("Willys broad bulk produce terms are not blindly converted", () => {
+  const product = normalizeWillysProduct({
+    code: "bananer",
+    name: "Bananer Klass 1",
+    priceValue: 18.8,
+    priceUnit: "kr/kg",
+  });
+
+  assert.ok(product);
+  assert.equal(product.priceSek, 18.8);
+  assert.equal(product.unitLabel, "kr/kg");
 });
 
 test("ignores Willys result missing numeric priceValue", () => {
@@ -84,6 +134,7 @@ test("basket pricing can price common items via Willys fixture", async () => {
 
   assert.equal(result.matches.length, 5);
   assert.equal(result.matches.filter((match) => match.product).length, 5);
+  assert.equal(result.matches.find((match) => match.listItemId === "banan")?.product?.priceSek, 3.38);
   assert.ok(result.approximateTotalSek > 0);
 });
 
