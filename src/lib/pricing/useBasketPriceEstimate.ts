@@ -425,6 +425,8 @@ export const logBasketPricingResult = (result: BasketPriceEstimate) => {
 export interface BasketPriceEstimateView {
   matchByTaskId: Record<string, ListItemPriceMatch>;
   approximateTotalSek: number;
+  pricedCount: number;
+  hasResult: boolean;
   isLoading: boolean;
 }
 
@@ -523,6 +525,8 @@ export const selectActiveBasketEstimate = (
   return {
     matchByTaskId,
     approximateTotalSek: Math.round(approximateTotalSek * 100) / 100,
+    pricedCount: Object.values(matchByTaskId).filter((match) => match.product).length,
+    hasResult: true,
     isLoading: false,
   };
 };
@@ -534,6 +538,7 @@ export const useBasketPriceEstimate = (
 ): BasketPriceEstimateView => {
   const [estimate, setEstimate] = useState<BasketPriceEstimate>(EMPTY_ESTIMATE);
   const [estimateCacheKey, setEstimateCacheKey] = useState<string | null>(null);
+  const [resultCacheKey, setResultCacheKey] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const activeItems = useMemo(
     () => createActivePricingItems(tasks),
@@ -554,6 +559,7 @@ export const useBasketPriceEstimate = (
     if (activeItems.length === 0) {
       setEstimate(EMPTY_ESTIMATE);
       setEstimateCacheKey(null);
+      setResultCacheKey(null);
       setIsLoading(false);
       pricingLog("skip: no active items");
       return;
@@ -563,6 +569,7 @@ export const useBasketPriceEstimate = (
     const cacheState = resolveBasketPricingCacheState(cached);
     setEstimate(cacheState.estimate);
     setEstimateCacheKey(cacheKey);
+    setResultCacheKey(cached.entry ? cacheKey : null);
     setIsLoading(cacheState.isLoading);
     if (!cacheState.shouldFetch) {
       pricingLog("cache hit", { key: cacheKey, fetchedAt: cached.entry?.fetchedAt });
@@ -617,6 +624,7 @@ export const useBasketPriceEstimate = (
           writeBasketPricingCache(cacheKey, result);
           setEstimate(result);
           setEstimateCacheKey(cacheKey);
+          setResultCacheKey(cacheKey);
           setIsLoading(false);
         })
         .catch((error: unknown) => {
@@ -631,8 +639,10 @@ export const useBasketPriceEstimate = (
               fetchedAt: cached.entry.fetchedAt,
             });
             setEstimate(cached.entry.result);
+            setResultCacheKey(cacheKey);
           } else {
             setEstimate(EMPTY_ESTIMATE);
+            setResultCacheKey(null);
           }
           setEstimateCacheKey(cacheKey);
           setIsLoading(false);
@@ -648,12 +658,14 @@ export const useBasketPriceEstimate = (
   const effectiveEstimate = estimateCacheKey === cacheKey ? estimate : EMPTY_ESTIMATE;
   const effectiveIsLoading =
     activeItems.length > 0 && (estimateCacheKey === cacheKey ? isLoading : true);
+  const effectiveHasResult = resultCacheKey === cacheKey;
 
   return useMemo(
     () => ({
       ...selectActiveBasketEstimate(tasks, effectiveEstimate),
+      hasResult: effectiveHasResult,
       isLoading: effectiveIsLoading,
     }),
-    [tasks, effectiveEstimate, effectiveIsLoading],
+    [tasks, effectiveEstimate, effectiveHasResult, effectiveIsLoading],
   );
 };
