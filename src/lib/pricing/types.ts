@@ -3,6 +3,7 @@ export type PriceMode = "manual_store" | "cheapest_store";
 export type GroceryChainId =
   | "city_gross"
   | "ica"
+  | "willys"
   | "coop"
   | (string & {});
 

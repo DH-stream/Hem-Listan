@@ -9,11 +9,17 @@ import type {
 } from "../../src/lib/pricing/types";
 import { searchCityGrossProducts } from "./cityGrossPricing.js";
 import {
+  consumeWillysPricingDiagnostics,
+  resetWillysPricingDiagnostics,
+  searchWillysProducts,
+} from "./willysPricing.js";
+import {
   consumeIcaPricingDiagnostics,
   resetIcaPricingDiagnostics,
   searchIcaProducts,
 } from "./icaPricing.js";
 import type { IcaProviderDiagnostic } from "./icaPricing.js";
+import type { WillysProviderDiagnostic } from "./willysPricing.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -24,7 +30,7 @@ export interface PricingBasketItem {
 }
 
 export interface PricingBasketRequest {
-  chain: "city_gross" | "ica";
+  chain: "city_gross" | "ica" | "willys";
   storeId?: string;
   items: PricingBasketItem[];
 }
@@ -65,7 +71,7 @@ export const validateBasketPricingRequest = (
   }
 
   const value = body as Record<string, unknown>;
-  if (value.chain !== "city_gross" && value.chain !== "ica") {
+  if (value.chain !== "city_gross" && value.chain !== "ica" && value.chain !== "willys") {
     return { ok: false, error: "Unsupported grocery chain." };
   }
   if (!Array.isArray(value.items) || value.items.length === 0) {
@@ -124,14 +130,16 @@ export const validateBasketPricingRequest = (
 const defaultSearchProductsFor = (request: PricingBasketRequest) =>
   request.chain === "ica"
     ? (query: string, storeId?: string) => searchIcaProducts(query, storeId)
-    : (query: string, storeId?: string) => searchCityGrossProducts(query, storeId);
+    : request.chain === "willys"
+      ? (query: string, storeId?: string) => searchWillysProducts(query, storeId)
+      : (query: string, storeId?: string) => searchCityGrossProducts(query, storeId);
 
 const summarizeDiagnostics = (
   request: PricingBasketRequest,
   diagnostics: PricingQueryDiagnostic[],
   pricedCount: number,
   matchCount: number,
-  providerAttempts?: IcaProviderDiagnostic[],
+  providerAttempts?: Array<IcaProviderDiagnostic | WillysProviderDiagnostic>,
 ) =>
   JSON.stringify({
     chain: request.chain,
@@ -143,11 +151,31 @@ const summarizeDiagnostics = (
     queries: diagnostics,
     ...(providerAttempts && providerAttempts.length > 0
       ? {
-          providerAttemptSummary: summarizeIcaProviderAttempts(providerAttempts),
+          providerAttemptSummary:
+            request.chain === "ica"
+              ? summarizeIcaProviderAttempts(providerAttempts as IcaProviderDiagnostic[])
+              : summarizeGenericProviderAttempts(providerAttempts),
           providerAttempts,
         }
       : {}),
   });
+
+const summarizeGenericProviderAttempts = (
+  attempts: Array<IcaProviderDiagnostic | WillysProviderDiagnostic>,
+) => {
+  const resultTypeCounts: Record<string, number> = {};
+  attempts.forEach((attempt) => {
+    const resultType = attempt.resultType ?? "unclassified";
+    resultTypeCounts[resultType] = (resultTypeCounts[resultType] ?? 0) + 1;
+  });
+  return {
+    resultTypeCounts,
+    cacheHitCount: resultTypeCounts.cache_hit ?? 0,
+    successfulAttemptCount: resultTypeCounts.success ?? 0,
+    emptyAttemptCount: resultTypeCounts.empty ?? 0,
+    errorAttemptCount: resultTypeCounts.error ?? 0,
+  };
+};
 
 export const summarizeIcaProviderAttempts = (attempts: IcaProviderDiagnostic[]) => {
   const resultTypeCounts: Record<string, number> = {};
@@ -191,6 +219,7 @@ export async function calculateBasketPriceEstimate(
   const debug = options.debug ?? false;
   const searchProducts = options.searchProducts ?? defaultSearchProductsFor(request);
   if (debug && request.chain === "ica") resetIcaPricingDiagnostics();
+  if (debug && request.chain === "willys") resetWillysPricingDiagnostics();
   pricingApiLog(debug, "basket input", {
     chain: request.chain,
     storeId: request.storeId,
@@ -328,7 +357,12 @@ export async function calculateBasketPriceEstimate(
     ) / 100;
 
   const pricedCount = matches.filter((match) => match.product).length;
-  const providerAttempts = debug && request.chain === "ica" ? consumeIcaPricingDiagnostics() : [];
+  const providerAttempts =
+    debug && request.chain === "ica"
+      ? consumeIcaPricingDiagnostics()
+      : debug && request.chain === "willys"
+        ? consumeWillysPricingDiagnostics()
+        : [];
   const result: BasketPriceEstimate = {
     matches,
     approximateTotalSek,
