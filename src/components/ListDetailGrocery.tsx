@@ -284,6 +284,7 @@ export default function ListDetailGrocery({
     matchByTaskId,
     approximateTotalSek,
     pricedCount,
+    hasResult: pricingHasResult,
     isLoading: pricingLoading,
   } = useBasketPriceEstimate(
     list.id,
@@ -307,6 +308,7 @@ export default function ListDetailGrocery({
     selectedPricingSource.chain === "ica" &&
     activeShoppingRows.length > 0 &&
     !pricingLoading &&
+    pricingHasResult &&
     pricedCount === 0;
   recipeTipDebugLog("render card", {
     recipeId: recommendedSavedRecipe?.id,
