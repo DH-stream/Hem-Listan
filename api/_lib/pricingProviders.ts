@@ -3,8 +3,9 @@ import type { PricingBasketRequest } from "./basketPricing.js";
 import { calculateBasketPriceEstimate } from "./basketPricing.js";
 import { searchCityGrossProducts } from "./cityGrossPricing.js";
 import { searchIcaProducts } from "./icaPricing.js";
+import { searchWillysProducts } from "./willysPricing.js";
 
-export type PricingChain = "city_gross" | "ica";
+export type PricingChain = "city_gross" | "ica" | "willys";
 
 export interface PricingProvider {
   chain: PricingChain;
@@ -48,13 +49,16 @@ const providers: Record<PricingChain, PricingProvider> = {
   ica: createProvider("ica", (query, storeId, options) =>
     searchIcaProducts(query, storeId, options),
   ),
+  willys: createProvider("willys", (query, storeId, options) =>
+    searchWillysProducts(query, storeId, options),
+  ),
 };
 
 export const getPricingProvider = (chain: PricingChain): PricingProvider =>
   providers[chain];
 
 export const isSupportedPricingChain = (value: unknown): value is PricingChain =>
-  value === "city_gross" || value === "ica";
+  value === "city_gross" || value === "ica" || value === "willys";
 
 export async function calculateBasketPricing(
   request: PricingBasketRequest,

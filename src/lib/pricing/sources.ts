@@ -1,6 +1,6 @@
 import type { GroceryChainId } from "./types";
 
-export type PricingChain = "city_gross" | "ica";
+export type PricingChain = "city_gross" | "ica" | "willys";
 
 export type PricingSource = {
   chain: PricingChain;
@@ -21,6 +21,7 @@ export type SeededIcaStore = PricingSource & {
 export const PRICING_SOURCE_STORAGE_KEY = "hem-listan-pricing-source:v1";
 
 export const DEFAULT_CITY_GROSS_STORE_ID = "public";
+export const DEFAULT_WILLYS_STORE_ID = "public";
 
 export const SEEDED_ICA_STORES: SeededIcaStore[] = [
   {
@@ -108,13 +109,19 @@ export const PRICING_SOURCES: PricingSource[] = [
     storeId: DEFAULT_CITY_GROSS_STORE_ID,
     label: "City Gross",
   },
+  {
+    chain: "willys",
+    storeId: DEFAULT_WILLYS_STORE_ID,
+    label: "Willys",
+    storeUrl: "https://www.willys.se",
+  },
   ...SEEDED_ICA_STORES.map(toPricingSource),
 ];
 
 export const DEFAULT_PRICING_SOURCE = PRICING_SOURCES[0];
 
 export const isPricingChain = (value: unknown): value is PricingChain =>
-  value === "city_gross" || value === "ica";
+  value === "city_gross" || value === "ica" || value === "willys";
 
 export const getPricingSource = (
   chain: GroceryChainId | PricingChain,

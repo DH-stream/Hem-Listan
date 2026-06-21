@@ -9,6 +9,7 @@ interface StoreLogoProps {
 const logoPaths: Partial<Record<GroceryChainId, string>> = {
   city_gross: "/store-logos/citygross.svg",
   ica: "/store-logos/ica.svg",
+  willys: "/store-logos/willys.svg",
   coop: "/store-logos/coop.svg",
 };
 

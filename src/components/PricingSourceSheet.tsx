@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import StoreLogo from "./StoreLogo";
 import IcaStoreChoiceModal from "./IcaStoreChoiceModal";
-import { DEFAULT_CITY_GROSS_STORE_ID, SEEDED_ICA_STORES, type PricingSource } from "../lib/pricing/sources";
+import { DEFAULT_CITY_GROSS_STORE_ID, DEFAULT_WILLYS_STORE_ID, SEEDED_ICA_STORES, type PricingSource } from "../lib/pricing/sources";
 
 interface PricingSourceSheetProps {
   open: boolean;
@@ -87,6 +87,12 @@ export default function PricingSourceSheet({
                   chain: "city_gross" as const,
                   storeId: DEFAULT_CITY_GROSS_STORE_ID,
                   label: "City Gross",
+                },
+                {
+                  chain: "willys" as const,
+                  storeId: DEFAULT_WILLYS_STORE_ID,
+                  label: "Willys",
+                  storeUrl: "https://www.willys.se",
                 },
                 {
                   chain: "ica" as const,

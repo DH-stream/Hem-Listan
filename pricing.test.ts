@@ -744,6 +744,21 @@ test("pricing source accepts static City Gross", () => {
   assert.equal(cityGross.label, "City Gross");
 });
 
+test("pricing source accepts static Willys", () => {
+  const willys = normalizePricingSource({ chain: "willys", storeId: "public" });
+  assert.equal(willys.chain, "willys");
+  assert.equal(willys.storeId, "public");
+  assert.equal(willys.label, "Willys");
+  assert.equal(willys.storeUrl, "https://www.willys.se");
+});
+
+test("basket pricing cache key includes Willys chain and public store", () => {
+  assert.equal(
+    createBasketPricingCacheKey("willys", "public", "list-1", "banan"),
+    "hem-listan-pricing-basket:v3:willys:public:list-1:banan",
+  );
+});
+
 test("pricing source accepts static ICA", () => {
   const ica = normalizePricingSource({ chain: "ica", storeId: "1004392" });
   assert.equal(ica.chain, "ica");
@@ -972,4 +987,5 @@ test("ICA store search returns debug data and reuses parsed store cache", async 
 test("store logo helper resolves City Gross and ICA logos", () => {
   assert.equal(getStoreLogoPath("city_gross"), "/store-logos/citygross.svg");
   assert.equal(getStoreLogoPath("ica"), "/store-logos/ica.svg");
+  assert.equal(getStoreLogoPath("willys"), "/store-logos/willys.svg");
 });
