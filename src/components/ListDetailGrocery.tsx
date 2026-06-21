@@ -280,7 +280,12 @@ export default function ListDetailGrocery({
   const completedShoppingRows = progressRows.filter((row) => row.checked);
   const totalTasks = progressRows.length;
   const completedCount = completedShoppingRows.length;
-  const { matchByTaskId, approximateTotalSek, isLoading: pricingLoading } = useBasketPriceEstimate(
+  const {
+    matchByTaskId,
+    approximateTotalSek,
+    pricedCount,
+    isLoading: pricingLoading,
+  } = useBasketPriceEstimate(
     list.id,
     list.tasks,
     selectedPricingSource,
@@ -298,6 +303,11 @@ export default function ListDetailGrocery({
       row.sourceTaskIds.map((taskId) => [taskId, row] as const),
     ),
   );
+  const showIcaPricingFailureWarning =
+    selectedPricingSource.chain === "ica" &&
+    activeShoppingRows.length > 0 &&
+    !pricingLoading &&
+    pricedCount === 0;
   recipeTipDebugLog("render card", {
     recipeId: recommendedSavedRecipe?.id,
     title: recommendedSavedRecipe?.title,
@@ -1130,6 +1140,12 @@ export default function ListDetailGrocery({
                   </p>
                 </div>
               </div>
+
+              {showIcaPricingFailureWarning ? (
+                <p className="mb-2.5 font-sans text-xs font-medium text-on-surface-variant">
+                  Kunde inte hämta priser från {selectedPricingSource.label}. Testa en annan ICA-butik.
+                </p>
+              ) : null}
 
               <div className="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
                 <div

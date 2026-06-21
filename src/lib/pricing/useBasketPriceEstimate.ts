@@ -425,6 +425,7 @@ export const logBasketPricingResult = (result: BasketPriceEstimate) => {
 export interface BasketPriceEstimateView {
   matchByTaskId: Record<string, ListItemPriceMatch>;
   approximateTotalSek: number;
+  pricedCount: number;
   isLoading: boolean;
 }
 
@@ -523,6 +524,7 @@ export const selectActiveBasketEstimate = (
   return {
     matchByTaskId,
     approximateTotalSek: Math.round(approximateTotalSek * 100) / 100,
+    pricedCount: Object.values(matchByTaskId).filter((match) => match.product).length,
     isLoading: false,
   };
 };
