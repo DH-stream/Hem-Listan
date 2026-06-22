@@ -11,6 +11,7 @@ import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 const BASKET_COMPARISON_STALE_MS = 6 * 60 * 60 * 1_000;
+const MIN_COMPARABLE_BASKET_COVERAGE = 0.75;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
 const PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS = 60 * 1_000;
@@ -541,6 +542,7 @@ export interface BasketPriceComparisonResult {
   matchCount: number;
   rowCount: number;
   coverageRatio: number;
+  isLowCoverage: boolean;
   isLoading: boolean;
   error?: string;
 }
@@ -759,6 +761,17 @@ export const useBasketPriceComparison = (
         const rowCount = activeShoppingRows.length;
         const matchCount = Object.keys(view.matchByTaskId).length;
         const pricedCount = view.pricedCount;
+        const coverageRatio = rowCount > 0 ? pricedCount / rowCount : 0;
+        const isLowCoverage = pricedCount > 0 && (pricedCount < rowCount || coverageRatio < MIN_COMPARABLE_BASKET_COVERAGE);
+        pricingLog("comparison coverage", {
+          sourceKey,
+          approximateTotalSek: view.approximateTotalSek,
+          pricedCount,
+          matchCount,
+          rowCount,
+          coverageRatio,
+          isLowCoverage,
+        });
         setResultsBySourceKey((current) => ({
           ...current,
           [sourceKey]: {
@@ -768,7 +781,8 @@ export const useBasketPriceComparison = (
             pricedCount,
             matchCount,
             rowCount,
-            coverageRatio: rowCount > 0 ? pricedCount / rowCount : 0,
+            coverageRatio,
+            isLowCoverage,
             isLoading,
             error,
           },
@@ -815,16 +829,26 @@ export const useBasketPriceComparison = (
             matchCount: 0,
             rowCount: activeShoppingRows.length,
             coverageRatio: 0,
+            isLowCoverage: false,
             isLoading: enabled && activeItems.length > 0,
           };
     });
     return values.sort((left, right) => {
-      const leftOk = !left.isLoading && !left.error && left.pricedCount > 0;
-      const rightOk = !right.isLoading && !right.error && right.pricedCount > 0;
-      if (leftOk && rightOk) return left.approximateTotalSek - right.approximateTotalSek;
-      if (leftOk) return -1;
-      if (rightOk) return 1;
-      if (left.isLoading !== right.isLoading) return left.isLoading ? -1 : 1;
+      const getSortBucket = (result: BasketPriceComparisonResult) => {
+        if (result.isLoading) return 2;
+        if (result.error || result.pricedCount === 0) return 3;
+        return result.isLowCoverage ? 1 : 0;
+      };
+      const leftBucket = getSortBucket(left);
+      const rightBucket = getSortBucket(right);
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftBucket === 0) return left.approximateTotalSek - right.approximateTotalSek;
+      if (leftBucket === 1) {
+        if (left.coverageRatio !== right.coverageRatio) {
+          return right.coverageRatio - left.coverageRatio;
+        }
+        return left.approximateTotalSek - right.approximateTotalSek;
+      }
       return (sourceOrderByKey.get(left.sourceKey) ?? 0) - (sourceOrderByKey.get(right.sourceKey) ?? 0);
     });
   }, [

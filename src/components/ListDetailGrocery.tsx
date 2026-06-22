@@ -45,17 +45,17 @@ interface PriceComparisonSheetProps {
   open: boolean;
   listId: string;
   tasks: TaskItem[];
-  selectedSource: PricingSource;
+  lastIcaSource: PricingSource | null;
   onClose: () => void;
 }
 
-function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: PriceComparisonSheetProps) {
+function PriceComparisonSheet({ open, listId, tasks, lastIcaSource, onClose }: PriceComparisonSheetProps) {
   const shouldReduceMotion = useReducedMotion();
   const sources = useMemo(() => {
     const comparisonSources: PricingSource[] = [
-      ...(selectedSource.chain === "ica" ? [selectedSource] : []),
       { chain: "city_gross", storeId: DEFAULT_CITY_GROSS_STORE_ID, label: "City Gross" },
       { chain: "willys", storeId: DEFAULT_WILLYS_STORE_ID, label: "Willys", storeUrl: "https://www.willys.se" },
+      ...(lastIcaSource ? [lastIcaSource] : []),
     ];
     const seen = new Set<string>();
     return comparisonSources.filter((source) => {
@@ -65,10 +65,10 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
       return true;
     });
   }, [
-    selectedSource.chain,
-    selectedSource.label,
-    selectedSource.storeId,
-    selectedSource.storeUrl,
+    lastIcaSource?.chain,
+    lastIcaSource?.label,
+    lastIcaSource?.storeId,
+    lastIcaSource?.storeUrl,
   ]);
   const { results, isLoading, refresh } = useBasketPriceComparison(listId, tasks, sources, open);
   const sheetTransition = shouldReduceMotion
@@ -76,7 +76,7 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
     : { type: "spring" as const, stiffness: 360, damping: 32 };
   const revealTransition = shouldReduceMotion
     ? { duration: 0.01 }
-    : { duration: 0.22, ease: [0.23, 1, 0.32, 1] as const };
+    : { duration: 0.34, ease: [0.23, 1, 0.32, 1] as const };
 
   return (
     <AnimatePresence>
@@ -133,14 +133,15 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
                 hidden: {},
                 show: {
                   transition: {
-                    staggerChildren: shouldReduceMotion ? 0 : 0.07,
-                    delayChildren: shouldReduceMotion ? 0 : 0.06,
+                    staggerChildren: shouldReduceMotion ? 0 : 0.12,
+                    delayChildren: shouldReduceMotion ? 0 : 0.12,
                   },
                 },
               }}
             >
               {results.map((result) => {
                 const failed = Boolean(result.error) || (!result.isLoading && result.pricedCount === 0);
+                const lowCoverage = !failed && !result.isLoading && result.isLowCoverage;
                 return (
                   <motion.div
                     key={result.sourceKey}
@@ -179,7 +180,7 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
                           >
                             Kunde inte jämföra just nu
                           </motion.p>
-                        ) : result.coverageRatio < 0.35 ? (
+                        ) : lowCoverage ? (
                           <motion.p
                             key="coverage"
                             className="mt-0.5 text-xs text-on-surface-variant"
@@ -188,7 +189,7 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
                             exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
                             transition={revealTransition}
                           >
-                            Låg träffsäkerhet för listan
+                            Ofullständig jämförelse
                           </motion.p>
                         ) : null}
                       </AnimatePresence>
@@ -206,7 +207,7 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
                       ) : failed ? null : (
                         <motion.span
                           key="amount"
-                          className="font-display text-base font-bold text-primary"
+                          className={`font-display text-base font-bold ${lowCoverage ? "text-on-surface-variant" : "text-primary"}`}
                           initial={shouldReduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }}
@@ -219,6 +220,21 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
                   </motion.div>
                 );
               })}
+              {!lastIcaSource && (
+                <motion.div
+                  className="flex items-center gap-3 rounded-2xl border border-dashed border-surface-container-high bg-surface-container-lowest/70 p-3"
+                  variants={{
+                    hidden: { opacity: 0, y: 8 },
+                    show: { opacity: 1, y: 0, transition: revealTransition },
+                  }}
+                >
+                  <StoreLogo chainId="ica" className="h-8 w-14 opacity-60" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-sans text-sm font-semibold text-on-surface-variant">ICA</p>
+                    <p className="mt-0.5 text-xs text-on-surface-variant">Välj ICA-butik först</p>
+                  </div>
+                </motion.div>
+              )}
             </motion.div>
             <motion.button
               type="button"
@@ -470,7 +486,7 @@ export default function ListDetailGrocery({
   const [pricingSourceSheetOpen, setPricingSourceSheetOpen] = useState(false);
   const [priceComparisonSheetOpen, setPriceComparisonSheetOpen] = useState(false);
   const [pricingSourceToast, setPricingSourceToast] = useState<string | null>(null);
-  const { selectedPricingSource, setSelectedPricingSource } = usePricingSource();
+  const { selectedPricingSource, setSelectedPricingSource, lastIcaPricingSource } = usePricingSource();
 
   useEffect(() => {
     if (!pricingSourceToast) return;
@@ -1340,7 +1356,7 @@ export default function ListDetailGrocery({
                   </button>
                   <button
                     type="button"
-                    className="rounded-full px-2 py-1 text-xs font-bold text-primary transition hover:bg-primary/10 active:scale-[0.97]"
+                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-primary/75 transition hover:bg-primary/5 hover:text-primary active:scale-[0.97]"
                     onClick={() => setPriceComparisonSheetOpen(true)}
                   >
                     Jämför priser
@@ -1750,7 +1766,7 @@ export default function ListDetailGrocery({
         open={priceComparisonSheetOpen}
         listId={list.id}
         tasks={list.tasks}
-        selectedSource={selectedPricingSource}
+        lastIcaSource={lastIcaPricingSource}
         onClose={() => setPriceComparisonSheetOpen(false)}
       />
 
