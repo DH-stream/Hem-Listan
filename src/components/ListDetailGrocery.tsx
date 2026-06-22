@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
@@ -24,6 +24,7 @@ import {
   createActiveShoppingRows,
   createShoppingRowDisplay,
   createShoppingProgressRows,
+  useBasketPriceComparison,
   useBasketPriceEstimate,
 } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
@@ -37,6 +38,122 @@ import {
 } from "../../shared/pricingQuantity";
 import type { ListItemPriceMatch } from "../lib/pricing/types";
 import { usePricingSource } from "../lib/pricing/usePricingSource";
+import { DEFAULT_CITY_GROSS_STORE_ID, DEFAULT_WILLYS_STORE_ID, type PricingSource } from "../lib/pricing/sources";
+
+
+interface PriceComparisonSheetProps {
+  open: boolean;
+  listId: string;
+  tasks: TaskItem[];
+  selectedSource: PricingSource;
+  onClose: () => void;
+}
+
+function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: PriceComparisonSheetProps) {
+  const sources = useMemo(() => {
+    const comparisonSources: PricingSource[] = [
+      ...(selectedSource.chain === "ica" ? [selectedSource] : []),
+      { chain: "city_gross", storeId: DEFAULT_CITY_GROSS_STORE_ID, label: "City Gross" },
+      { chain: "willys", storeId: DEFAULT_WILLYS_STORE_ID, label: "Willys", storeUrl: "https://www.willys.se" },
+    ];
+    const seen = new Set<string>();
+    return comparisonSources.filter((source) => {
+      const key = `${source.chain}:${source.storeId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [selectedSource]);
+  const { results, isLoading, refresh } = useBasketPriceComparison(listId, tasks, sources, open);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+          <motion.button
+            type="button"
+            aria-label="Stäng prisjämförelse"
+            className="absolute inset-0 bg-black/35"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="price-comparison-title"
+            className="relative w-full rounded-t-3xl border border-surface-container bg-surface p-5 shadow-2xl sm:max-w-md sm:rounded-3xl"
+            initial={{ y: 32, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 32, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 360, damping: 32 }}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-outline-variant sm:hidden" />
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 id="price-comparison-title" className="font-display text-lg font-bold text-on-surface">
+                  Jämför priser
+                </h2>
+                <p className="mt-1 text-sm text-on-surface-variant">
+                  Ungefärligt totalpris för varorna som är kvar i listan.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full p-2 text-on-surface-variant hover:bg-surface-container"
+                aria-label="Stäng"
+                onClick={onClose}
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-2">
+              {results.map((result) => {
+                const failed = Boolean(result.error) || (!result.isLoading && result.pricedCount === 0);
+                return (
+                  <div
+                    key={result.sourceKey}
+                    className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-3"
+                  >
+                    <StoreLogo chainId={result.source.chain} className="h-8 w-14" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-sans text-sm font-semibold text-on-surface">
+                        {result.source.label}
+                      </p>
+                      {result.isLoading ? (
+                        <p className="mt-0.5 text-xs text-on-surface-variant">Jämför priser…</p>
+                      ) : failed ? (
+                        <p className="mt-0.5 text-xs text-on-surface-variant">Kunde inte jämföra just nu</p>
+                      ) : result.coverageRatio < 0.35 ? (
+                        <p className="mt-0.5 text-xs text-on-surface-variant">Låg träffsäkerhet för listan</p>
+                      ) : null}
+                    </div>
+                    {result.isLoading ? (
+                      <span className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high" />
+                    ) : failed ? null : (
+                      <span className="font-display text-base font-bold text-primary">
+                        ca {Math.round(result.approximateTotalSek)} kr
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="mt-4 min-h-[44px] w-full rounded-2xl bg-surface-container px-4 text-sm font-bold text-on-surface transition active:scale-[0.98] disabled:opacity-60"
+              onClick={refresh}
+              disabled={isLoading}
+            >
+              Uppdatera jämförelse
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 type SavedRecipeTipCache = {
   recipeId: string;
@@ -268,6 +385,7 @@ export default function ListDetailGrocery({
   }, [highlightedMealClientId, list.meals]);
 
   const [pricingSourceSheetOpen, setPricingSourceSheetOpen] = useState(false);
+  const [priceComparisonSheetOpen, setPriceComparisonSheetOpen] = useState(false);
   const [pricingSourceToast, setPricingSourceToast] = useState<string | null>(null);
   const { selectedPricingSource, setSelectedPricingSource } = usePricingSource();
 
@@ -1137,6 +1255,13 @@ export default function ListDetailGrocery({
                     ) : null}
                     <StoreLogo chainId={selectedPricingSource.chain} className="h-5 w-auto max-w-14" />
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-full px-2 py-1 text-xs font-bold text-primary transition hover:bg-primary/10 active:scale-[0.97]"
+                    onClick={() => setPriceComparisonSheetOpen(true)}
+                  >
+                    Jämför priser
+                  </button>
                   <p className="font-display text-sm font-bold text-primary">
                     {completedCount} / {totalTasks}
                   </p>
@@ -1536,6 +1661,14 @@ export default function ListDetailGrocery({
         mealType={pendingMeal?.type ?? "middag"}
         isLoggedIn={isLoggedIn}
         onSelectSavedRecipe={handleSelectSavedRecipe}
+      />
+
+      <PriceComparisonSheet
+        open={priceComparisonSheetOpen}
+        listId={list.id}
+        tasks={list.tasks}
+        selectedSource={selectedPricingSource}
+        onClose={() => setPriceComparisonSheetOpen(false)}
       />
 
       <PricingSourceSheet

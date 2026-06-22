@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
 import {
   formatComparableQuantity,
@@ -10,6 +10,7 @@ import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
+const BASKET_COMPARISON_STALE_MS = 6 * 60 * 60 * 1_000;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
 const PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS = 60 * 1_000;
@@ -531,6 +532,61 @@ export const selectActiveBasketEstimate = (
   };
 };
 
+
+export interface BasketPriceComparisonResult {
+  source: PricingSource;
+  sourceKey: string;
+  approximateTotalSek: number;
+  pricedCount: number;
+  matchCount: number;
+  coverageRatio: number;
+  isLoading: boolean;
+  error?: string;
+}
+
+export interface BasketPriceComparisonView {
+  results: BasketPriceComparisonResult[];
+  isLoading: boolean;
+  refresh: () => void;
+}
+
+const createPricingSourceKey = (source: PricingSource) =>
+  `${source.chain}:${source.storeId}`;
+
+const fetchBasketPriceEstimate = async (
+  source: PricingSource,
+  items: Array<{ id: string; name: string; sourceTaskIds: string[] }>,
+  signal: AbortSignal,
+): Promise<BasketPriceEstimate> => {
+  const debugEnabled = isPricingDebugEnabled();
+  const response = await fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chain: source.chain,
+      storeId: source.storeId,
+      items,
+    }),
+    signal,
+  });
+  pricingLog("response", { status: response.status, ok: response.ok });
+  if (!response.ok) {
+    const responseText = await response.text();
+    let body: unknown = responseText;
+    try {
+      body = JSON.parse(responseText);
+    } catch {
+      // Keep the original response text when the error body is not JSON.
+    }
+    pricingLog("response error body", {
+      status: response.status,
+      body,
+    });
+    throw new Error("Basket pricing request failed");
+  }
+  return (await response.json()) as BasketPriceEstimate;
+};
+
 export const useBasketPriceEstimate = (
   listId: string,
   tasks: TaskItem[],
@@ -580,7 +636,6 @@ export const useBasketPriceEstimate = (
       pricingLog("cache miss", { key: cacheKey });
     }
 
-    const debugEnabled = isPricingDebugEnabled();
     const controller = new AbortController();
     pricingLog("debounce scheduled", {
       delayMs: BASKET_DEBOUNCE_MS,
@@ -588,34 +643,7 @@ export const useBasketPriceEstimate = (
     });
     const timeoutId = window.setTimeout(() => {
       pricingLog("request basket", { chain, storeId, items: activeItems });
-      void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chain,
-          storeId,
-          items: activeItems,
-        }),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          pricingLog("response", { status: response.status, ok: response.ok });
-          if (!response.ok) {
-            const responseText = await response.text();
-            let body: unknown = responseText;
-            try {
-              body = JSON.parse(responseText);
-            } catch {
-              // Keep the original response text when the error body is not JSON.
-            }
-            pricingLog("response error body", {
-              status: response.status,
-              body,
-            });
-            throw new Error("Basket pricing request failed");
-          }
-          return (await response.json()) as BasketPriceEstimate;
-        })
+      void fetchBasketPriceEstimate(pricingSource, activeItems, controller.signal)
         .then((result) => {
           logBasketPricingResult(result);
           if (result.error) {
@@ -668,4 +696,113 @@ export const useBasketPriceEstimate = (
     }),
     [tasks, effectiveEstimate, effectiveHasResult, effectiveIsLoading],
   );
+};
+
+
+export const useBasketPriceComparison = (
+  listId: string,
+  tasks: TaskItem[],
+  sources: PricingSource[],
+  enabled: boolean,
+): BasketPriceComparisonView => {
+  const [resultsBySourceKey, setResultsBySourceKey] = useState<Record<string, BasketPriceComparisonResult>>({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const activeItems = useMemo(() => createActivePricingItems(tasks), [tasks]);
+  const activeShoppingRows = useMemo(() => createActiveShoppingRows(tasks), [tasks]);
+  const itemSignature = createBasketItemSignatureFromRows(activeShoppingRows);
+  const sourceKeySignature = sources.map(createPricingSourceKey).join("|");
+
+  const refresh = useCallback(() => {
+    setRefreshNonce((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || activeItems.length === 0 || sources.length === 0) return;
+
+    const controllers: AbortController[] = [];
+    sources.forEach((source) => {
+      const sourceKey = createPricingSourceKey(source);
+      const cacheKey = createBasketPricingCacheKey(source.chain, source.storeId, listId, itemSignature);
+      const cached = readBasketPricingCache(cacheKey);
+      const cachedFetchedAtMs = cached.entry ? Date.parse(cached.entry.fetchedAt) : NaN;
+      const canUseCached =
+        cached.entry &&
+        !cached.isStale &&
+        Number.isFinite(cachedFetchedAtMs) &&
+        Date.now() - cachedFetchedAtMs < BASKET_COMPARISON_STALE_MS;
+
+      const applyResult = (estimate: BasketPriceEstimate, isLoading: boolean, error?: string) => {
+        const view = selectActiveBasketEstimate(tasks, estimate);
+        const matchCount = view.matchByTaskId ? activeShoppingRows.length : 0;
+        const pricedCount = view.pricedCount;
+        setResultsBySourceKey((current) => ({
+          ...current,
+          [sourceKey]: {
+            source,
+            sourceKey,
+            approximateTotalSek: view.approximateTotalSek,
+            pricedCount,
+            matchCount,
+            coverageRatio: matchCount > 0 ? pricedCount / matchCount : 0,
+            isLoading,
+            error,
+          },
+        }));
+      };
+
+      if (canUseCached) {
+        applyResult(cached.entry.result, false, cached.entry.result.error);
+        return;
+      }
+
+      applyResult(cached.entry?.result ?? EMPTY_ESTIMATE, true);
+      const controller = new AbortController();
+      controllers.push(controller);
+      pricingLog("request basket comparison", { sourceKey, items: activeItems });
+      void fetchBasketPriceEstimate(source, activeItems, controller.signal)
+        .then((result) => {
+          logBasketPricingResult(result);
+          if (result.error) throw new Error(result.error);
+          writeBasketPricingCache(cacheKey, result);
+          applyResult(result, false);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          pricingLog("comparison request failed", { sourceKey, error });
+          applyResult(cached.entry?.result ?? EMPTY_ESTIMATE, false, "Kunde inte jämföra just nu");
+        });
+    });
+
+    return () => controllers.forEach((controller) => controller.abort());
+  }, [activeItems, activeShoppingRows.length, enabled, itemSignature, listId, refreshNonce, sourceKeySignature, sources, tasks]);
+
+  const results = useMemo(() => {
+    const values = sources.map((source) => {
+      const sourceKey = createPricingSourceKey(source);
+      return resultsBySourceKey[sourceKey] ?? {
+        source,
+        sourceKey,
+        approximateTotalSek: 0,
+        pricedCount: 0,
+        matchCount: activeShoppingRows.length,
+        coverageRatio: 0,
+        isLoading: enabled && activeItems.length > 0,
+      };
+    });
+    return values.sort((left, right) => {
+      const leftOk = !left.isLoading && !left.error && left.pricedCount > 0;
+      const rightOk = !right.isLoading && !right.error && right.pricedCount > 0;
+      if (leftOk && rightOk) return left.approximateTotalSek - right.approximateTotalSek;
+      if (leftOk) return -1;
+      if (rightOk) return 1;
+      if (left.isLoading !== right.isLoading) return left.isLoading ? -1 : 1;
+      return sources.findIndex((source) => createPricingSourceKey(source) === left.sourceKey) - sources.findIndex((source) => createPricingSourceKey(source) === right.sourceKey);
+    });
+  }, [activeItems.length, activeShoppingRows.length, enabled, resultsBySourceKey, sources]);
+
+  return {
+    results,
+    isLoading: results.some((result) => result.isLoading),
+    refresh,
+  };
 };
