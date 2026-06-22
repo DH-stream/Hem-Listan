@@ -27,12 +27,16 @@ const SIMPLE_PRODUCE_TERMS = [
   "banan",
   "citron",
   "gurka",
+  "kiwi",
   "lime",
   "lok",
   "morot",
+  "paron",
   "paprika",
   "potatis",
   "tomat",
+  "avokado",
+  "vitlok",
 ];
 
 const SIMPLE_PRODUCE_PROCESSED_TERMS = [
@@ -41,6 +45,7 @@ const SIMPLE_PRODUCE_PROCESSED_TERMS = [
   "bar",
   "chips",
   "dessert",
+  "drickyoghurt",
   "dryck",
   "essens",
   "fruktmellis",
@@ -50,6 +55,7 @@ const SIMPLE_PRODUCE_PROCESSED_TERMS = [
   "godispase",
   "grot",
   "grotsmoothie",
+  "choklad",
   "inlagd",
   "juice",
   "kaka",
@@ -65,6 +71,7 @@ const SIMPLE_PRODUCE_PROCESSED_TERMS = [
   "sylt",
   "tomatpure",
   "tonic",
+  "proteinbar",
 ];
 
 const RECEIPT_INFORMED_RULES: ProductPreferenceRule[] = [

@@ -137,11 +137,15 @@ const simpleProduceQueries = new Set([
   "citron",
   "lime",
   "gurka",
+  "kiwi",
   "tomat",
   "potatis",
   "morot",
   "lok",
+  "paron",
   "paprika",
+  "avokado",
+  "vitlok",
 ]);
 
 const processedProductTerms =

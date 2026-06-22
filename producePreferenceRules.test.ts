@@ -119,3 +119,104 @@ test("plain citron prefers fresh citrus over drink mixers", () => {
     "fresh",
   );
 });
+
+test("plain kiwi prefers fruit over yoghurt or basket variants", () => {
+  const products: ProductPrice[] = [
+    product({
+      id: "kiwi-yoghurt",
+      productName: "Drickyoghurt Jordgubb Kiwi 300g Activia",
+      priceSek: 13.53,
+      unitLabel: "300 g",
+      searchTerms: ["Drickyoghurt Jordgubb Kiwi", "kiwi"],
+    }),
+    product({
+      id: "kiwi-basket",
+      productName: "Kiwi i Korg Klass 2",
+      priceSek: 39.9,
+      unitLabel: "st",
+      searchTerms: ["Kiwi i Korg Klass 2", "kiwi"],
+    }),
+    product({
+      id: "kiwi-fruit",
+      productName: "Kiwi ca 125g Klass 1 ICA",
+      priceSek: 6.7,
+      unitLabel: "CA 125G",
+      searchTerms: ["Kiwi ca 125g Klass 1 ICA", "kiwi"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "kiwi", name: "kiwi" }, products).product?.id,
+    "kiwi-fruit",
+  );
+});
+
+test("Willys-style plain kiwi prefers single class 1 kiwi over kiwi basket", () => {
+  const products: ProductPrice[] = [
+    product({
+      chainId: "willys",
+      storeId: "public",
+      id: "willys-kiwi-korg",
+      productName: "Kiwi i Korg Klass 2",
+      priceSek: 39.9,
+      unitLabel: "st",
+      searchTerms: ["Kiwi i Korg Klass 2", "kiwi"],
+    }),
+    product({
+      chainId: "willys",
+      storeId: "public",
+      id: "willys-kiwi",
+      productName: "Kiwi Klass 1",
+      priceSek: 8.9,
+      unitLabel: "st",
+      searchTerms: ["Kiwi Klass 1", "kiwi"],
+    }),
+  ];
+
+  assert.equal(
+    matchListItem({ id: "kiwi", name: "kiwi" }, products).product?.id,
+    "willys-kiwi",
+  );
+});
+
+test("City Gross ST produce keeps checkout item price while KG produce estimates weight", () => {
+  const stKiwi = product({
+    chainId: "city_gross",
+    storeId: "public",
+    id: "100180723_ST",
+    productName: "Kiwi",
+    priceSek: 10.95,
+    unitLabel: "CA100G",
+    comparePrice: "111,73 kr/kg",
+    searchTerms: ["Kiwi"],
+  });
+  const kgBanana = product({
+    chainId: "city_gross",
+    storeId: "public",
+    id: "100235247_KG",
+    productName: "Banan Eko",
+    priceSek: 21.95,
+    unitLabel: "CA 170G",
+    comparePrice: "21,95 kr/kg",
+    searchTerms: ["Banan Eko", "banan"],
+  });
+  const kgApple = product({
+    chainId: "city_gross",
+    storeId: "public",
+    id: "100144504_KG",
+    productName: "Äpple Royal Gala",
+    priceSek: 31.95,
+    unitLabel: "CA 200G",
+    comparePrice: "31,95 kr/kg",
+    searchTerms: ["Äpple Royal Gala", "äpple"],
+  });
+
+  const kiwiMatch = matchListItem({ id: "kiwi", name: "kiwi" }, [stKiwi]);
+  const bananaMatch = matchListItem({ id: "banan", name: "banan" }, [kgBanana]);
+  const appleMatch = matchListItem({ id: "apple", name: "äpple" }, [kgApple]);
+
+  assert.equal(kiwiMatch.product?.id, "100180723_ST");
+  assert.equal(kiwiMatch.estimatedCheckoutPriceSek, undefined);
+  assert.equal(bananaMatch.estimatedCheckoutPriceSek, 3.73);
+  assert.equal(appleMatch.estimatedCheckoutPriceSek, 6.39);
+});
