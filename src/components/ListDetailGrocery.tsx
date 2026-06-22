@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
@@ -50,6 +50,7 @@ interface PriceComparisonSheetProps {
 }
 
 function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: PriceComparisonSheetProps) {
+  const shouldReduceMotion = useReducedMotion();
   const sources = useMemo(() => {
     const comparisonSources: PricingSource[] = [
       ...(selectedSource.chain === "ica" ? [selectedSource] : []),
@@ -63,8 +64,19 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
       seen.add(key);
       return true;
     });
-  }, [selectedSource]);
+  }, [
+    selectedSource.chain,
+    selectedSource.label,
+    selectedSource.storeId,
+    selectedSource.storeUrl,
+  ]);
   const { results, isLoading, refresh } = useBasketPriceComparison(listId, tasks, sources, open);
+  const sheetTransition = shouldReduceMotion
+    ? { duration: 0.01 }
+    : { type: "spring" as const, stiffness: 360, damping: 32 };
+  const revealTransition = shouldReduceMotion
+    ? { duration: 0.01 }
+    : { duration: 0.22, ease: [0.23, 1, 0.32, 1] as const };
 
   return (
     <AnimatePresence>
@@ -87,10 +99,15 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
             initial={{ y: 32, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 32, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 360, damping: 32 }}
+            transition={sheetTransition}
           >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-outline-variant sm:hidden" />
-            <div className="mb-4 flex items-start justify-between gap-4">
+            <motion.div
+              className="mb-4 flex items-start justify-between gap-4"
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={revealTransition}
+            >
               <div>
                 <h2 id="price-comparison-title" className="font-display text-lg font-bold text-on-surface">
                   Jämför priser
@@ -107,47 +124,113 @@ function PriceComparisonSheet({ open, listId, tasks, selectedSource, onClose }: 
               >
                 ×
               </button>
-            </div>
-            <div className="space-y-2">
+            </motion.div>
+            <motion.div
+              className="space-y-2"
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="show"
+              variants={{
+                hidden: {},
+                show: {
+                  transition: {
+                    staggerChildren: shouldReduceMotion ? 0 : 0.07,
+                    delayChildren: shouldReduceMotion ? 0 : 0.06,
+                  },
+                },
+              }}
+            >
               {results.map((result) => {
                 const failed = Boolean(result.error) || (!result.isLoading && result.pricedCount === 0);
                 return (
-                  <div
+                  <motion.div
                     key={result.sourceKey}
                     className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-3"
+                    variants={{
+                      hidden: { opacity: 0, y: 8 },
+                      show: { opacity: 1, y: 0, transition: revealTransition },
+                    }}
+                    layout={!shouldReduceMotion}
                   >
                     <StoreLogo chainId={result.source.chain} className="h-8 w-14" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-sans text-sm font-semibold text-on-surface">
                         {result.source.label}
                       </p>
-                      {result.isLoading ? (
-                        <p className="mt-0.5 text-xs text-on-surface-variant">Jämför priser…</p>
-                      ) : failed ? (
-                        <p className="mt-0.5 text-xs text-on-surface-variant">Kunde inte jämföra just nu</p>
-                      ) : result.coverageRatio < 0.35 ? (
-                        <p className="mt-0.5 text-xs text-on-surface-variant">Låg träffsäkerhet för listan</p>
-                      ) : null}
+                      <AnimatePresence mode="wait" initial={false}>
+                        {result.isLoading ? (
+                          <motion.p
+                            key="loading"
+                            className="mt-0.5 text-xs text-on-surface-variant"
+                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                            transition={revealTransition}
+                          >
+                            Jämför priser…
+                          </motion.p>
+                        ) : failed ? (
+                          <motion.p
+                            key="failed"
+                            className="mt-0.5 text-xs text-on-surface-variant"
+                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                            transition={revealTransition}
+                          >
+                            Kunde inte jämföra just nu
+                          </motion.p>
+                        ) : result.coverageRatio < 0.35 ? (
+                          <motion.p
+                            key="coverage"
+                            className="mt-0.5 text-xs text-on-surface-variant"
+                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                            transition={revealTransition}
+                          >
+                            Låg träffsäkerhet för listan
+                          </motion.p>
+                        ) : null}
+                      </AnimatePresence>
                     </div>
-                    {result.isLoading ? (
-                      <span className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high" />
-                    ) : failed ? null : (
-                      <span className="font-display text-base font-bold text-primary">
-                        ca {Math.round(result.approximateTotalSek)} kr
-                      </span>
-                    )}
-                  </div>
+                    <AnimatePresence mode="wait" initial={false}>
+                      {result.isLoading ? (
+                        <motion.span
+                          key="skeleton"
+                          className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high"
+                          initial={shouldReduceMotion ? false : { opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.98 }}
+                          transition={revealTransition}
+                        />
+                      ) : failed ? null : (
+                        <motion.span
+                          key="amount"
+                          className="font-display text-base font-bold text-primary"
+                          initial={shouldReduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }}
+                          transition={revealTransition}
+                        >
+                          ca {Math.round(result.approximateTotalSek)} kr
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 );
               })}
-            </div>
-            <button
+            </motion.div>
+            <motion.button
               type="button"
               className="mt-4 min-h-[44px] w-full rounded-2xl bg-surface-container px-4 text-sm font-bold text-on-surface transition active:scale-[0.98] disabled:opacity-60"
               onClick={refresh}
               disabled={isLoading}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={shouldReduceMotion ? { duration: 0.01 } : { ...revealTransition, delay: 0.18 }}
             >
               Uppdatera jämförelse
-            </button>
+            </motion.button>
           </motion.div>
         </div>
       )}

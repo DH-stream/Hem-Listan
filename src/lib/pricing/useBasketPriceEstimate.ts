@@ -539,6 +539,7 @@ export interface BasketPriceComparisonResult {
   approximateTotalSek: number;
   pricedCount: number;
   matchCount: number;
+  rowCount: number;
   coverageRatio: number;
   isLoading: boolean;
   error?: string;
@@ -710,17 +711,39 @@ export const useBasketPriceComparison = (
   const activeItems = useMemo(() => createActivePricingItems(tasks), [tasks]);
   const activeShoppingRows = useMemo(() => createActiveShoppingRows(tasks), [tasks]);
   const itemSignature = createBasketItemSignatureFromRows(activeShoppingRows);
-  const sourceKeySignature = sources.map(createPricingSourceKey).join("|");
+  const sourcePrimitiveSignature = sources
+    .map((source) =>
+      [source.chain, source.storeId, source.label, source.storeUrl ?? ""].join("::"),
+    )
+    .join("|");
+  const stableSources = useMemo(
+    () =>
+      sources.map((source) => ({
+        chain: source.chain,
+        storeId: source.storeId,
+        label: source.label,
+        storeUrl: source.storeUrl,
+      })),
+    [sourcePrimitiveSignature],
+  );
+  const sourceKeySignature = stableSources.map(createPricingSourceKey).join("|");
+  const sourceOrderByKey = useMemo(
+    () =>
+      new Map(
+        stableSources.map((source, index) => [createPricingSourceKey(source), index]),
+      ),
+    [sourceKeySignature],
+  );
 
   const refresh = useCallback(() => {
     setRefreshNonce((value) => value + 1);
   }, []);
 
   useEffect(() => {
-    if (!enabled || activeItems.length === 0 || sources.length === 0) return;
+    if (!enabled || activeItems.length === 0 || stableSources.length === 0) return;
 
     const controllers: AbortController[] = [];
-    sources.forEach((source) => {
+    stableSources.forEach((source) => {
       const sourceKey = createPricingSourceKey(source);
       const cacheKey = createBasketPricingCacheKey(source.chain, source.storeId, listId, itemSignature);
       const cached = readBasketPricingCache(cacheKey);
@@ -733,7 +756,8 @@ export const useBasketPriceComparison = (
 
       const applyResult = (estimate: BasketPriceEstimate, isLoading: boolean, error?: string) => {
         const view = selectActiveBasketEstimate(tasks, estimate);
-        const matchCount = view.matchByTaskId ? activeShoppingRows.length : 0;
+        const rowCount = activeShoppingRows.length;
+        const matchCount = Object.keys(view.matchByTaskId).length;
         const pricedCount = view.pricedCount;
         setResultsBySourceKey((current) => ({
           ...current,
@@ -743,7 +767,8 @@ export const useBasketPriceComparison = (
             approximateTotalSek: view.approximateTotalSek,
             pricedCount,
             matchCount,
-            coverageRatio: matchCount > 0 ? pricedCount / matchCount : 0,
+            rowCount,
+            coverageRatio: rowCount > 0 ? pricedCount / rowCount : 0,
             isLoading,
             error,
           },
@@ -774,20 +799,24 @@ export const useBasketPriceComparison = (
     });
 
     return () => controllers.forEach((controller) => controller.abort());
-  }, [activeItems, activeShoppingRows.length, enabled, itemSignature, listId, refreshNonce, sourceKeySignature, sources, tasks]);
+  }, [enabled, itemSignature, listId, refreshNonce, sourceKeySignature]);
 
   const results = useMemo(() => {
-    const values = sources.map((source) => {
+    const values = stableSources.map((source) => {
       const sourceKey = createPricingSourceKey(source);
-      return resultsBySourceKey[sourceKey] ?? {
-        source,
-        sourceKey,
-        approximateTotalSek: 0,
-        pricedCount: 0,
-        matchCount: activeShoppingRows.length,
-        coverageRatio: 0,
-        isLoading: enabled && activeItems.length > 0,
-      };
+      const result = resultsBySourceKey[sourceKey];
+      return result
+        ? { ...result, source }
+        : {
+            source,
+            sourceKey,
+            approximateTotalSek: 0,
+            pricedCount: 0,
+            matchCount: 0,
+            rowCount: activeShoppingRows.length,
+            coverageRatio: 0,
+            isLoading: enabled && activeItems.length > 0,
+          };
     });
     return values.sort((left, right) => {
       const leftOk = !left.isLoading && !left.error && left.pricedCount > 0;
@@ -796,9 +825,17 @@ export const useBasketPriceComparison = (
       if (leftOk) return -1;
       if (rightOk) return 1;
       if (left.isLoading !== right.isLoading) return left.isLoading ? -1 : 1;
-      return sources.findIndex((source) => createPricingSourceKey(source) === left.sourceKey) - sources.findIndex((source) => createPricingSourceKey(source) === right.sourceKey);
+      return (sourceOrderByKey.get(left.sourceKey) ?? 0) - (sourceOrderByKey.get(right.sourceKey) ?? 0);
     });
-  }, [activeItems.length, activeShoppingRows.length, enabled, resultsBySourceKey, sources]);
+  }, [
+    activeItems.length,
+    activeShoppingRows.length,
+    enabled,
+    resultsBySourceKey,
+    sourceKeySignature,
+    sourceOrderByKey,
+    sourcePrimitiveSignature,
+  ]);
 
   return {
     results,
