@@ -29,6 +29,7 @@ import {
 } from "../lib/pricing/useBasketPriceEstimate";
 import StoreLogo from "./StoreLogo";
 import PricingSourceSheet from "./PricingSourceSheet";
+import BottomSheet from "./BottomSheet";
 import {
   categorizeGroceryItem,
   inferCategoryFromCityGrossProduct,
@@ -79,178 +80,160 @@ function PriceComparisonSheet({ open, listId, tasks, lastIcaSource, onClose }: P
     : { duration: 0.34, ease: [0.23, 1, 0.32, 1] as const };
 
   return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
-          <motion.button
-            type="button"
-            aria-label="Stäng prisjämförelse"
-            className="absolute inset-0 bg-black/35"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="price-comparison-title"
-            className="relative w-full rounded-t-3xl border border-surface-container bg-surface p-5 shadow-2xl sm:max-w-md sm:rounded-3xl"
-            initial={{ y: 32, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 32, opacity: 0 }}
-            transition={sheetTransition}
-          >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-outline-variant sm:hidden" />
+    <BottomSheet
+      open={open}
+      titleId="price-comparison-title"
+      closeLabel="Stäng prisjämförelse"
+      onClose={onClose}
+      transition={sheetTransition}
+    >
+      <motion.div
+        className="mb-4 flex items-start justify-between gap-4"
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={revealTransition}
+      >
+        <div>
+          <h2 id="price-comparison-title" className="font-display text-lg font-bold text-on-surface">
+            Jämför priser
+          </h2>
+          <p className="mt-1 text-sm text-on-surface-variant">
+            Ungefärligt totalpris för varorna som är kvar i listan.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="rounded-full p-2 text-on-surface-variant hover:bg-surface-container"
+          aria-label="Stäng"
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </motion.div>
+      <motion.div
+        className="overflow-hidden rounded-2xl bg-surface-container-lowest/40"
+        initial={shouldReduceMotion ? false : "hidden"}
+        animate="show"
+        variants={{
+          hidden: {},
+          show: {
+            transition: {
+              staggerChildren: shouldReduceMotion ? 0 : 0.12,
+              delayChildren: shouldReduceMotion ? 0 : 0.12,
+            },
+          },
+        }}
+      >
+        {results.map((result) => {
+          const failed = Boolean(result.error) || (!result.isLoading && result.pricedCount === 0);
+          const lowCoverage = !failed && !result.isLoading && result.isLowCoverage;
+          return (
             <motion.div
-              className="mb-4 flex items-start justify-between gap-4"
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
+              key={result.sourceKey}
+              className="flex items-center gap-3 border-b border-surface-container-high/70 px-1 py-3 last:border-b-0"
+              variants={{
+                hidden: { opacity: 0, y: 8 },
+                show: { opacity: 1, y: 0, transition: revealTransition },
+              }}
+              layout={!shouldReduceMotion}
+            >
+              <StoreLogo chainId={result.source.chain} className="h-8 w-14" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-sans text-sm font-semibold text-on-surface">
+            {result.source.label}
+                </p>
+                <AnimatePresence mode="wait" initial={false}>
+            {result.isLoading ? (
+              <motion.p
+                key="loading"
+                className="mt-0.5 text-xs text-on-surface-variant"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                transition={revealTransition}
+              >
+                Jämför priser…
+              </motion.p>
+            ) : failed ? (
+              <motion.p
+                key="failed"
+                className="mt-0.5 text-xs text-on-surface-variant"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                transition={revealTransition}
+              >
+                Kunde inte jämföra just nu
+              </motion.p>
+            ) : lowCoverage ? (
+              <motion.p
+                key="coverage"
+                className="mt-0.5 text-xs text-on-surface-variant"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                transition={revealTransition}
+              >
+                Ofullständig jämförelse
+              </motion.p>
+            ) : null}
+                </AnimatePresence>
+              </div>
+              <AnimatePresence mode="wait" initial={false}>
+                {result.isLoading ? (
+            <motion.span
+              key="skeleton"
+              className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high"
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.98 }}
+              transition={revealTransition}
+            />
+                ) : failed ? null : (
+            <motion.span
+              key="amount"
+              className={`font-display text-base font-bold ${lowCoverage ? "text-on-surface-variant" : "text-primary"}`}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }}
               transition={revealTransition}
             >
-              <div>
-                <h2 id="price-comparison-title" className="font-display text-lg font-bold text-on-surface">
-                  Jämför priser
-                </h2>
-                <p className="mt-1 text-sm text-on-surface-variant">
-                  Ungefärligt totalpris för varorna som är kvar i listan.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="rounded-full p-2 text-on-surface-variant hover:bg-surface-container"
-                aria-label="Stäng"
-                onClick={onClose}
-              >
-                ×
-              </button>
+              ca {Math.round(result.approximateTotalSek)} kr
+            </motion.span>
+                )}
+              </AnimatePresence>
             </motion.div>
-            <motion.div
-              className="space-y-2"
-              initial={shouldReduceMotion ? false : "hidden"}
-              animate="show"
-              variants={{
-                hidden: {},
-                show: {
-                  transition: {
-                    staggerChildren: shouldReduceMotion ? 0 : 0.12,
-                    delayChildren: shouldReduceMotion ? 0 : 0.12,
-                  },
-                },
-              }}
-            >
-              {results.map((result) => {
-                const failed = Boolean(result.error) || (!result.isLoading && result.pricedCount === 0);
-                const lowCoverage = !failed && !result.isLoading && result.isLowCoverage;
-                return (
-                  <motion.div
-                    key={result.sourceKey}
-                    className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-3"
-                    variants={{
-                      hidden: { opacity: 0, y: 8 },
-                      show: { opacity: 1, y: 0, transition: revealTransition },
-                    }}
-                    layout={!shouldReduceMotion}
-                  >
-                    <StoreLogo chainId={result.source.chain} className="h-8 w-14" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-sans text-sm font-semibold text-on-surface">
-                        {result.source.label}
-                      </p>
-                      <AnimatePresence mode="wait" initial={false}>
-                        {result.isLoading ? (
-                          <motion.p
-                            key="loading"
-                            className="mt-0.5 text-xs text-on-surface-variant"
-                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
-                            transition={revealTransition}
-                          >
-                            Jämför priser…
-                          </motion.p>
-                        ) : failed ? (
-                          <motion.p
-                            key="failed"
-                            className="mt-0.5 text-xs text-on-surface-variant"
-                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
-                            transition={revealTransition}
-                          >
-                            Kunde inte jämföra just nu
-                          </motion.p>
-                        ) : lowCoverage ? (
-                          <motion.p
-                            key="coverage"
-                            className="mt-0.5 text-xs text-on-surface-variant"
-                            initial={shouldReduceMotion ? false : { opacity: 0, y: 3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
-                            transition={revealTransition}
-                          >
-                            Ofullständig jämförelse
-                          </motion.p>
-                        ) : null}
-                      </AnimatePresence>
-                    </div>
-                    <AnimatePresence mode="wait" initial={false}>
-                      {result.isLoading ? (
-                        <motion.span
-                          key="skeleton"
-                          className="h-5 w-16 animate-pulse rounded-full bg-surface-container-high"
-                          initial={shouldReduceMotion ? false : { opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.98 }}
-                          transition={revealTransition}
-                        />
-                      ) : failed ? null : (
-                        <motion.span
-                          key="amount"
-                          className={`font-display text-base font-bold ${lowCoverage ? "text-on-surface-variant" : "text-primary"}`}
-                          initial={shouldReduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }}
-                          transition={revealTransition}
-                        >
-                          ca {Math.round(result.approximateTotalSek)} kr
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                );
-              })}
-              {!lastIcaSource && (
-                <motion.div
-                  className="flex items-center gap-3 rounded-2xl border border-dashed border-surface-container-high bg-surface-container-lowest/70 p-3"
-                  variants={{
-                    hidden: { opacity: 0, y: 8 },
-                    show: { opacity: 1, y: 0, transition: revealTransition },
-                  }}
-                >
-                  <StoreLogo chainId="ica" className="h-8 w-14 opacity-60" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-sans text-sm font-semibold text-on-surface-variant">ICA</p>
-                    <p className="mt-0.5 text-xs text-on-surface-variant">Välj ICA-butik först</p>
-                  </div>
-                </motion.div>
-              )}
-            </motion.div>
-            <motion.button
-              type="button"
-              className="mt-4 min-h-[44px] w-full rounded-2xl bg-surface-container px-4 text-sm font-bold text-on-surface transition active:scale-[0.98] disabled:opacity-60"
-              onClick={refresh}
-              disabled={isLoading}
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={shouldReduceMotion ? { duration: 0.01 } : { ...revealTransition, delay: 0.18 }}
-            >
-              Uppdatera jämförelse
-            </motion.button>
+          );
+        })}
+        {!lastIcaSource && (
+          <motion.div
+            className="flex items-center gap-3 border-t border-dashed border-surface-container-high/70 px-1 py-3"
+            variants={{
+              hidden: { opacity: 0, y: 8 },
+              show: { opacity: 1, y: 0, transition: revealTransition },
+            }}
+          >
+            <StoreLogo chainId="ica" className="h-8 w-14 opacity-60" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-sans text-sm font-semibold text-on-surface-variant">ICA</p>
+              <p className="mt-0.5 text-xs text-on-surface-variant">Välj ICA-butik först</p>
+            </div>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+        )}
+      </motion.div>
+      <motion.button
+        type="button"
+        className="mt-4 min-h-[44px] w-full rounded-2xl bg-surface-container px-4 text-sm font-bold text-on-surface transition active:scale-[0.98] disabled:opacity-60"
+        onClick={refresh}
+        disabled={isLoading}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={shouldReduceMotion ? { duration: 0.01 } : { ...revealTransition, delay: 0.18 }}
+      >
+        Uppdatera jämförelse
+      </motion.button>
+
+    </BottomSheet>
   );
 }
 

@@ -771,6 +771,12 @@ export const useBasketPriceComparison = (
           rowCount,
           coverageRatio,
           isLowCoverage,
+          matches: estimate.matches.map((match) => ({
+            listItemName: match.listItemName,
+            productName: match.product?.productName,
+            estimatedPriceSek: match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0,
+            confidence: match.confidence,
+          })),
         });
         setResultsBySourceKey((current) => ({
           ...current,
