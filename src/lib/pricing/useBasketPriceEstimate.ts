@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TaskItem } from "../../types";
 import {
   formatComparableQuantity,
@@ -10,6 +10,8 @@ import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 import type { PricingSource } from "./sources";
 
 const BASKET_DEBOUNCE_MS = 3_000;
+const BASKET_COMPARISON_STALE_MS = 6 * 60 * 60 * 1_000;
+const MIN_COMPARABLE_BASKET_COVERAGE = 0.75;
 export const BASKET_PRICING_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
 const PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS = 60 * 1_000;
@@ -531,6 +533,63 @@ export const selectActiveBasketEstimate = (
   };
 };
 
+
+export interface BasketPriceComparisonResult {
+  source: PricingSource;
+  sourceKey: string;
+  approximateTotalSek: number;
+  pricedCount: number;
+  matchCount: number;
+  rowCount: number;
+  coverageRatio: number;
+  isLowCoverage: boolean;
+  isLoading: boolean;
+  error?: string;
+}
+
+export interface BasketPriceComparisonView {
+  results: BasketPriceComparisonResult[];
+  isLoading: boolean;
+  refresh: () => void;
+}
+
+const createPricingSourceKey = (source: PricingSource) =>
+  `${source.chain}:${source.storeId}`;
+
+const fetchBasketPriceEstimate = async (
+  source: PricingSource,
+  items: Array<{ id: string; name: string; sourceTaskIds: string[] }>,
+  signal: AbortSignal,
+): Promise<BasketPriceEstimate> => {
+  const debugEnabled = isPricingDebugEnabled();
+  const response = await fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chain: source.chain,
+      storeId: source.storeId,
+      items,
+    }),
+    signal,
+  });
+  pricingLog("response", { status: response.status, ok: response.ok });
+  if (!response.ok) {
+    const responseText = await response.text();
+    let body: unknown = responseText;
+    try {
+      body = JSON.parse(responseText);
+    } catch {
+      // Keep the original response text when the error body is not JSON.
+    }
+    pricingLog("response error body", {
+      status: response.status,
+      body,
+    });
+    throw new Error("Basket pricing request failed");
+  }
+  return (await response.json()) as BasketPriceEstimate;
+};
+
 export const useBasketPriceEstimate = (
   listId: string,
   tasks: TaskItem[],
@@ -580,7 +639,6 @@ export const useBasketPriceEstimate = (
       pricingLog("cache miss", { key: cacheKey });
     }
 
-    const debugEnabled = isPricingDebugEnabled();
     const controller = new AbortController();
     pricingLog("debounce scheduled", {
       delayMs: BASKET_DEBOUNCE_MS,
@@ -588,34 +646,7 @@ export const useBasketPriceEstimate = (
     });
     const timeoutId = window.setTimeout(() => {
       pricingLog("request basket", { chain, storeId, items: activeItems });
-      void fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chain,
-          storeId,
-          items: activeItems,
-        }),
-        signal: controller.signal,
-      })
-        .then(async (response) => {
-          pricingLog("response", { status: response.status, ok: response.ok });
-          if (!response.ok) {
-            const responseText = await response.text();
-            let body: unknown = responseText;
-            try {
-              body = JSON.parse(responseText);
-            } catch {
-              // Keep the original response text when the error body is not JSON.
-            }
-            pricingLog("response error body", {
-              status: response.status,
-              body,
-            });
-            throw new Error("Basket pricing request failed");
-          }
-          return (await response.json()) as BasketPriceEstimate;
-        })
+      void fetchBasketPriceEstimate(pricingSource, activeItems, controller.signal)
         .then((result) => {
           logBasketPricingResult(result);
           if (result.error) {
@@ -668,4 +699,177 @@ export const useBasketPriceEstimate = (
     }),
     [tasks, effectiveEstimate, effectiveHasResult, effectiveIsLoading],
   );
+};
+
+
+export const useBasketPriceComparison = (
+  listId: string,
+  tasks: TaskItem[],
+  sources: PricingSource[],
+  enabled: boolean,
+): BasketPriceComparisonView => {
+  const [resultsBySourceKey, setResultsBySourceKey] = useState<Record<string, BasketPriceComparisonResult>>({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const activeItems = useMemo(() => createActivePricingItems(tasks), [tasks]);
+  const activeShoppingRows = useMemo(() => createActiveShoppingRows(tasks), [tasks]);
+  const itemSignature = createBasketItemSignatureFromRows(activeShoppingRows);
+  const sourcePrimitiveSignature = sources
+    .map((source) =>
+      [source.chain, source.storeId, source.label, source.storeUrl ?? ""].join("::"),
+    )
+    .join("|");
+  const stableSources = useMemo(
+    () =>
+      sources.map((source) => ({
+        chain: source.chain,
+        storeId: source.storeId,
+        label: source.label,
+        storeUrl: source.storeUrl,
+      })),
+    [sourcePrimitiveSignature],
+  );
+  const sourceKeySignature = stableSources.map(createPricingSourceKey).join("|");
+  const sourceOrderByKey = useMemo(
+    () =>
+      new Map(
+        stableSources.map((source, index) => [createPricingSourceKey(source), index]),
+      ),
+    [sourceKeySignature],
+  );
+
+  const refresh = useCallback(() => {
+    setRefreshNonce((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || activeItems.length === 0 || stableSources.length === 0) return;
+
+    const controllers: AbortController[] = [];
+    stableSources.forEach((source) => {
+      const sourceKey = createPricingSourceKey(source);
+      const cacheKey = createBasketPricingCacheKey(source.chain, source.storeId, listId, itemSignature);
+      const cached = readBasketPricingCache(cacheKey);
+      const cachedFetchedAtMs = cached.entry ? Date.parse(cached.entry.fetchedAt) : NaN;
+      const canUseCached =
+        cached.entry &&
+        !cached.isStale &&
+        Number.isFinite(cachedFetchedAtMs) &&
+        Date.now() - cachedFetchedAtMs < BASKET_COMPARISON_STALE_MS;
+
+      const applyResult = (estimate: BasketPriceEstimate, isLoading: boolean, error?: string) => {
+        const view = selectActiveBasketEstimate(tasks, estimate);
+        const rowCount = activeShoppingRows.length;
+        const matchCount = Object.keys(view.matchByTaskId).length;
+        const pricedCount = view.pricedCount;
+        const coverageRatio = rowCount > 0 ? pricedCount / rowCount : 0;
+        const isLowCoverage = pricedCount > 0 && (pricedCount < rowCount || coverageRatio < MIN_COMPARABLE_BASKET_COVERAGE);
+        pricingLog("comparison coverage", {
+          sourceKey,
+          approximateTotalSek: view.approximateTotalSek,
+          pricedCount,
+          matchCount,
+          rowCount,
+          coverageRatio,
+          isLowCoverage,
+          matches: estimate.matches.map((match) => ({
+            listItemName: match.listItemName,
+            productName: match.product?.productName,
+            estimatedPriceSek: match.estimatedCheckoutPriceSek ?? match.product?.priceSek ?? 0,
+            confidence: match.confidence,
+          })),
+        });
+        setResultsBySourceKey((current) => ({
+          ...current,
+          [sourceKey]: {
+            source,
+            sourceKey,
+            approximateTotalSek: view.approximateTotalSek,
+            pricedCount,
+            matchCount,
+            rowCount,
+            coverageRatio,
+            isLowCoverage,
+            isLoading,
+            error,
+          },
+        }));
+      };
+
+      if (canUseCached) {
+        applyResult(cached.entry.result, false, cached.entry.result.error);
+        return;
+      }
+
+      applyResult(cached.entry?.result ?? EMPTY_ESTIMATE, true);
+      const controller = new AbortController();
+      controllers.push(controller);
+      pricingLog("request basket comparison", { sourceKey, items: activeItems });
+      void fetchBasketPriceEstimate(source, activeItems, controller.signal)
+        .then((result) => {
+          logBasketPricingResult(result);
+          if (result.error) throw new Error(result.error);
+          writeBasketPricingCache(cacheKey, result);
+          applyResult(result, false);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          pricingLog("comparison request failed", { sourceKey, error });
+          applyResult(cached.entry?.result ?? EMPTY_ESTIMATE, false, "Kunde inte jämföra just nu");
+        });
+    });
+
+    return () => controllers.forEach((controller) => controller.abort());
+  }, [enabled, itemSignature, listId, refreshNonce, sourceKeySignature]);
+
+  const results = useMemo(() => {
+    const values = stableSources.map((source) => {
+      const sourceKey = createPricingSourceKey(source);
+      const result = resultsBySourceKey[sourceKey];
+      return result
+        ? { ...result, source }
+        : {
+            source,
+            sourceKey,
+            approximateTotalSek: 0,
+            pricedCount: 0,
+            matchCount: 0,
+            rowCount: activeShoppingRows.length,
+            coverageRatio: 0,
+            isLowCoverage: false,
+            isLoading: enabled && activeItems.length > 0,
+          };
+    });
+    return values.sort((left, right) => {
+      const getSortBucket = (result: BasketPriceComparisonResult) => {
+        if (result.isLoading) return 2;
+        if (result.error || result.pricedCount === 0) return 3;
+        return result.isLowCoverage ? 1 : 0;
+      };
+      const leftBucket = getSortBucket(left);
+      const rightBucket = getSortBucket(right);
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket;
+      if (leftBucket === 0) return left.approximateTotalSek - right.approximateTotalSek;
+      if (leftBucket === 1) {
+        if (left.coverageRatio !== right.coverageRatio) {
+          return right.coverageRatio - left.coverageRatio;
+        }
+        return left.approximateTotalSek - right.approximateTotalSek;
+      }
+      return (sourceOrderByKey.get(left.sourceKey) ?? 0) - (sourceOrderByKey.get(right.sourceKey) ?? 0);
+    });
+  }, [
+    activeItems.length,
+    activeShoppingRows.length,
+    enabled,
+    resultsBySourceKey,
+    sourceKeySignature,
+    sourceOrderByKey,
+    sourcePrimitiveSignature,
+  ]);
+
+  return {
+    results,
+    isLoading: results.some((result) => result.isLoading),
+    refresh,
+  };
 };

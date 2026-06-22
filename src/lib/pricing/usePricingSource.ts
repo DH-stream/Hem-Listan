@@ -6,6 +6,8 @@ import {
   type PricingSource,
 } from "./sources";
 
+export const LAST_ICA_PRICING_SOURCE_STORAGE_KEY = "hem-listan-last-ica-pricing-source:v1";
+
 const readStoredPricingSource = (): PricingSource => {
   if (typeof window === "undefined") return DEFAULT_PRICING_SOURCE;
   try {
@@ -16,9 +18,26 @@ const readStoredPricingSource = (): PricingSource => {
   }
 };
 
+const readStoredIcaPricingSource = (): PricingSource | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(LAST_ICA_PRICING_SOURCE_STORAGE_KEY);
+    const source = normalizePricingSource(stored ? JSON.parse(stored) : null);
+    return source.chain === "ica" ? source : null;
+  } catch {
+    return null;
+  }
+};
+
 export const usePricingSource = () => {
   const [selectedPricingSource, setSelectedPricingSourceState] = useState<PricingSource>(
     () => readStoredPricingSource(),
+  );
+  const [lastIcaPricingSource, setLastIcaPricingSource] = useState<PricingSource | null>(
+    () => {
+      const selectedSource = readStoredPricingSource();
+      return selectedSource.chain === "ica" ? selectedSource : readStoredIcaPricingSource();
+    },
   );
 
   useEffect(() => {
@@ -32,9 +51,23 @@ export const usePricingSource = () => {
     }
   }, [selectedPricingSource]);
 
+  useEffect(() => {
+    if (selectedPricingSource.chain !== "ica") return;
+    setLastIcaPricingSource(selectedPricingSource);
+    try {
+      window.localStorage.setItem(
+        LAST_ICA_PRICING_SOURCE_STORAGE_KEY,
+        JSON.stringify(selectedPricingSource),
+      );
+    } catch {
+      // Last ICA source is best-effort only; comparison can still show a disabled ICA row.
+    }
+  }, [selectedPricingSource]);
+
   const setSelectedPricingSource = useCallback((source: PricingSource) => {
-    setSelectedPricingSourceState(normalizePricingSource(source));
+    const normalizedSource = normalizePricingSource(source);
+    setSelectedPricingSourceState(normalizedSource);
   }, []);
 
-  return { selectedPricingSource, setSelectedPricingSource };
+  return { selectedPricingSource, setSelectedPricingSource, lastIcaPricingSource };
 };
