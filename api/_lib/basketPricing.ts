@@ -20,6 +20,8 @@ import {
 } from "./icaPricing.js";
 import type { IcaProviderDiagnostic } from "./icaPricing.js";
 import type { WillysProviderDiagnostic } from "./willysPricing.js";
+import { emitPricingMatchEventsFireAndForget } from "./pricingMatchEvents.js";
+import type { PricingMatchEventLogger } from "./pricingMatchEvents.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -39,6 +41,7 @@ interface BasketPricingOptions {
   debug?: boolean;
   searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
   refreshSearchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
+  matchEventLogger?: PricingMatchEventLogger;
 }
 
 interface PricingQueryDiagnostic {
@@ -379,6 +382,14 @@ export async function calculateBasketPriceEstimate(
         }
       : {}),
   };
+
+  emitPricingMatchEventsFireAndForget(
+    request,
+    request.items,
+    matches,
+    options.matchEventLogger,
+    (error) => pricingApiLog(debug, "match event logging failed", error),
+  );
 
   pricingApiLog(debug, "match summary", {
     inputItemCount: request.items.length,

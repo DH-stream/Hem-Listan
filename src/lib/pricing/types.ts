@@ -44,6 +44,26 @@ export interface PurchasePlan {
   items: Array<{ product: ProductPrice; count: number }>;
 }
 
+export interface ProductMatchScoreBreakdown {
+  semantic: number;
+  categoryAffinity: number;
+  quantityPackageFit: number;
+  priceSanity: number;
+  productPenalty: number;
+  learnedPreference: number;
+  packagePlan: number;
+  total: number;
+}
+
+export interface ProductMatchCandidateSnapshot {
+  productId: string;
+  productName: string;
+  confidence: PriceMatchConfidence;
+  score: number;
+  scoreBreakdown: ProductMatchScoreBreakdown;
+  reasons: string[];
+}
+
 export interface ListItemPriceMatch {
   listItemId: string;
   listItemName: string;
@@ -55,6 +75,8 @@ export interface ListItemPriceMatch {
   purchasePlan?: PurchasePlan;
   preferenceScore?: number;
   preferenceReasons?: string[];
+  scoreBreakdown?: ProductMatchScoreBreakdown;
+  rankedCandidates?: ProductMatchCandidateSnapshot[];
 }
 
 export interface BasketPriceEstimate {
