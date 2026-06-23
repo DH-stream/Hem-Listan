@@ -5,7 +5,6 @@ import type { PricingBasketItem, PricingBasketRequest } from "./basketPricing.js
 export interface PricingMatchEvent {
   chain: PricingBasketRequest["chain"];
   storeId?: string;
-  listItemName: string;
   normalizedQuery: string;
   selectedProductId?: string;
   selectedProductName?: string;
@@ -35,7 +34,6 @@ export const buildPricingMatchEvent = (
 ): PricingMatchEvent => ({
   chain: request.chain,
   ...(request.storeId ? { storeId: request.storeId } : {}),
-  listItemName: cleanGrocerySearchQuery(item.name),
   normalizedQuery: normalizePriceQuery(cleanGrocerySearchQuery(item.name)),
   ...(match.product?.id ? { selectedProductId: match.product.id } : {}),
   ...(match.product?.productName ? { selectedProductName: match.product.productName } : {}),
@@ -44,13 +42,13 @@ export const buildPricingMatchEvent = (
   ...(match.scoreBreakdown ? { scoreBreakdown: match.scoreBreakdown } : {}),
   ...(match.preferenceReasons ? { scoreReasons: match.preferenceReasons } : {}),
   topCandidates:
-    match.rankedCandidates?.map((candidate) => ({
+    match.rankedCandidates?.slice(0, 5).map((candidate) => ({
       productId: candidate.productId,
       productName: candidate.productName,
     })) ?? [],
-  ...(match.estimatedCheckoutPriceSek ?? match.product?.priceSek
-    ? { approximatePriceSek: match.estimatedCheckoutPriceSek ?? match.product?.priceSek }
-    : {}),
+  ...((match.estimatedCheckoutPriceSek ?? match.product?.priceSek) === undefined
+    ? {}
+    : { approximatePriceSek: match.estimatedCheckoutPriceSek ?? match.product?.priceSek }),
   resultSource: "auto_match",
   timestamp,
 });

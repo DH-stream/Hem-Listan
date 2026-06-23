@@ -8,6 +8,7 @@ import {
 import { normalizeGroceryName } from "../grocery/normalize";
 import type { BasketPriceEstimate, ListItemPriceMatch } from "./types";
 import type { PricingSource } from "./sources";
+import { getSupabaseAuthSnapshot } from "../supabase";
 
 const BASKET_DEBOUNCE_MS = 3_000;
 const BASKET_COMPARISON_STALE_MS = 6 * 60 * 60 * 1_000;
@@ -17,8 +18,29 @@ const EMPTY_BASKET_PRICING_CACHE_TTL_MS = 5 * 60 * 1_000;
 const PARTIAL_ICA_BASKET_PRICING_CACHE_TTL_MS = 60 * 1_000;
 const MIN_SAFE_ICA_COVERAGE = 0.6;
 const PRICING_DEBUG_STORAGE_KEY = "hem-listan-debug-enabled";
+export const ANONYMOUS_INSTALLATION_ID_STORAGE_KEY =
+  "hem-listan-anonymous-installation-id:v1";
 const BASKET_PRICING_CACHE_PREFIX = "hem-listan-pricing-basket:v3";
 const basketPricingMemoryCache = new Map<string, BasketPricingCacheEntry>();
+
+
+export const getAnonymousInstallationId = () => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const existing = window.localStorage.getItem(ANONYMOUS_INSTALLATION_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const generated = window.crypto?.randomUUID?.();
+    if (!generated) return null;
+
+    window.localStorage.setItem(ANONYMOUS_INSTALLATION_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch (error) {
+    pricingLog("anonymous installation id unavailable", error);
+    return null;
+  }
+};
 
 interface BasketPricingCacheEntry {
   result: BasketPriceEstimate;
@@ -562,13 +584,21 @@ const fetchBasketPriceEstimate = async (
   signal: AbortSignal,
 ): Promise<BasketPriceEstimate> => {
   const debugEnabled = isPricingDebugEnabled();
+  const anonymousInstallationId = getAnonymousInstallationId();
+  const { accessToken } = getSupabaseAuthSnapshot();
   const response = await fetch(`/api/pricing/basket${debugEnabled ? "?debug=1" : ""}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify({
       chain: source.chain,
       storeId: source.storeId,
       items,
+      ...(anonymousInstallationId
+        ? { clientContext: { anonymousInstallationId } }
+        : {}),
     }),
     signal,
   });

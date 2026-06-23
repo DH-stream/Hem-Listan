@@ -31,10 +31,15 @@ export interface PricingBasketItem {
   sourceTaskIds?: string[];
 }
 
+export interface PricingBasketClientContext {
+  anonymousInstallationId?: string;
+}
+
 export interface PricingBasketRequest {
   chain: "city_gross" | "ica" | "willys";
   storeId?: string;
   items: PricingBasketItem[];
+  clientContext?: PricingBasketClientContext;
 }
 
 interface BasketPricingOptions {
@@ -55,6 +60,8 @@ interface PricingQueryDiagnostic {
     category?: string;
   }>;
 }
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const pricingApiLog = (
   enabled: boolean,
@@ -126,6 +133,18 @@ export const validateBasketPricingRequest = (
           ? value.storeId.trim().slice(0, 40)
           : undefined,
       items,
+      clientContext:
+        value.clientContext &&
+        typeof value.clientContext === "object" &&
+        typeof (value.clientContext as Record<string, unknown>).anonymousInstallationId === "string" &&
+        uuidPattern.test((value.clientContext as Record<string, unknown>).anonymousInstallationId as string)
+          ? {
+              anonymousInstallationId: (
+                (value.clientContext as Record<string, unknown>)
+                  .anonymousInstallationId as string
+              ).toLowerCase(),
+            }
+          : undefined,
     },
   };
 };
