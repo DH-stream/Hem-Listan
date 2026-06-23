@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createSupabasePricingMatchEventLogger, parseBearerUserId } from "../_lib/pricingMatchSupabaseLogger.js";
+import { createSupabasePricingMatchEventLogger } from "../_lib/pricingMatchSupabaseLogger.js";
 
 type ApiRequest = IncomingMessage & { body?: unknown };
 type ApiResponse = ServerResponse & {
@@ -219,16 +219,11 @@ export function createBasketPricingHandler(
         throw new Error("Basket pricing calculator unavailable for selected chain");
       }
       const authorizationHeader = firstHeader(req.headers?.authorization);
-      const userId = parseBearerUserId(authorizationHeader);
       const anonymousInstallationId =
         validation.request.clientContext?.anonymousInstallationId;
       const matchEventLogger = createSupabasePricingMatchEventLogger({
-        actor: userId
-          ? { userId }
-          : anonymousInstallationId
-            ? { anonymousInstallationId }
-            : {},
         authorizationHeader,
+        anonymousInstallationId,
       });
       const result = await calculateBasket(
         validation.request,

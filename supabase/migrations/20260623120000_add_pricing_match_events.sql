@@ -34,21 +34,6 @@ create index if not exists pricing_match_events_anon_created_idx
 alter table public.pricing_match_events enable row level security;
 
 drop policy if exists "pricing_match_events_insert_authenticated" on public.pricing_match_events;
-create policy "pricing_match_events_insert_authenticated"
-  on public.pricing_match_events
-  for insert
-  with check (
-    auth.uid() is not null
-    and user_id = auth.uid()
-    and anonymous_installation_id is null
-  );
-
 drop policy if exists "pricing_match_events_insert_anonymous" on public.pricing_match_events;
-create policy "pricing_match_events_insert_anonymous"
-  on public.pricing_match_events
-  for insert
-  with check (
-    auth.uid() is null
-    and user_id is null
-    and anonymous_installation_id is not null
-  );
+
+revoke insert, update, delete on public.pricing_match_events from anon, authenticated;

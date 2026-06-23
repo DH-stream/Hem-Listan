@@ -109,18 +109,22 @@ test("Supabase match logger writes anonymous event rows without list item names"
   const originalFetch = globalThis.fetch;
   const originalUrl = process.env.SUPABASE_URL;
   const originalAnonKey = process.env.SUPABASE_ANON_KEY;
+  const originalServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   let insertedBody: any;
+  let insertAuthorizationHeader: string | null = null;
 
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_ANON_KEY = "anon-key";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     insertedBody = JSON.parse(String(init?.body));
+    insertAuthorizationHeader = new Headers(init?.headers).get("Authorization");
     return new Response(null, { status: 201 });
   }) as typeof fetch;
 
   try {
     const logger = createSupabasePricingMatchEventLogger({
-      actor: { anonymousInstallationId: "01890f75-6d75-4b1f-9d12-2fd6a09a7c65" },
+      anonymousInstallationId: "01890f75-6d75-4b1f-9d12-2fd6a09a7c65",
     });
     assert.ok(logger);
     await logger.logMatchEvent({
@@ -140,8 +144,11 @@ test("Supabase match logger writes anonymous event rows without list item names"
     else process.env.SUPABASE_URL = originalUrl;
     if (originalAnonKey === undefined) delete process.env.SUPABASE_ANON_KEY;
     else process.env.SUPABASE_ANON_KEY = originalAnonKey;
+    if (originalServiceRoleKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRoleKey;
   }
 
+  assert.equal(insertAuthorizationHeader, "Bearer service-role-key");
   assert.equal(insertedBody.user_id, null);
   assert.equal(insertedBody.anonymous_installation_id, "01890f75-6d75-4b1f-9d12-2fd6a09a7c65");
   assert.equal(insertedBody.normalized_query, "apple");

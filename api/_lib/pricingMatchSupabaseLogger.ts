@@ -1,7 +1,7 @@
 import type { PricingMatchEvent, PricingMatchEventLogger } from "./pricingMatchEvents.js";
 
 export interface PricingMatchEventActor {
-  userId?: string;
+  authorizationHeader?: string;
   anonymousInstallationId?: string;
 }
 
@@ -17,29 +17,38 @@ const getSupabaseRestConfig = () => {
     getEnv("SUPABASE_ANON_KEY") ??
     getEnv("VITE_SUPABASE_ANON_KEY") ??
     getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const serviceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!url || !anonKey) return null;
-  return { url: url.replace(/\/$/, ""), anonKey };
+  if (!url || !anonKey || !serviceRoleKey) return null;
+  return { url: url.replace(/\/$/, ""), anonKey, serviceRoleKey };
 };
 
-export const parseBearerUserId = (authorizationHeader: string | undefined) => {
-  const token = authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+const bearerTokenFrom = (authorizationHeader: string | undefined) =>
+  authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+
+const fetchAuthenticatedUserId = async (
+  config: { url: string; anonKey: string },
+  authorizationHeader: string | undefined,
+) => {
+  const token = bearerTokenFrom(authorizationHeader);
   if (!token) return undefined;
 
-  const [, payload] = token.split(".");
-  if (!payload) return undefined;
+  const response = await fetch(`${config.url}/auth/v1/user`, {
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) return undefined;
 
-  try {
-    const decoded = JSON.parse(
-      Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64url").toString("utf8"),
-    ) as { sub?: unknown };
-    return typeof decoded.sub === "string" && decoded.sub ? decoded.sub : undefined;
-  } catch {
-    return undefined;
-  }
+  const user = (await response.json().catch(() => null)) as { id?: unknown } | null;
+  return typeof user?.id === "string" && user.id ? user.id : undefined;
 };
 
-const toEventRow = (event: PricingMatchEvent, actor: PricingMatchEventActor) => ({
+const toEventRow = (
+  event: PricingMatchEvent,
+  actor: { userId?: string; anonymousInstallationId?: string },
+) => ({
   created_at: event.timestamp,
   user_id: actor.userId ?? null,
   anonymous_installation_id: actor.userId ? null : actor.anonymousInstallationId ?? null,
@@ -57,29 +66,35 @@ const toEventRow = (event: PricingMatchEvent, actor: PricingMatchEventActor) => 
   result_type: event.resultSource,
 });
 
-export const createSupabasePricingMatchEventLogger = (options: {
-  actor: PricingMatchEventActor;
-  authorizationHeader?: string;
-  onError?: (error: unknown) => void;
-}): PricingMatchEventLogger | null => {
-  if (!options.actor.userId && !options.actor.anonymousInstallationId) return null;
+export const createSupabasePricingMatchEventLogger = (
+  actor: PricingMatchEventActor,
+): PricingMatchEventLogger | null => {
+  if (!actor.authorizationHeader && !actor.anonymousInstallationId) return null;
 
   const config = getSupabaseRestConfig();
   if (!config) return null;
 
+  let userIdPromise: Promise<string | undefined> | undefined;
+  const getUserId = () => {
+    userIdPromise ??= fetchAuthenticatedUserId(config, actor.authorizationHeader);
+    return userIdPromise;
+  };
+
   return {
     async logMatchEvent(event) {
+      const userId = await getUserId();
+      const anonymousInstallationId = userId ? undefined : actor.anonymousInstallationId;
+      if (!userId && !anonymousInstallationId) return;
+
       const response = await fetch(`${config.url}/rest/v1/pricing_match_events`, {
         method: "POST",
         headers: {
-          apikey: config.anonKey,
-          Authorization: options.actor.userId
-            ? options.authorizationHeader ?? `Bearer ${config.anonKey}`
-            : `Bearer ${config.anonKey}`,
+          apikey: config.serviceRoleKey,
+          Authorization: `Bearer ${config.serviceRoleKey}`,
           "Content-Type": "application/json",
           Prefer: "return=minimal",
         },
-        body: JSON.stringify(toEventRow(event, options.actor)),
+        body: JSON.stringify(toEventRow(event, { userId, anonymousInstallationId })),
       });
 
       if (!response.ok) {
