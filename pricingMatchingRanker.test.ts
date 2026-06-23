@@ -35,32 +35,6 @@ test("rankProductMatches returns deterministic candidates with score breakdown a
   assert.ok(ranking.rankedCandidates[1].reasons.includes("singular_query_package_variant_penalty"));
 });
 
-test("learned preferences influence ranking without replacing deterministic matching", () => {
-  const ranking = rankProductMatches(
-    { name: "kaffe" },
-    [
-      product({ id: "standard", productName: "Kaffe Mellanrost", searchTerms: ["kaffe"] }),
-      product({ id: "chosen", productName: "Kaffe Brygg", searchTerms: ["kaffe"] }),
-    ],
-    {
-      learnedPreferences: [
-        {
-          normalizedQuery: "kaffe",
-          chain: "city_gross",
-          storeId: "store-1",
-          preferredProductId: "chosen",
-          rejectedProductIds: ["standard"],
-          confidence: 0.9,
-          scope: "household",
-        },
-      ],
-    },
-  );
-
-  assert.equal(ranking.selected?.product.id, "chosen");
-  assert.ok(ranking.selected?.reasons.includes("learned_preferred_product_boost"));
-});
-
 test("match event logging is fire-and-forget and does not fail basket pricing", async () => {
   let loggerCalled = false;
   const result = await calculateBasketPriceEstimate(

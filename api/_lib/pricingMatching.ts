@@ -32,20 +32,6 @@ export interface RankedProductCandidate {
   reasons: string[];
 }
 
-export interface LearnedProductMatchPreference {
-  normalizedQuery: string;
-  chain: string;
-  storeId?: string;
-  preferredProductId?: string;
-  rejectedProductIds?: string[];
-  confidence: number;
-  scope: "user" | "household" | "global";
-}
-
-interface RankProductsOptions {
-  learnedPreferences?: LearnedProductMatchPreference[];
-}
-
 
 export const normalizePriceQuery = (value: string) =>
   value
@@ -355,32 +341,6 @@ const productPenaltyScore = (
   return { score, reasons };
 };
 
-const learnedPreferenceScore = (
-  normalizedQuery: string,
-  product: ProductPrice,
-  preferences: LearnedProductMatchPreference[] = [],
-) => {
-  const matchingPreferences = preferences.filter(
-    (preference) =>
-      preference.normalizedQuery === normalizedQuery &&
-      preference.chain === product.chainId &&
-      (!preference.storeId || preference.storeId === product.storeId),
-  );
-  let score = 0;
-  const reasons: string[] = [];
-  matchingPreferences.forEach((preference) => {
-    const confidence = Math.max(0, Math.min(1, preference.confidence));
-    if (preference.preferredProductId === product.id) {
-      score += 35 * confidence;
-      reasons.push("learned_preferred_product_boost");
-    }
-    if (preference.rejectedProductIds?.includes(product.id)) {
-      score -= 35 * confidence;
-      reasons.push("learned_rejected_product_penalty");
-    }
-  });
-  return { score, reasons };
-};
 
 const medianPrice = (products: ProductPrice[]) => {
   if (products.length === 0) return undefined;
@@ -416,7 +376,6 @@ const confidenceScore: Record<PriceMatchConfidence, number> = {
 export const rankProductMatches = (
   item: { name: string },
   products: ProductPrice[],
-  options: RankProductsOptions = {},
 ) => {
   const query = normalizePriceQuery(cleanGrocerySearchQuery(item.name));
   const candidates = products.map((product) => {
@@ -462,11 +421,6 @@ export const rankProductMatches = (
         candidate.product.priceSek,
         comparableMedianPrice,
       );
-      const learnedPreference = learnedPreferenceScore(
-        query,
-        candidate.product,
-        options.learnedPreferences,
-      );
       const planScore = plannedProductIds.has(candidate.product.id) ? 100 : 0;
       const scoreBreakdown: ProductMatchScoreBreakdown = {
         semantic: confidenceScore[candidate.confidence],
@@ -474,7 +428,7 @@ export const rankProductMatches = (
         quantityPackageFit: preference.score,
         priceSanity: pricePreference.score,
         productPenalty: productPenalty.score,
-        learnedPreference: learnedPreference.score,
+        learnedPreference: 0,
         packagePlan: planScore,
         total: 0,
       };
@@ -492,7 +446,6 @@ export const rankProductMatches = (
             ...categoryAffinity.reasons,
             ...pricePreference.reasons,
             ...productPenalty.reasons,
-            ...learnedPreference.reasons,
             ...(planScore > 0 ? ["package_plan_selected"] : []),
           ]),
         ],
@@ -512,11 +465,10 @@ export const rankProductMatches = (
 export const matchListItem = (
   item: { id: string; name: string; sourceTaskIds?: string[] },
   products: ProductPrice[],
-  options: { debug?: boolean; learnedPreferences?: LearnedProductMatchPreference[] } = {},
+  options: { debug?: boolean } = {},
 ): ListItemPriceMatch => {
-  const ranked = rankProductMatches(item, products, {
-    learnedPreferences: options.learnedPreferences,
-  });
+  void options;
+  const ranked = rankProductMatches(item, products);
   const product = ranked.selected?.product ?? null;
   const weightedPrice = product
     ? estimateWeightedCheckoutPrice(ranked.requested, product)
