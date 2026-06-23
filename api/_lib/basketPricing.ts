@@ -20,6 +20,8 @@ import {
 } from "./icaPricing.js";
 import type { IcaProviderDiagnostic } from "./icaPricing.js";
 import type { WillysProviderDiagnostic } from "./willysPricing.js";
+import { emitPricingMatchEventsFireAndForget } from "./pricingMatchEvents.js";
+import type { PricingMatchEventLogger } from "./pricingMatchEvents.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -29,16 +31,22 @@ export interface PricingBasketItem {
   sourceTaskIds?: string[];
 }
 
+export interface PricingBasketClientContext {
+  anonymousInstallationId?: string;
+}
+
 export interface PricingBasketRequest {
   chain: "city_gross" | "ica" | "willys";
   storeId?: string;
   items: PricingBasketItem[];
+  clientContext?: PricingBasketClientContext;
 }
 
 interface BasketPricingOptions {
   debug?: boolean;
   searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
   refreshSearchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
+  matchEventLogger?: PricingMatchEventLogger;
 }
 
 interface PricingQueryDiagnostic {
@@ -52,6 +60,8 @@ interface PricingQueryDiagnostic {
     category?: string;
   }>;
 }
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const pricingApiLog = (
   enabled: boolean,
@@ -123,6 +133,18 @@ export const validateBasketPricingRequest = (
           ? value.storeId.trim().slice(0, 40)
           : undefined,
       items,
+      clientContext:
+        value.clientContext &&
+        typeof value.clientContext === "object" &&
+        typeof (value.clientContext as Record<string, unknown>).anonymousInstallationId === "string" &&
+        uuidPattern.test((value.clientContext as Record<string, unknown>).anonymousInstallationId as string)
+          ? {
+              anonymousInstallationId: (
+                (value.clientContext as Record<string, unknown>)
+                  .anonymousInstallationId as string
+              ).toLowerCase(),
+            }
+          : undefined,
     },
   };
 };
@@ -379,6 +401,14 @@ export async function calculateBasketPriceEstimate(
         }
       : {}),
   };
+
+  emitPricingMatchEventsFireAndForget(
+    request,
+    request.items,
+    matches,
+    options.matchEventLogger,
+    (error) => pricingApiLog(debug, "match event logging failed", error),
+  );
 
   pricingApiLog(debug, "match summary", {
     inputItemCount: request.items.length,

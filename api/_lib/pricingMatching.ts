@@ -13,6 +13,26 @@ import {
 } from "../../shared/pricingQuantity.js";
 import { evaluateReceiptInformedPreference } from "./productPreferenceRules.js";
 
+export interface ProductMatchScoreBreakdown {
+  semantic: number;
+  categoryAffinity: number;
+  quantityPackageFit: number;
+  priceSanity: number;
+  productPenalty: number;
+  learnedPreference: number;
+  packagePlan: number;
+  total: number;
+}
+
+export interface RankedProductCandidate {
+  product: ProductPrice;
+  confidence: PriceMatchConfidence;
+  score: number;
+  scoreBreakdown: ProductMatchScoreBreakdown;
+  reasons: string[];
+}
+
+
 export const normalizePriceQuery = (value: string) =>
   value
     .toLocaleLowerCase("sv-SE")
@@ -260,6 +280,68 @@ const productPreferenceScore = (
   return { score, reasons: [...new Set(reasons)] };
 };
 
+
+const categoryAffinityScore = (
+  query: string,
+  product: ProductPrice,
+) => {
+  const category = normalizePriceQuery(
+    [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
+  );
+  if (!query || !category) return { score: 0, reasons: [] as string[] };
+
+  const queryWords = query.split(" ").filter((word) => word.length >= 3);
+  const categoryWords = new Set(category.split(" "));
+  const overlapCount = queryWords.filter((word) => categoryWords.has(word)).length;
+  if (overlapCount > 0) {
+    return { score: Math.min(8, overlapCount * 4), reasons: ["category_overlap"] };
+  }
+
+  if (simpleProduceQueries.has(query) && /\b(?:frukt|gront|gronsaker|frukt och grönt)\b/.test(category)) {
+    return { score: 6, reasons: ["produce_category_affinity"] };
+  }
+
+  return { score: 0, reasons: [] as string[] };
+};
+
+const productPenaltyScore = (
+  itemName: string,
+  product: ProductPrice,
+) => {
+  const normalizedItemName = normalizePriceQuery(itemName);
+  const productName = normalizePriceQuery(product.productName);
+  const category = normalizePriceQuery(
+    [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
+  );
+  const combined = `${productName} ${category}`;
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (processedProductTerms.test(combined)) {
+    score -= 10;
+    reasons.push("processed_or_flavor_product_penalty");
+  }
+
+  const requested = parseAmount(itemName);
+  const packageAmount = productPackageAmount(product);
+  const asksForPackage = /\b(?:pack|paket|forp|storpack|familjepack|korg|lada|mix)\b/.test(
+    normalizedItemName,
+  );
+  if (!requested && !asksForPackage && packageAmount) {
+    const isBasketVariant = /\b(?:korg|lada|mix|blandade|presentforpackning)\b/.test(
+      productName,
+    );
+    const isLargeCount = packageAmount.dimension === "count" && packageAmount.amount > 1;
+    if (isBasketVariant || isLargeCount) {
+      score -= isBasketVariant ? 16 : 6;
+      reasons.push("singular_query_package_variant_penalty");
+    }
+  }
+
+  return { score, reasons };
+};
+
+
 const medianPrice = (products: ProductPrice[]) => {
   if (products.length === 0) return undefined;
   const prices = products
@@ -291,11 +373,10 @@ const confidenceScore: Record<PriceMatchConfidence, number> = {
   none: Number.NEGATIVE_INFINITY,
 };
 
-export const matchListItem = (
-  item: { id: string; name: string; sourceTaskIds?: string[] },
+export const rankProductMatches = (
+  item: { name: string },
   products: ProductPrice[],
-  options: { debug?: boolean } = {},
-): ListItemPriceMatch => {
+) => {
   const query = normalizePriceQuery(cleanGrocerySearchQuery(item.name));
   const candidates = products.map((product) => {
     if (isClearlyIncompatibleProduct(query, product)) {
@@ -330,58 +411,82 @@ export const matchListItem = (
     packagePlan?.items.map((item) => item.product.id) ?? [],
   );
 
-  let best:
-    | {
-        product: ProductPrice;
-        confidence: PriceMatchConfidence;
-        preferenceScore: number;
-        preferenceReasons: string[];
-        rankingScore: number;
-      }
-    | undefined;
-
-  for (const candidate of candidates) {
-    if (candidate.confidence === "none") continue;
-    const preference = productPreferenceScore(item.name, candidate.product);
-    const pricePreference = priceSanity(
-      candidate.product.priceSek,
-      comparableMedianPrice,
-    );
-    const preferenceScore = preference.score + pricePreference.score;
-    const planScore = plannedProductIds.has(candidate.product.id) ? 100 : 0;
-    const rankingScore =
-      confidenceScore[candidate.confidence] + preferenceScore + planScore;
-
-    if (!best || rankingScore > best.rankingScore) {
-      best = {
-        ...candidate,
-        preferenceScore,
-        preferenceReasons: [
-          ...new Set([...preference.reasons, ...pricePreference.reasons]),
-        ],
-        rankingScore,
+  const rankedCandidates: RankedProductCandidate[] = candidates
+    .filter((candidate) => candidate.confidence !== "none")
+    .map((candidate) => {
+      const preference = productPreferenceScore(item.name, candidate.product);
+      const categoryAffinity = categoryAffinityScore(query, candidate.product);
+      const productPenalty = productPenaltyScore(item.name, candidate.product);
+      const pricePreference = priceSanity(
+        candidate.product.priceSek,
+        comparableMedianPrice,
+      );
+      const planScore = plannedProductIds.has(candidate.product.id) ? 100 : 0;
+      const scoreBreakdown: ProductMatchScoreBreakdown = {
+        semantic: confidenceScore[candidate.confidence],
+        categoryAffinity: categoryAffinity.score,
+        quantityPackageFit: preference.score,
+        priceSanity: pricePreference.score,
+        productPenalty: productPenalty.score,
+        learnedPreference: 0,
+        packagePlan: planScore,
+        total: 0,
       };
-    }
-  }
+      scoreBreakdown.total = Object.entries(scoreBreakdown)
+        .filter(([key]) => key !== "total")
+        .reduce((total, [, score]) => total + score, 0);
 
-  const product = best?.product ?? null;
+      return {
+        ...candidate,
+        score: scoreBreakdown.total,
+        scoreBreakdown,
+        reasons: [
+          ...new Set([
+            ...preference.reasons,
+            ...categoryAffinity.reasons,
+            ...pricePreference.reasons,
+            ...productPenalty.reasons,
+            ...(planScore > 0 ? ["package_plan_selected"] : []),
+          ]),
+        ],
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  return {
+    normalizedQuery: query,
+    selected: rankedCandidates[0] ?? null,
+    rankedCandidates,
+    packagePlan,
+    requested,
+  };
+};
+
+export const matchListItem = (
+  item: { id: string; name: string; sourceTaskIds?: string[] },
+  products: ProductPrice[],
+  options: { debug?: boolean } = {},
+): ListItemPriceMatch => {
+  void options;
+  const ranked = rankProductMatches(item, products);
+  const product = ranked.selected?.product ?? null;
   const weightedPrice = product
-    ? estimateWeightedCheckoutPrice(requested, product)
+    ? estimateWeightedCheckoutPrice(ranked.requested, product)
     : undefined;
   const piecePrice =
     product &&
-    requested?.dimension === "count" &&
+    ranked.requested?.dimension === "count" &&
     isApproximatePieceMassProduct(product)
-      ? Math.round(product.priceSek * requested.amount * 100) / 100
+      ? Math.round(product.priceSek * ranked.requested.amount * 100) / 100
       : undefined;
   const selectedPurchasePlan =
-    packagePlan && product && plannedProductIds.has(product.id)
-      ? packagePlan
-      : piecePrice !== undefined && product && requested
+    ranked.packagePlan && product && ranked.packagePlan.items.some((item) => item.product.id === product.id)
+      ? ranked.packagePlan
+      : piecePrice !== undefined && product && ranked.requested
         ? {
             totalPriceSek: piecePrice,
-            purchasedAmount: requested.amount,
-            items: [{ product, count: requested.amount }],
+            purchasedAmount: ranked.requested.amount,
+            items: [{ product, count: ranked.requested.amount }],
           }
         : undefined;
   const packagePrice = selectedPurchasePlan?.totalPriceSek;
@@ -392,11 +497,20 @@ export const matchListItem = (
     listItemName: item.name,
     ...(item.sourceTaskIds ? { sourceTaskIds: item.sourceTaskIds } : {}),
     product,
-    confidence: best?.confidence ?? "none",
-    ...(options.debug && best
+    confidence: ranked.selected?.confidence ?? "none",
+    ...(ranked.selected
       ? {
-          preferenceScore: best.preferenceScore,
-          preferenceReasons: best.preferenceReasons,
+          preferenceScore: ranked.selected.score,
+          preferenceReasons: ranked.selected.reasons,
+          scoreBreakdown: ranked.selected.scoreBreakdown,
+          rankedCandidates: ranked.rankedCandidates.slice(0, 5).map((candidate) => ({
+            productId: candidate.product.id,
+            productName: candidate.product.productName,
+            confidence: candidate.confidence,
+            score: candidate.score,
+            scoreBreakdown: candidate.scoreBreakdown,
+            reasons: candidate.reasons,
+          })),
         }
       : {}),
     ...(estimatedCheckoutPriceSek === undefined
