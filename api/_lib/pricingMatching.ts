@@ -46,6 +46,20 @@ export const normalizePriceQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const explicitQueryAliases: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bkeso\s+cottage\s+cheese\b/gi, replacement: "keso" },
+  { pattern: /\bcottage\s+cheese\b/gi, replacement: "keso" },
+  { pattern: /\bpenne\s+pasta\b/gi, replacement: "penne" },
+  { pattern: /\btoastbrod\b/gi, replacement: "toastbröd" },
+  { pattern: /\btoastbröd\b/gi, replacement: "toastbröd rostbröd formfranska" },
+];
+
+const applySearchAliases = (value: string) =>
+  explicitQueryAliases.reduce(
+    (current, alias) => current.replace(alias.pattern, alias.replacement),
+    value,
+  );
+
 export const cleanGrocerySearchQuery = (value: string) => {
   if (/^\s*valbart\b.*\bvalfri\b/i.test(value)) return "";
   return value
@@ -62,8 +76,29 @@ export const cleanGrocerySearchQuery = (value: string) => {
       " ",
     )
     .replace(/\s*[,;]\s*.*$/, "")
+    .replace(/\b(?:eller|alternativt)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+};
+
+export const buildPricingSearchQuery = (value: string) =>
+  applySearchAliases(cleanGrocerySearchQuery(value))
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizedPricingQuery = (value: string) =>
+  normalizePriceQuery(buildPricingSearchQuery(value));
+
+const normalizedPricingQueryVariants = (value: string) => {
+  const normalized = normalizedPricingQuery(value);
+  const variants = [normalized];
+  if (normalized === "toastbrod rostbrod formfranska") {
+    variants.push("toastbrod", "rostbrod", "formfranska");
+  }
+  if (normalized === "smor margarin") {
+    variants.push("smor", "margarin");
+  }
+  return [...new Set(variants.filter(Boolean))];
 };
 
 const editDistance = (left: string, right: string) => {
@@ -214,7 +249,7 @@ const productPreferenceScore = (
   product: ProductPrice,
 ) => {
   const productName = normalizePriceQuery(product.productName);
-  const normalizedItemName = normalizePriceQuery(itemName);
+  const normalizedItemName = normalizedPricingQuery(itemName);
   const receiptPreference = evaluateReceiptInformedPreference(
     itemName,
     product.productName,
@@ -304,11 +339,31 @@ const categoryAffinityScore = (
   return { score: 0, reasons: [] as string[] };
 };
 
+const preparedFoodTerms =
+  /\b(?:fardigratt|fardigratter|fardigmat|middag|portion|portionsratt|maltid|gryta|gratang|paj|soppa|sallad|dillstuvad\s+potatis|meal|ready)\b/;
+
+const readyMealRequestTerms =
+  /\b(?:fardigratt|fardigmat|middag|lunch|portion|maltid|matlada|gryta|gratang|paj|soppa|sallad|meal|ready)\b/;
+
+const looksLikeSimpleIngredientQuery = (query: string) => {
+  if (!query || readyMealRequestTerms.test(query)) return false;
+  const words = query.split(" ").filter(Boolean);
+  return words.length > 0 && words.length <= 4;
+};
+
+const isPreparedFoodProduct = (product: ProductPrice) => {
+  const productName = normalizePriceQuery(product.productName);
+  const category = normalizePriceQuery(
+    [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
+  );
+  return preparedFoodTerms.test(`${productName} ${category}`);
+};
+
 const productPenaltyScore = (
   itemName: string,
   product: ProductPrice,
 ) => {
-  const normalizedItemName = normalizePriceQuery(itemName);
+  const normalizedItemName = normalizedPricingQuery(itemName);
   const productName = normalizePriceQuery(product.productName);
   const category = normalizePriceQuery(
     [...(product.categoryPath ?? []), product.category ?? ""].join(" "),
@@ -320,6 +375,14 @@ const productPenaltyScore = (
   if (processedProductTerms.test(combined)) {
     score -= 10;
     reasons.push("processed_or_flavor_product_penalty");
+  }
+
+  if (
+    looksLikeSimpleIngredientQuery(normalizedItemName) &&
+    isPreparedFoodProduct(product)
+  ) {
+    score -= 28;
+    reasons.push("prepared_food_penalty_for_simple_query");
   }
 
   const requested = parseAmount(itemName);
@@ -377,15 +440,24 @@ export const rankProductMatches = (
   item: { name: string },
   products: ProductPrice[],
 ) => {
-  const query = normalizePriceQuery(cleanGrocerySearchQuery(item.name));
+  const query = normalizedPricingQuery(item.name);
+  const queryVariants = normalizedPricingQueryVariants(item.name);
   const candidates = products.map((product) => {
-    if (isClearlyIncompatibleProduct(query, product)) {
+    if (queryVariants.some((variant) => isClearlyIncompatibleProduct(variant, product))) {
       return { product, confidence: "none" as const };
     }
     const productConfidence = [product.productName, ...product.searchTerms]
       .map(normalizePriceQuery)
       .reduce<PriceMatchConfidence>((best, candidate) => {
-        const confidence = confidenceFor(query, candidate);
+        const confidence = queryVariants.reduce<PriceMatchConfidence>(
+          (variantBest, variant) => {
+            const variantConfidence = confidenceFor(variant, candidate);
+            return confidenceRank[variantConfidence] > confidenceRank[variantBest]
+              ? variantConfidence
+              : variantBest;
+          },
+          "none",
+        );
         return confidenceRank[confidence] > confidenceRank[best]
           ? confidence
           : best;

@@ -1,5 +1,5 @@
 import type { ListItemPriceMatch } from "../../src/lib/pricing/types";
-import { cleanGrocerySearchQuery, normalizePriceQuery } from "./pricingMatching.js";
+import { buildPricingSearchQuery, normalizePriceQuery } from "./pricingMatching.js";
 import type { PricingBasketItem, PricingBasketRequest } from "./basketPricing.js";
 
 export interface PricingMatchEvent {
@@ -34,7 +34,7 @@ export const buildPricingMatchEvent = (
 ): PricingMatchEvent => ({
   chain: request.chain,
   ...(request.storeId ? { storeId: request.storeId } : {}),
-  normalizedQuery: normalizePriceQuery(cleanGrocerySearchQuery(item.name)),
+  normalizedQuery: normalizePriceQuery(buildPricingSearchQuery(item.name)),
   ...(match.product?.id ? { selectedProductId: match.product.id } : {}),
   ...(match.product?.productName ? { selectedProductName: match.product.productName } : {}),
   selectedConfidence: match.confidence,

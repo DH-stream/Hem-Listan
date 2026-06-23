@@ -666,3 +666,98 @@ test("failed City Gross fetch is negative-cached briefly", async () => {
   assert.deepEqual(second, []);
   assert.equal(fetchCount, 1);
 });
+
+test("production pricing examples use query cleanup and semantic ranking", () => {
+  const products: ProductPrice[] = [
+    {
+      id: "lax-ready-meal",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "CITY GROSS Kallrökt Lax Dillstuvad Potatis",
+      priceSek: 69.95,
+      unitLabel: "400 g",
+      category: "Färdigmat",
+      categoryPath: ["Kyld färdigmat", "Portionsrätt"],
+      searchTerms: ["Kallrökt Lax Dillstuvad Potatis"],
+    },
+    {
+      id: "lax-raw",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Kallrökt Lax Skivad 200g",
+      priceSek: 59.95,
+      unitLabel: "200 g",
+      category: "Fisk",
+      searchTerms: ["kallrökt lax", "rökt lax"],
+    },
+    {
+      id: "keso",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Arla Keso Cottage Cheese 500g",
+      priceSek: 34.95,
+      unitLabel: "500 g",
+      category: "Mejeri",
+      searchTerms: ["keso", "cottage cheese"],
+    },
+    {
+      id: "penne",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Barilla Penne Rigate Pasta 500g",
+      priceSek: 24.95,
+      unitLabel: "500 g",
+      category: "Pasta",
+      searchTerms: ["penne", "penne pasta"],
+    },
+    {
+      id: "butter",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Svenskt Smör Normalsaltat 500g",
+      priceSek: 54.95,
+      unitLabel: "500 g",
+      category: "Smör & margarin",
+      searchTerms: ["smör", "margarin"],
+    },
+    {
+      id: "toast",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Pågen Rosta Toastbröd 800g",
+      priceSek: 36.95,
+      unitLabel: "800 g",
+      category: "Bröd",
+      searchTerms: ["toastbröd", "rostbröd", "formfranska"],
+    },
+  ];
+
+  assert.equal(matchListItem({ id: "lax", name: "kallrökt lax" }, products).product?.id, "lax-raw");
+  assert.equal(matchListItem({ id: "keso", name: "keso cottage cheese" }, products).product?.id, "keso");
+  assert.equal(matchListItem({ id: "penne", name: "penne pasta" }, products).product?.id, "penne");
+  assert.equal(matchListItem({ id: "fat", name: "smör eller margarin" }, products).product?.id, "butter");
+  assert.equal(matchListItem({ id: "toast-a", name: "toastbröd" }, products).product?.id, "toast");
+  assert.equal(matchListItem({ id: "toast-b", name: "toastbrod" }, products).product?.id, "toast");
+});
+
+test("basket pricing sends cleaned alias queries to providers", async () => {
+  const searchedQueries: string[] = [];
+  await calculateBasketPriceEstimate(
+    {
+      chain: "city_gross",
+      items: [
+        { id: "keso", name: "keso cottage cheese" },
+        { id: "penne", name: "penne pasta" },
+        { id: "fat", name: "smör eller margarin" },
+      ],
+    },
+    {
+      searchProducts: async (query) => {
+        searchedQueries.push(query);
+        return [];
+      },
+    },
+  );
+
+  assert.deepEqual(searchedQueries.sort(), ["keso", "penne", "smör margarin"].sort());
+});
