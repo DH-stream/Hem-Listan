@@ -64,6 +64,7 @@ const toEventRow = (
   candidate_snapshot: event.topCandidates,
   approximate_price: event.approximatePriceSek ?? null,
   price_explanation: event.priceExplanation ?? null,
+  quality_signal: event.qualitySignal,
   result_type: event.resultSource,
 });
 
