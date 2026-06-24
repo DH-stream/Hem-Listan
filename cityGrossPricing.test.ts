@@ -19,6 +19,7 @@ import {
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
+  buildPricingSearchQueries,
   cleanGrocerySearchQuery,
   matchListItem,
 } from "./api/_lib/pricingMatching";
@@ -740,24 +741,61 @@ test("production pricing examples use query cleanup and semantic ranking", () =>
   assert.equal(matchListItem({ id: "toast-b", name: "toastbrod" }, products).product?.id, "toast");
 });
 
-test("basket pricing sends cleaned alias queries to providers", async () => {
+test("pricing search query variants avoid concatenated provider OR queries", () => {
+  assert.deepEqual(buildPricingSearchQueries("keso cottage cheese"), ["keso"]);
+  assert.deepEqual(buildPricingSearchQueries("penne pasta"), ["penne"]);
+  assert.deepEqual(buildPricingSearchQueries("smör eller margarin"), ["smör", "margarin"]);
+  assert.deepEqual(buildPricingSearchQueries("toastbröd"), ["toastbröd", "rostbröd", "formfranska"]);
+  assert.deepEqual(buildPricingSearchQueries("toastbrod"), ["toastbröd", "rostbröd", "formfranska"]);
+});
+
+test("basket pricing searches provider variants and merges products for one intent", async () => {
   const searchedQueries: string[] = [];
-  await calculateBasketPriceEstimate(
+  const butterProduct: ProductPrice = {
+    id: "butter",
+    chainId: "city_gross",
+    storeId: "demo",
+    productName: "Svenskt Smör Normalsaltat 500g",
+    priceSek: 54.95,
+    unitLabel: "500 g",
+    category: "Smör & margarin",
+    searchTerms: ["smör", "margarin"],
+  };
+  const toastProduct: ProductPrice = {
+    id: "toast",
+    chainId: "city_gross",
+    storeId: "demo",
+    productName: "Pågen Rosta Toastbröd 800g",
+    priceSek: 36.95,
+    unitLabel: "800 g",
+    category: "Bröd",
+    searchTerms: ["toastbröd", "rostbröd", "formfranska"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
     {
       chain: "city_gross",
       items: [
         { id: "keso", name: "keso cottage cheese" },
         { id: "penne", name: "penne pasta" },
         { id: "fat", name: "smör eller margarin" },
+        { id: "toast", name: "toastbröd" },
       ],
     },
     {
       searchProducts: async (query) => {
         searchedQueries.push(query);
+        if (query === "margarin") return [butterProduct];
+        if (query === "rostbröd") return [toastProduct, toastProduct];
         return [];
       },
     },
   );
 
-  assert.deepEqual(searchedQueries.sort(), ["keso", "penne", "smör margarin"].sort());
+  assert.deepEqual(
+    searchedQueries.sort(),
+    ["formfranska", "keso", "margarin", "penne", "rostbröd", "smör", "toastbröd"].sort(),
+  );
+  assert.equal(result.matches.find((match) => match.listItemId === "fat")?.product?.id, "butter");
+  assert.equal(result.matches.find((match) => match.listItemId === "toast")?.product?.id, "toast");
 });

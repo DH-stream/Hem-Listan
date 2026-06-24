@@ -51,7 +51,12 @@ const explicitQueryAliases: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bcottage\s+cheese\b/gi, replacement: "keso" },
   { pattern: /\bpenne\s+pasta\b/gi, replacement: "penne" },
   { pattern: /\btoastbrod\b/gi, replacement: "toastbröd" },
-  { pattern: /\btoastbröd\b/gi, replacement: "toastbröd rostbröd formfranska" },
+  { pattern: /\btoastbröd\b/gi, replacement: "toastbröd" },
+];
+
+const searchQueryVariantAliases: Array<{ pattern: RegExp; replacements: string[] }> = [
+  { pattern: /^toastbröd$/i, replacements: ["toastbröd", "rostbröd", "formfranska"] },
+  { pattern: /^smör\s+margarin$/i, replacements: ["smör", "margarin"] },
 ];
 
 const applySearchAliases = (value: string) =>
@@ -86,14 +91,22 @@ export const buildPricingSearchQuery = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+export const buildPricingSearchQueries = (value: string) => {
+  const searchQuery = buildPricingSearchQuery(value);
+  const variant = searchQueryVariantAliases.find((alias) =>
+    alias.pattern.test(searchQuery),
+  );
+  return [...new Set((variant?.replacements ?? [searchQuery]).filter(Boolean))];
+};
+
 const normalizedPricingQuery = (value: string) =>
   normalizePriceQuery(buildPricingSearchQuery(value));
 
 const normalizedPricingQueryVariants = (value: string) => {
   const normalized = normalizedPricingQuery(value);
   const variants = [normalized];
-  if (normalized === "toastbrod rostbrod formfranska") {
-    variants.push("toastbrod", "rostbrod", "formfranska");
+  if (normalized === "toastbrod") {
+    variants.push("rostbrod", "formfranska");
   }
   if (normalized === "smor margarin") {
     variants.push("smor", "margarin");
