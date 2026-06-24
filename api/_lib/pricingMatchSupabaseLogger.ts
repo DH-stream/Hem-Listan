@@ -63,6 +63,7 @@ const toEventRow = (
   score_breakdown: event.scoreBreakdown ?? null,
   candidate_snapshot: event.topCandidates,
   approximate_price: event.approximatePriceSek ?? null,
+  price_explanation: event.priceExplanation ?? null,
   result_type: event.resultSource,
 });
 

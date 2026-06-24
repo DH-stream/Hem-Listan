@@ -126,5 +126,6 @@ test("Supabase match logger writes anonymous event rows without list item names"
   assert.equal(insertedBody.user_id, null);
   assert.equal(insertedBody.anonymous_installation_id, "01890f75-6d75-4b1f-9d12-2fd6a09a7c65");
   assert.equal(insertedBody.normalized_query, "apple");
+  assert.equal(insertedBody.price_explanation, null);
   assert.equal(Object.hasOwn(insertedBody, "list_item_name"), false);
 });
