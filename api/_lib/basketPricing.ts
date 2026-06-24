@@ -1,5 +1,6 @@
 import {
-  cleanGrocerySearchQuery,
+  buildPricingSearchQueries,
+  buildPricingSearchQuery,
   matchListItem,
   normalizePriceQuery,
 } from "./pricingMatching.js";
@@ -248,21 +249,39 @@ export async function calculateBasketPriceEstimate(
     itemCount: request.items.length,
   });
   const queryByItemId = new Map<string, string>();
-  const searchQueryByNormalizedQuery = new Map<string, string>();
+  const searchQueriesByNormalizedQuery = new Map<string, string[]>();
 
   request.items.forEach((item) => {
-    const searchQuery = cleanGrocerySearchQuery(item.name);
+    const searchQuery = buildPricingSearchQuery(item.name);
     const normalizedQuery = normalizePriceQuery(searchQuery);
-    const currentSearchQuery =
-      searchQueryByNormalizedQuery.get(normalizedQuery);
     queryByItemId.set(item.id, normalizedQuery);
     if (!normalizedQuery) return;
-    if (!currentSearchQuery || searchQuery.length < currentSearchQuery.length) {
-      searchQueryByNormalizedQuery.set(normalizedQuery, searchQuery);
-    }
+
+    const currentSearchQueries =
+      searchQueriesByNormalizedQuery.get(normalizedQuery) ?? [];
+    const searchQueryByNormalizedVariant = new Map<string, string>();
+    [
+      ...currentSearchQueries,
+      ...buildPricingSearchQueries(item.name),
+    ]
+      .filter(Boolean)
+      .forEach((candidateSearchQuery) => {
+        const normalizedVariant = normalizePriceQuery(candidateSearchQuery);
+        const currentVariant = searchQueryByNormalizedVariant.get(normalizedVariant);
+        if (!currentVariant || candidateSearchQuery.length < currentVariant.length) {
+          searchQueryByNormalizedVariant.set(normalizedVariant, candidateSearchQuery);
+        }
+      });
+    searchQueriesByNormalizedQuery.set(
+      normalizedQuery,
+      Array.from(searchQueryByNormalizedVariant.values()),
+    );
   });
 
-  const queries = Array.from(searchQueryByNormalizedQuery.entries());
+  const queries = Array.from(searchQueriesByNormalizedQuery.entries()).flatMap(
+    ([normalizedQuery, searchQueries]) =>
+      searchQueries.map((searchQuery) => [normalizedQuery, searchQuery] as const),
+  );
   pricingApiLog(debug, "normalized queries", {
     queryCount: queries.length,
     queries: queries.slice(0, 10).map(([normalizedQuery, searchQuery]) => ({
@@ -317,7 +336,17 @@ export async function calculateBasketPriceEstimate(
   await Promise.all(
     Array.from({ length: Math.min(4, queries.length) }, () => worker()),
   );
-  const productsByQuery = new Map(productEntries);
+  const productsByQuery = new Map<string, ProductPrice[]>();
+  productEntries.forEach(([normalizedQuery, products]) => {
+    const existingProducts = productsByQuery.get(normalizedQuery) ?? [];
+    const productsById = new Map(
+      existingProducts.map((product) => [product.id, product] as const),
+    );
+    products.forEach((product) => {
+      if (!productsById.has(product.id)) productsById.set(product.id, product);
+    });
+    productsByQuery.set(normalizedQuery, Array.from(productsById.values()));
+  });
 
   let matches = request.items.map((item) =>
     matchListItem(
@@ -343,21 +372,38 @@ export async function calculateBasketPriceEstimate(
           bypassNegativeCache: true,
         }));
     const zeroQueries = Array.from(
-      new Set(
+      new Map(
         request.items
           .filter((item) => !matches.find((match) => match.listItemId === item.id)?.product)
-          .map((item) => searchQueryByNormalizedQuery.get(queryByItemId.get(item.id) ?? ""))
-          .filter((query): query is string => Boolean(query)),
-      ),
+          .flatMap((item) => {
+            const normalizedQuery = queryByItemId.get(item.id) ?? "";
+            return (searchQueriesByNormalizedQuery.get(normalizedQuery) ?? []).map(
+              (searchQuery) => [`${normalizedQuery}\0${searchQuery}`, normalizedQuery, searchQuery] as const,
+            );
+          })
+          .filter((entry) => Boolean(entry[1]) && Boolean(entry[2]))
+          .map(([key, normalizedQuery, searchQuery]) => [
+            key,
+            [normalizedQuery, searchQuery] as const,
+          ]),
+      ).values(),
     );
     const refreshedEntries = await Promise.all(
-      zeroQueries.map(async (query) => [
-        normalizePriceQuery(query),
+      zeroQueries.map(async ([normalizedQuery, query]) => [
+        normalizedQuery,
         await refreshSearchProducts(query, request.storeId),
       ] as const),
     );
     refreshedEntries.forEach(([normalizedQuery, products]) => {
-      if (products.length > 0) productsByQuery.set(normalizedQuery, products);
+      if (products.length === 0) return;
+      const existingProducts = productsByQuery.get(normalizedQuery) ?? [];
+      const productsById = new Map(
+        existingProducts.map((product) => [product.id, product] as const),
+      );
+      products.forEach((product) => {
+        if (!productsById.has(product.id)) productsById.set(product.id, product);
+      });
+      productsByQuery.set(normalizedQuery, Array.from(productsById.values()));
     });
     matches = request.items.map((item) =>
       matchListItem(

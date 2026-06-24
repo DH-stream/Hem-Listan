@@ -19,6 +19,7 @@ import {
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
+  buildPricingSearchQueries,
   cleanGrocerySearchQuery,
   matchListItem,
 } from "./api/_lib/pricingMatching";
@@ -665,4 +666,136 @@ test("failed City Gross fetch is negative-cached briefly", async () => {
   assert.deepEqual(first, []);
   assert.deepEqual(second, []);
   assert.equal(fetchCount, 1);
+});
+
+test("production pricing examples use query cleanup and semantic ranking", () => {
+  const products: ProductPrice[] = [
+    {
+      id: "lax-ready-meal",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "CITY GROSS Kallrökt Lax Dillstuvad Potatis",
+      priceSek: 69.95,
+      unitLabel: "400 g",
+      category: "Färdigmat",
+      categoryPath: ["Kyld färdigmat", "Portionsrätt"],
+      searchTerms: ["Kallrökt Lax Dillstuvad Potatis"],
+    },
+    {
+      id: "lax-raw",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Kallrökt Lax Skivad 200g",
+      priceSek: 59.95,
+      unitLabel: "200 g",
+      category: "Fisk",
+      searchTerms: ["kallrökt lax", "rökt lax"],
+    },
+    {
+      id: "keso",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Arla Keso Cottage Cheese 500g",
+      priceSek: 34.95,
+      unitLabel: "500 g",
+      category: "Mejeri",
+      searchTerms: ["keso", "cottage cheese"],
+    },
+    {
+      id: "penne",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Barilla Penne Rigate Pasta 500g",
+      priceSek: 24.95,
+      unitLabel: "500 g",
+      category: "Pasta",
+      searchTerms: ["penne", "penne pasta"],
+    },
+    {
+      id: "butter",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Svenskt Smör Normalsaltat 500g",
+      priceSek: 54.95,
+      unitLabel: "500 g",
+      category: "Smör & margarin",
+      searchTerms: ["smör", "margarin"],
+    },
+    {
+      id: "toast",
+      chainId: "city_gross",
+      storeId: "demo",
+      productName: "Pågen Rosta Toastbröd 800g",
+      priceSek: 36.95,
+      unitLabel: "800 g",
+      category: "Bröd",
+      searchTerms: ["toastbröd", "rostbröd", "formfranska"],
+    },
+  ];
+
+  assert.equal(matchListItem({ id: "lax", name: "kallrökt lax" }, products).product?.id, "lax-raw");
+  assert.equal(matchListItem({ id: "keso", name: "keso cottage cheese" }, products).product?.id, "keso");
+  assert.equal(matchListItem({ id: "penne", name: "penne pasta" }, products).product?.id, "penne");
+  assert.equal(matchListItem({ id: "fat", name: "smör eller margarin" }, products).product?.id, "butter");
+  assert.equal(matchListItem({ id: "toast-a", name: "toastbröd" }, products).product?.id, "toast");
+  assert.equal(matchListItem({ id: "toast-b", name: "toastbrod" }, products).product?.id, "toast");
+});
+
+test("pricing search query variants avoid concatenated provider OR queries", () => {
+  assert.deepEqual(buildPricingSearchQueries("keso cottage cheese"), ["keso"]);
+  assert.deepEqual(buildPricingSearchQueries("penne pasta"), ["penne"]);
+  assert.deepEqual(buildPricingSearchQueries("smör eller margarin"), ["smör", "margarin"]);
+  assert.deepEqual(buildPricingSearchQueries("toastbröd"), ["toastbröd", "rostbröd", "formfranska"]);
+  assert.deepEqual(buildPricingSearchQueries("toastbrod"), ["toastbröd", "rostbröd", "formfranska"]);
+});
+
+test("basket pricing searches provider variants and merges products for one intent", async () => {
+  const searchedQueries: string[] = [];
+  const butterProduct: ProductPrice = {
+    id: "butter",
+    chainId: "city_gross",
+    storeId: "demo",
+    productName: "Svenskt Smör Normalsaltat 500g",
+    priceSek: 54.95,
+    unitLabel: "500 g",
+    category: "Smör & margarin",
+    searchTerms: ["smör", "margarin"],
+  };
+  const toastProduct: ProductPrice = {
+    id: "toast",
+    chainId: "city_gross",
+    storeId: "demo",
+    productName: "Pågen Rosta Toastbröd 800g",
+    priceSek: 36.95,
+    unitLabel: "800 g",
+    category: "Bröd",
+    searchTerms: ["toastbröd", "rostbröd", "formfranska"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "city_gross",
+      items: [
+        { id: "keso", name: "keso cottage cheese" },
+        { id: "penne", name: "penne pasta" },
+        { id: "fat", name: "smör eller margarin" },
+        { id: "toast", name: "toastbröd" },
+      ],
+    },
+    {
+      searchProducts: async (query) => {
+        searchedQueries.push(query);
+        if (query === "margarin") return [butterProduct];
+        if (query === "rostbröd") return [toastProduct, toastProduct];
+        return [];
+      },
+    },
+  );
+
+  assert.deepEqual(
+    searchedQueries.sort(),
+    ["formfranska", "keso", "margarin", "penne", "rostbröd", "smör", "toastbröd"].sort(),
+  );
+  assert.equal(result.matches.find((match) => match.listItemId === "fat")?.product?.id, "butter");
+  assert.equal(result.matches.find((match) => match.listItemId === "toast")?.product?.id, "toast");
 });
