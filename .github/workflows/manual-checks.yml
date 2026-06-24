@@ -6,7 +6,7 @@ on:
       ref:
         description: Branch, tag, or commit SHA to check
         required: false
-        default: add-passive-pricing-match-quality-signals
+        default: main
 
 permissions:
   contents: read
