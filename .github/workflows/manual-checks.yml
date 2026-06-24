@@ -31,7 +31,16 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: npm test 2>&1 | tee test.log
 
       - name: Run TypeScript lint
-        run: npm run lint
+        run: npm run lint 2>&1 | tee lint.log
+
+      - name: Upload check logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-check-logs
+          path: |
+            test.log
+            lint.log
