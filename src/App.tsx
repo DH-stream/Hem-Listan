@@ -1,7 +1,7 @@
 import { useState, useEffect, startTransition, useMemo, useRef } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AnimatePresence, motion } from "motion/react";
-import { DeletedList, List, ListMember, Stats, MealSlot, MealType, RecipeIngredient, TaskItem, UserProfile } from "./types";
+import { DeletedList, List, ListMember, Stats, MealSlot, MealType, RecipeIngredient, TaskItem, UserProfile, WeekdayKey } from "./types";
 import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
@@ -24,6 +24,7 @@ import {
   fetchDeletedLists,
   createList,
   updateListName,
+  updateList,
   addTask,
   updateTask,
   deleteTask,
@@ -43,6 +44,7 @@ import { mergePendingMeals, type PendingMealSave } from "./lib/optimisticMeals";
 import { buildGroceryMergePlan } from "./lib/grocery/merge";
 import { useListPresence } from "./hooks/useListPresence";
 import { DEBUG_PRESENCE_USER_ID, withMockPresence } from "./lib/presence";
+import { normalizeWeekdayKey } from "./lib/weekdays";
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -149,6 +151,7 @@ const listMetadataFingerprint = (list: List) => JSON.stringify({
   icon: list.icon || 'list',
   themeColor: list.themeColor || '#1a5319',
   category: list.category || 'general',
+  mealPlanStartDay: normalizeWeekdayKey(list.mealPlanStartDay),
 });
 
 const listFingerprint = (list: List) => JSON.stringify({
@@ -1018,14 +1021,16 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
 
   const handleAddNewList = async (
     name: string, icon: string, themeColor: string,
-    category: "renovation" | "grocery" | "general"
+    category: "renovation" | "grocery" | "general",
+    mealPlanStartDay?: WeekdayKey
   ) => {
     const tempId = `list-${Date.now()}`;
     const selectedThemeColor = themeColor || "#003b05";
     const newList: List = {
       id: tempId, name, icon, themeColor: selectedThemeColor, category,
       tasks: [],
-      meals: category === "grocery" ? [] : undefined
+      meals: category === "grocery" ? [] : undefined,
+      mealPlanStartDay: category === "grocery" ? normalizeWeekdayKey(mealPlanStartDay) : undefined
     };
     applyAndSync([newList, ...lists]);
     startTransition(() => setCurrentView("dashboard"));
@@ -1174,6 +1179,31 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     setListsAndSync(currentLists => currentLists.map(candidate =>
       candidate.id === listId && candidate.name === normalizedName
         ? { ...candidate, name: previousName }
+        : candidate
+    ));
+    return false;
+  };
+
+  const handleUpdateMealPlanStartDay = async (listId: string, mealPlanStartDay: WeekdayKey): Promise<boolean> => {
+    const list = lists.find(candidate => candidate.id === listId);
+    if (!list || list.category !== "grocery" || list.membershipRole === "member") return false;
+
+    const normalizedStartDay = normalizeWeekdayKey(mealPlanStartDay);
+    const previousStartDay = normalizeWeekdayKey(list.mealPlanStartDay);
+
+    setListsAndSync(currentLists => currentLists.map(candidate =>
+      candidate.id === listId ? { ...candidate, mealPlanStartDay: normalizedStartDay } : candidate
+    ));
+
+    if (!isUuid(listId)) return true;
+
+    const canSave = await canCloudSave("update_meal_plan_start_day");
+    const saved = canSave && await updateList(listId, { mealPlanStartDay: normalizedStartDay });
+    if (saved !== false) return true;
+
+    setListsAndSync(currentLists => currentLists.map(candidate =>
+      candidate.id === listId && candidate.mealPlanStartDay === normalizedStartDay
+        ? { ...candidate, mealPlanStartDay: previousStartDay }
         : candidate
     ));
     return false;
@@ -1445,6 +1475,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onUpdateTask={handleUpdateTask}
                   onResetList={handleResetList}
                   onRenameList={handleRenameList}
+                  onUpdateMealPlanStartDay={handleUpdateMealPlanStartDay}
                   onAddMeal={handleAddMeal}
                   onDeleteMeal={handleDeleteMeal}
                   onMoveMeal={handleMoveMeal}

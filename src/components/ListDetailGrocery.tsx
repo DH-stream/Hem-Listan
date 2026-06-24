@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
-import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe } from "../types";
+import { List, ListMember, TaskItem, MealSlot, MealType, RecipeIngredient, SavedRecipe, WeekdayKey } from "../types";
 import LucideIcon from "./LucideIcon";
 import SharedListCount from "./SharedListCount";
 import CelebrationCard from "./CelebrationCard";
@@ -40,6 +40,7 @@ import {
 import type { ListItemPriceMatch } from "../lib/pricing/types";
 import { usePricingSource } from "../lib/pricing/usePricingSource";
 import { DEFAULT_CITY_GROSS_STORE_ID, DEFAULT_WILLYS_STORE_ID, type PricingSource } from "../lib/pricing/sources";
+import { getOrderedWeekdays, normalizeWeekdayKey, WEEKDAYS } from "../lib/weekdays";
 
 
 interface PriceComparisonSheetProps {
@@ -376,6 +377,7 @@ interface ListDetailGroceryProps {
   ) => void;
   onResetList: (listId: string) => void;
   onRenameList: (listId: string, name: string) => Promise<boolean>;
+  onUpdateMealPlanStartDay: (listId: string, mealPlanStartDay: WeekdayKey) => Promise<boolean>;
   onAddMeal: (
     listId: string,
     day: string,
@@ -420,6 +422,7 @@ export default function ListDetailGrocery({
   onUpdateTask,
   onResetList,
   onRenameList,
+  onUpdateMealPlanStartDay,
   onAddMeal,
   onDeleteMeal,
   onMoveMeal,
@@ -517,16 +520,10 @@ export default function ListDetailGrocery({
     imageUrl: recommendedSavedRecipe?.imageUrl,
   });
 
-  const defaultDays = [
-    "Måndag",
-    "Tisdag",
-    "Onsdag",
-    "Torsdag",
-    "Fredag",
-    "Lördag",
-    "Söndag",
-  ];
-  const currentDay = defaultDays[(new Date().getDay() + 6) % 7];
+  const orderedWeekdays = getOrderedWeekdays(list.mealPlanStartDay);
+  const defaultDays = orderedWeekdays.map((weekday) => weekday.label);
+  const currentDay = WEEKDAYS[(new Date().getDay() + 6) % 7].label;
+  const mealPlanStartDay = normalizeWeekdayKey(list.mealPlanStartDay);
 
   useEffect(() => {
     let isActive = true;
@@ -1298,6 +1295,28 @@ export default function ListDetailGrocery({
                   </div>
                 );
               })}
+
+              <div className="rounded-xl border border-surface-container/30 bg-surface-container-lowest px-4 py-3">
+                <label
+                  htmlFor="meal-plan-start-day-setting"
+                  className="font-sans text-xs font-bold text-on-surface-variant"
+                >
+                  Veckan börjar på
+                </label>
+                <select
+                  id="meal-plan-start-day-setting"
+                  value={mealPlanStartDay}
+                  onChange={(event) => void onUpdateMealPlanStartDay(list.id, event.target.value as WeekdayKey)}
+                  disabled={list.membershipRole === "member"}
+                  className="mt-2 w-full rounded-xl border-0 bg-surface-muted px-4 py-3 text-sm font-medium text-on-surface outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary disabled:opacity-60"
+                >
+                  {WEEKDAYS.map((weekday) => (
+                    <option key={weekday.key} value={weekday.key}>
+                      {weekday.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </motion.div>
         ) : (

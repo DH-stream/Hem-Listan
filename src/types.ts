@@ -13,6 +13,7 @@ export interface TaskItem {
 }
 
 export type MealType = "frukost" | "lunch" | "middag";
+export type WeekdayKey = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
 
 export interface RecipeIngredient {
   rawText?: string;
@@ -69,6 +70,7 @@ export interface List {
   category: "renovation" | "grocery" | "general";
   tasks: TaskItem[];
   meals?: MealSlot[]; // for grocery/schema lists
+  mealPlanStartDay?: WeekdayKey;
   deletedAt?: string;
   deleted_at?: string;
   membershipRole?: "owner" | "member";

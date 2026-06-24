@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import LucideIcon from "./LucideIcon";
+import type { WeekdayKey } from "../types";
+import { WEEKDAYS } from "../lib/weekdays";
 
 interface CreateListViewProps {
   onCancel: () => void;
-  onCreateList: (name: string, icon: string, themeColor: string, category: "renovation" | "grocery" | "general") => void;
+  onCreateList: (name: string, icon: string, themeColor: string, category: "renovation" | "grocery" | "general", mealPlanStartDay?: WeekdayKey) => void;
 }
 
 export default function CreateListView({ onCancel, onCreateList }: CreateListViewProps) {
@@ -12,6 +14,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
   const [selectedListType, setSelectedListType] = useState<"general" | "grocery">("general");
   const [selectedIcon, setSelectedIcon] = useState("home");
   const [selectedColor, setSelectedColor] = useState("#003b05"); // default primary green
+  const [mealPlanStartDay, setMealPlanStartDay] = useState<WeekdayKey>("monday");
 
   // Standard icon library from design layout
   const icons = [
@@ -38,7 +41,13 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     e.preventDefault();
     if (!listName.trim()) return;
 
-    onCreateList(listName.trim(), selectedIcon, selectedColor, selectedListType);
+    onCreateList(
+      listName.trim(),
+      selectedIcon,
+      selectedColor,
+      selectedListType,
+      selectedListType === "grocery" ? mealPlanStartDay : undefined,
+    );
   };
 
   return (
@@ -146,6 +155,31 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
               })}
             </div>
           </fieldset>
+
+
+
+          {selectedListType === "grocery" && (
+            <div className="space-y-2">
+              <label htmlFor="meal-plan-start-day" className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
+                Veckan börjar på
+              </label>
+              <select
+                id="meal-plan-start-day"
+                value={mealPlanStartDay}
+                onChange={(event) => setMealPlanStartDay(event.target.value as WeekdayKey)}
+                className="w-full bg-surface-muted border-0 rounded-xl px-4 py-3.5 text-sm focus:ring-2 focus:ring-primary focus:bg-white transition-all outline-none text-on-surface font-sans"
+              >
+                {WEEKDAYS.map((weekday) => (
+                  <option key={weekday.key} value={weekday.key}>
+                    {weekday.label}
+                  </option>
+                ))}
+              </select>
+              <p className="px-1 text-xs leading-relaxed text-on-surface-variant">
+                Välj vilken dag matplaneringen ska börja. Du kan ändra detta senare.
+              </p>
+            </div>
+          )}
 
           {/* Icon Choice Grid selection */}
           <div className="space-y-3">

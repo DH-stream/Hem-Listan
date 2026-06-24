@@ -1,5 +1,6 @@
 import { createClient, Session, SupabaseClient, User } from "@supabase/supabase-js";
 import { DeletedList, List, ListMember, PublicListShare, TaskItem, MealSlot, UserProfile, RecipeIngredient, RecipeRating, SavedRecipe } from "../types";
+import { normalizeWeekdayKey } from "./weekdays";
 
 // ── Singleton-klient ─────────────────────────────────────────────────
 // TEMP DEBUG: remove after Supabase cloud-save issue is solved.
@@ -981,7 +982,7 @@ export const fetchLists = async (): Promise<List[] | null> => {
 
   try {
     const listsResponse = await fetch(
-      `${baseUrl}/rest/v1/hl_lists?select=id,owner_id,name,icon,theme_color,category,created_at&deleted_at=is.null&order=created_at.desc`,
+      `${baseUrl}/rest/v1/hl_lists?select=id,owner_id,name,icon,theme_color,category,meal_plan_start_day,created_at&deleted_at=is.null&order=created_at.desc`,
       { headers, signal: controller.signal },
     );
     const listsBody = await parseJsonResponse(listsResponse);
@@ -1019,6 +1020,7 @@ export const fetchLists = async (): Promise<List[] | null> => {
       icon: listRow.icon || 'list',
       themeColor: listRow.theme_color || '#1a5319',
       category: listRow.category as List["category"],
+      mealPlanStartDay: normalizeWeekdayKey(listRow.meal_plan_start_day),
       membershipRole: listRow.owner_id === userId ? 'owner' : 'member',
       memberCount: membersBody?.filter((memberRow: any) => memberRow.list_id === listRow.id).length,
       tasks: tasksBody
@@ -1215,6 +1217,7 @@ type CreateListRpcPayload = {
   p_icon: string;
   p_theme_color: string;
   p_category: string;
+  p_meal_plan_start_day?: string;
 };
 
 type CreateListRpcSafeDetails = {
@@ -1223,6 +1226,7 @@ type CreateListRpcSafeDetails = {
   icon: string;
   theme_color: string;
   category: string;
+  meal_plan_start_day?: string;
   hasOwnerId: boolean;
 };
 
@@ -1389,6 +1393,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     icon: list.icon || 'list',
     theme_color: list.themeColor || '#1a5319',
     category: list.category || 'general',
+    meal_plan_start_day: normalizeWeekdayKey(list.mealPlanStartDay),
   };
 
   const safeInsertDetails = {
@@ -1397,6 +1402,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     icon: insertData.icon,
     theme_color: insertData.theme_color,
     category: insertData.category,
+    meal_plan_start_day: insertData.meal_plan_start_day,
     hasOwnerId: Boolean(insertData.owner_id),
   };
   const rpcPayload: CreateListRpcPayload = {
@@ -1406,6 +1412,7 @@ export const createList = async (list: Omit<List, 'tasks' | 'meals'>, ownerId: s
     p_icon: insertData.icon,
     p_theme_color: insertData.theme_color,
     p_category: insertData.category,
+    p_meal_plan_start_day: insertData.meal_plan_start_day,
   };
   const rpcContext: CreateListDiagnosticContext = {
     dbId,
@@ -1518,14 +1525,16 @@ export const updateListName = async (listId: string, name: string): Promise<bool
 };
 
 // Uppdatera lista
-export const updateList = async (listId: string, updates: Partial<Pick<List, 'name' | 'icon' | 'themeColor'>>) => {
+export const updateList = async (listId: string, updates: Partial<Pick<List, 'name' | 'icon' | 'themeColor' | 'mealPlanStartDay'>>): Promise<boolean> => {
   const client = getSupabaseClient();
-  if (!client) return;
-  await client.from('hl_lists').update({
+  if (!client) return false;
+  const { error } = await client.from('hl_lists').update({
     ...(updates.name && { name: updates.name }),
     ...(updates.icon && { icon: updates.icon }),
     ...(updates.themeColor && { theme_color: updates.themeColor }),
+    ...(updates.mealPlanStartDay && { meal_plan_start_day: normalizeWeekdayKey(updates.mealPlanStartDay) }),
   }).eq('id', listId);
+  return !error;
 };
 
 // Ta bort lista
