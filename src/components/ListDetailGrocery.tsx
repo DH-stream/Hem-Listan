@@ -1091,29 +1091,6 @@ export default function ListDetailGrocery({
                 DENNA VECKA
               </h3>
 
-
-              <div className="rounded-xl border border-surface-container/30 bg-surface-container-lowest p-4">
-                <label htmlFor="meal-plan-start-day-setting" className="font-sans text-xs font-bold text-on-surface-variant">
-                  Veckan börjar på
-                </label>
-                <select
-                  id="meal-plan-start-day-setting"
-                  value={mealPlanStartDay}
-                  onChange={(event) => void onUpdateMealPlanStartDay(list.id, event.target.value as WeekdayKey)}
-                  disabled={list.membershipRole === "member"}
-                  className="mt-2 w-full rounded-xl border-0 bg-surface-muted px-4 py-3 text-sm text-on-surface outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary disabled:opacity-60"
-                >
-                  {WEEKDAYS.map((weekday) => (
-                    <option key={weekday.key} value={weekday.key}>
-                      {weekday.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs leading-relaxed text-on-surface-variant">
-                  Välj vilken dag matplaneringen ska börja. Du kan ändra detta senare.
-                </p>
-              </div>
-
               {defaultDays.map((day, idx) => {
                 // Fetch existing meals for this day
                 const mealsForDay =
@@ -1318,6 +1295,28 @@ export default function ListDetailGrocery({
                   </div>
                 );
               })}
+
+              <div className="rounded-xl border border-surface-container/30 bg-surface-container-lowest px-4 py-3">
+                <label
+                  htmlFor="meal-plan-start-day-setting"
+                  className="font-sans text-xs font-bold text-on-surface-variant"
+                >
+                  Veckan börjar på
+                </label>
+                <select
+                  id="meal-plan-start-day-setting"
+                  value={mealPlanStartDay}
+                  onChange={(event) => void onUpdateMealPlanStartDay(list.id, event.target.value as WeekdayKey)}
+                  disabled={list.membershipRole === "member"}
+                  className="mt-2 w-full rounded-xl border-0 bg-surface-muted px-4 py-3 text-sm font-medium text-on-surface outline-none transition-all focus:bg-white focus:ring-2 focus:ring-primary disabled:opacity-60"
+                >
+                  {WEEKDAYS.map((weekday) => (
+                    <option key={weekday.key} value={weekday.key}>
+                      {weekday.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </motion.div>
         ) : (
