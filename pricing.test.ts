@@ -37,6 +37,7 @@ import {
 } from "./api/_lib/icaStoreSearch";
 import { normalizeIcaStoreSearchResult, reverseGeocodeUserLocation } from "./src/lib/pricing/icaStoreSearch";
 import { getCurrentUserPosition } from "./src/lib/pricing/geolocation";
+import { buildPricingMatchEvent } from "./api/_lib/pricingMatchEvents";
 
 const products: ProductPrice[] = [
   {
@@ -49,6 +50,54 @@ const products: ProductPrice[] = [
     searchTerms: ["kaffe"],
   },
 ];
+
+test("pricing match event explains package-planned checkout prices without task payloads", () => {
+  const milk15: ProductPrice = {
+    id: "milk-15",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Mellanmjölk 1,5L ICA",
+    priceSek: 19.75,
+    unitLabel: "1,5 l",
+    searchTerms: ["mjölk"],
+  };
+
+  const event = buildPricingMatchEvent(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "milk", name: "mjölk 4,5 l", sourceTaskIds: ["a", "b", "c"] }],
+    },
+    { id: "milk", name: "mjölk 4,5 l", sourceTaskIds: ["a", "b", "c"] },
+    {
+      listItemId: "milk",
+      listItemName: "mjölk 4,5 l",
+      sourceTaskIds: ["a", "b", "c"],
+      product: milk15,
+      confidence: "high",
+      estimatedCheckoutPriceSek: 59.25,
+      priceBasis: "package_plan",
+      requestedQuantity: { amount: 4500, unit: "volume", label: "4,5 l", approximate: false },
+      purchasePlan: {
+        totalPriceSek: 59.25,
+        purchasedAmount: 4500,
+        items: [{ product: milk15, count: 3 }],
+      },
+    },
+    "2026-06-24T12:00:00.000Z",
+  );
+
+  assert.equal(event.priceExplanation?.productPriceSek, 19.75);
+  assert.equal(event.priceExplanation?.estimatedCheckoutPriceSek, 59.25);
+  assert.equal(event.priceExplanation?.estimatedDiffersFromProductPrice, true);
+  assert.equal(event.priceExplanation?.priceBasis, "package_plan");
+  assert.equal(event.priceExplanation?.requestedQuantity?.label, "4,5 l");
+  assert.equal(event.priceExplanation?.packagePlan?.packageCount, 3);
+  assert.equal(event.priceExplanation?.packagePlan?.items[0]?.count, 3);
+  assert.equal(event.priceExplanation?.sourceTaskCount, 3);
+  assert.equal(event.priceExplanation?.sourceTaskIdCount, 3);
+  assert.equal(JSON.stringify(event.priceExplanation).includes("mjölk 4,5 l"), false);
+});
 
 test("matches exact or nearly exact names with high confidence", () => {
   assert.equal(

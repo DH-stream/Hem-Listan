@@ -5,6 +5,7 @@ import type {
 } from "./types";
 import {
   estimateWeightedCheckoutPrice,
+  formatComparableQuantity,
   isApproximatePieceMassProduct,
   isWeightPricedProduct,
   parseComparableQuantity,
@@ -596,6 +597,16 @@ export const matchListItem = (
             scoreBreakdown: candidate.scoreBreakdown,
             reasons: candidate.reasons,
           })),
+        }
+      : {}),
+    ...(ranked.requested
+      ? {
+          requestedQuantity: {
+            amount: ranked.requested.amount,
+            unit: ranked.requested.dimension,
+            label: formatComparableQuantity(ranked.requested),
+            approximate: ranked.requested.approximate,
+          },
         }
       : {}),
     ...(estimatedCheckoutPriceSek === undefined

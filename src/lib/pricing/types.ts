@@ -44,6 +44,13 @@ export interface PurchasePlan {
   items: Array<{ product: ProductPrice; count: number }>;
 }
 
+export interface RequestedPriceQuantity {
+  amount: number;
+  unit: "mass" | "volume" | "count";
+  label: string;
+  approximate: boolean;
+}
+
 export interface ProductMatchScoreBreakdown {
   semantic: number;
   categoryAffinity: number;
@@ -72,6 +79,7 @@ export interface ListItemPriceMatch {
   confidence: PriceMatchConfidence;
   estimatedCheckoutPriceSek?: number;
   priceBasis?: "product_price" | "weighted_item_estimate" | "package_plan";
+  requestedQuantity?: RequestedPriceQuantity;
   purchasePlan?: PurchasePlan;
   preferenceScore?: number;
   preferenceReasons?: string[];
