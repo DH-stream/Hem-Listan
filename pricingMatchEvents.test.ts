@@ -71,6 +71,49 @@ test("keeps explained package plans out of suspicious", () => {
   assert.ok(event.qualitySignal.reasons.includes("package_plan_explained"));
 });
 
+test("normal base products with processed/flavor penalties are not over-flagged", () => {
+  const cases = [
+    {
+      query: "mjölk",
+      productName: "GARANT Mellanmjölk Längre Hållbarhet",
+      category: "Mjölk",
+    },
+    {
+      query: "blåbär",
+      productName: "ELDORADO Blåbär",
+      category: "Bär",
+    },
+    {
+      query: "tomatpuré",
+      productName: "FELIX Tomatpuré",
+      category: "Tomatpuré",
+    },
+    {
+      query: "naturell yoghurt",
+      productName: "ARLA KO Lätt Naturell Mild Yoghurt",
+      category: "Yoghurt",
+    },
+  ];
+
+  for (const itemCase of cases) {
+    const event = buildPricingMatchEvent(request, { id: "item-1", name: itemCase.query }, {
+      listItemId: "item-1",
+      listItemName: itemCase.query,
+      product: baseProduct({
+        id: `product-${itemCase.query}`,
+        productName: itemCase.productName,
+        category: itemCase.category,
+      }),
+      confidence: "medium",
+      preferenceReasons: ["processed_or_flavor_product_penalty"],
+      scoreBreakdown: scoreBreakdown({ productPenalty: -12, total: 28 }),
+    });
+
+    assert.notEqual(event.qualitySignal.label, "suspicious", itemCase.productName);
+    assert.ok(["good", "uncertain"].includes(event.qualitySignal.label), itemCase.productName);
+  }
+});
+
 test("classifies prepared meals for simple ingredient queries as suspicious", () => {
   const event = buildPricingMatchEvent(request, { id: "item-1", name: "penne" }, {
     listItemId: "item-1",

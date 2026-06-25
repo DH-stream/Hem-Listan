@@ -129,6 +129,9 @@ const readyMealRequestTerms =
 const preparedOrProcessedProductTerms =
   /(?:\b(?:fardigratt|fardigratter|fardigmat|middag|portion|portionsratt|maltid|gryta|gratang|paj|soppa|sallad|dillstuvad\s+potatis|meal|ready|godis|godispase|toffee|kola|chips|snacks|barnsnacks|barnmat|mellis|fruktmellis|smoothie|fruktsmoothie|grotsmoothie|dryck|drickyoghurt|yoghurt|grot|pure|dessert|bar|proteinbar|juice|nektar|glass|kaka|kex|marmelad|sylt)\b|(?:godispase|barnsnacks|barnmat|fruktmellis|mellis|fruktsmoothie|grotsmoothie|drickyoghurt|smoothie))/;
 
+const strongPreparedProcessedProductTerms =
+  /(?:\b(?:fardigratt|fardigratter|fardigmat|middag|portion|portionsratt|maltid|gryta|gratang|paj|soppa|sallad|meal|ready|godis|godispase|toffee|kola|chips|snacks|barnsnacks|barnmat|mellis|fruktmellis|smoothie|fruktsmoothie|grotsmoothie|drickyoghurt|dessert|proteinbar|glass|kaka|kex)\b|(?:godispase|barnsnacks|barnmat|fruktmellis|mellis|fruktsmoothie|grotsmoothie|drickyoghurt|smoothie))/;
+
 const isSimpleIngredientQuery = (normalizedQuery: string) => {
   if (!normalizedQuery || readyMealRequestTerms.test(normalizedQuery)) return false;
   const words = normalizedQuery.split(" ").filter(Boolean);
@@ -187,6 +190,7 @@ export const buildPricingMatchQualitySignal = (
   const simpleIngredientQuery = isSimpleIngredientQuery(normalizedQuery);
   const productText = normalizeProductText(match.product);
   const productLooksPreparedOrProcessed = preparedOrProcessedProductTerms.test(productText);
+  const productHasStrongPreparedProcessedIndicator = strongPreparedProcessedProductTerms.test(productText);
   const strongPreparedFoodPenalty = hasReason(match, "prepared_food_penalty_for_simple_query");
   const strongProcessedPenalty =
     hasReason(match, "processed_or_flavor_product_penalty") && simpleIngredientQuery;
@@ -199,15 +203,17 @@ export const buildPricingMatchQualitySignal = (
   if (strongProcessedPenalty) reasons.push("processed_or_flavor_product_penalty_for_simple_query");
   if (strongProductPenalty) reasons.push("strong_product_penalty");
 
-  const suspiciousReasons = reasons.filter(
-    (reason) =>
-      reason !== "package_plan_explained" &&
-      (reason.includes("prepared") ||
-        reason.includes("processed") ||
-        reason === "strong_product_penalty"),
-  );
-  if (suspiciousReasons.length > 0) {
+  const hasStrongPreparedMismatch =
+    strongPreparedFoodPenalty ||
+    (simpleIngredientQuery && productHasStrongPreparedProcessedIndicator) ||
+    (strongProductPenalty && productHasStrongPreparedProcessedIndicator);
+
+  if (hasStrongPreparedMismatch) {
     return createQualitySignal("suspicious", 0.9, reasons);
+  }
+
+  if (strongProcessedPenalty || strongProductPenalty || (simpleIngredientQuery && productLooksPreparedOrProcessed)) {
+    return createQualitySignal("uncertain", 0.68, reasons);
   }
 
   if (packagePlanExplained) {
