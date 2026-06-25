@@ -617,6 +617,48 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     }
 
     console.log("sync_local_list_start", { listId: localList.id, name: localList.name, reason });
+
+    const existingLists = await fetchLists();
+    if (existingLists) {
+      const exactMatch = existingLists.find(existing =>
+        listFingerprint(existing) === listFingerprint(localList)
+      );
+      const metadataMatch = existingLists.find(existing =>
+        listMetadataFingerprint(existing) === listMetadataFingerprint(localList)
+      );
+      const existingList = exactMatch ?? metadataMatch;
+
+      if (existingList?.id && isUuid(existingList.id)) {
+        const linkedList: List = {
+          ...existingList,
+          membershipRole: existingList.membershipRole ?? "owner",
+          memberCount: existingList.memberCount ?? 1,
+        };
+
+        setListsAndSync(currentLists => currentLists.map(list =>
+          list.id === localList.id ? linkedList : list
+        ));
+        setSelectedListId(prev => prev === localList.id ? existingList.id : prev);
+        clearPendingTasksForTempList(localList.id);
+        console.log("sync_local_list_reused_existing", {
+          localListId: localList.id,
+          cloudListId: existingList.id,
+          name: localList.name,
+          reason,
+        });
+        return linkedList;
+      }
+    }
+
+    const cleanupPartialList = async (newId: string, error: string) => {
+      const cleanedUp = await softDeleteList(newId);
+      if (cleanedUp) {
+        console.log("sync_local_list_partial_cleanup_success", { listId: localList.id, cloudListId: newId, name: localList.name, reason, error });
+      } else {
+        console.error("sync_local_list_partial_cleanup_error", { listId: localList.id, cloudListId: newId, name: localList.name, reason, error });
+      }
+    };
+
     const newId = await createList(localList, ownerId);
     if (!newId || !isUuid(newId)) {
       console.error("sync_local_list_error", { listId: localList.id, name: localList.name, reason, error: "createList_returned_invalid_id" });
@@ -627,7 +669,9 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     for (const task of localList.tasks) {
       const taskId = await addTask(newId, task);
       if (!taskId) {
-        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, taskId: task.id, reason, error: "addTask_returned_null" });
+        const error = "addTask_returned_null";
+        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, taskId: task.id, reason, error });
+        await cleanupPartialList(newId, error);
         return null;
       }
       syncedTasks.push({ ...task, id: taskId });
@@ -637,7 +681,9 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     for (const meal of localList.meals ?? []) {
       const mealId = await upsertMeal(newId, meal);
       if (!mealId) {
-        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, mealId: meal.id, reason, error: "upsertMeal_returned_null" });
+        const error = "upsertMeal_returned_null";
+        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, mealId: meal.id, reason, error });
+        await cleanupPartialList(newId, error);
         return null;
       }
       syncedMeals?.push({ ...meal, id: mealId });
