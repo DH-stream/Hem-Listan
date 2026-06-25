@@ -536,7 +536,8 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       const localLists = loadLocalActiveLists();
       const hasCustomLists = localLists.length > 0 && JSON.stringify(localLists) !== JSON.stringify(INITIAL_LISTS);
       const migrationKey = migrationKeyForUser(userId);
-      if (localStorage.getItem(migrationKey) === "true") return;
+      const hasUnsyncedLocalLists = localLists.some(list => !isUuid(list.id));
+      if (localStorage.getItem(migrationKey) === "true" && !hasUnsyncedLocalLists) return;
 
       console.log("local_migration_start", { userId });
 
@@ -601,6 +602,75 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       saveLocalActiveLists(updated);
       return updated;
     });
+  };
+
+  const syncLocalListToSupabase = async (
+    localList: List,
+    reason: string,
+  ): Promise<List | null> => {
+    if (isUuid(localList.id)) return localList;
+
+    const ownerId = sessionUser?.id ?? getSupabaseAuthSnapshot().userId;
+    if (!ownerId) {
+      console.error("sync_local_list_error", { listId: localList.id, name: localList.name, reason, error: "missing_owner_id" });
+      return null;
+    }
+
+    console.log("sync_local_list_start", { listId: localList.id, name: localList.name, reason });
+    const newId = await createList(localList, ownerId);
+    if (!newId || !isUuid(newId)) {
+      console.error("sync_local_list_error", { listId: localList.id, name: localList.name, reason, error: "createList_returned_invalid_id" });
+      return null;
+    }
+
+    const syncedTasks: TaskItem[] = [];
+    for (const task of localList.tasks) {
+      const taskId = await addTask(newId, task);
+      if (!taskId) {
+        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, taskId: task.id, reason, error: "addTask_returned_null" });
+        return null;
+      }
+      syncedTasks.push({ ...task, id: taskId });
+    }
+
+    const syncedMeals: MealSlot[] | undefined = localList.meals ? [] : undefined;
+    for (const meal of localList.meals ?? []) {
+      const mealId = await upsertMeal(newId, meal);
+      if (!mealId) {
+        console.error("sync_local_list_error", { listId: localList.id, cloudListId: newId, mealId: meal.id, reason, error: "upsertMeal_returned_null" });
+        return null;
+      }
+      syncedMeals?.push({ ...meal, id: mealId });
+    }
+
+    const syncedList: List = {
+      ...localList,
+      id: newId,
+      membershipRole: "owner",
+      memberCount: 1,
+      tasks: syncedTasks,
+      meals: syncedMeals,
+    };
+
+    setListsAndSync(currentLists => currentLists.map(list =>
+      list.id === localList.id ? syncedList : list
+    ));
+    setSelectedListId(prev => prev === localList.id ? newId : prev);
+    clearPendingTasksForTempList(localList.id);
+    console.log("sync_local_list_success", { listId: newId, localListId: localList.id, name: localList.name, reason });
+    return syncedList;
+  };
+
+  const handleEnsureCloudList = async (list: List): Promise<string | null> => {
+    if (isUuid(list.id)) return list.id;
+
+    const syncedList = await syncLocalListToSupabase(list, "invite");
+    if (!syncedList) {
+      console.error("ensure_cloud_list_error", { listId: list.id, name: list.name });
+      return null;
+    }
+
+    return syncedList.id;
   };
 
   // ── Stats ────────────────────────────────────────────────────────
@@ -1447,6 +1517,8 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                 onAddListFromTemplate={handleAddListFromTemplate}
                 onOpenSettings={() => setShowSettings(true)}
                 onDeleteList={handleDeleteList}
+                isLoggedIn={isLoggedIn}
+                onEnsureCloudList={handleEnsureCloudList}
               />
             </motion.div>
           )}
