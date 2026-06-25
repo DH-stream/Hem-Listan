@@ -109,6 +109,12 @@ test("Supabase match logger writes anonymous event rows without list item names"
       selectedConfidence: "high",
       selectedScore: 42,
       topCandidates: [{ productId: "apple-1", productName: "Äpple Klass 1" }],
+      qualitySignal: {
+        label: "good",
+        strength: 0.9,
+        reasons: ["normal_direct_product_match"],
+        version: 1,
+      },
       resultSource: "auto_match",
       timestamp: "2026-06-23T12:00:00.000Z",
     });
