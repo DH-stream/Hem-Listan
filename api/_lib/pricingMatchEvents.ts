@@ -1,4 +1,4 @@
-import type { ListItemPriceMatch } from "../../src/lib/pricing/types";
+import type { ListItemPriceMatch, ProductPrice } from "../../src/lib/pricing/types";
 import { buildPricingSearchQuery, normalizePriceQuery } from "./pricingMatching.js";
 import type { PricingBasketItem, PricingBasketRequest } from "./basketPricing.js";
 
@@ -26,6 +26,19 @@ export interface PricingMatchPriceExplanation {
   estimatedDiffersFromProductPrice: boolean;
 }
 
+export type PricingMatchQualityLabel = "good" | "uncertain" | "suspicious";
+
+export interface PricingMatchQualitySignal {
+  label: PricingMatchQualityLabel;
+  strength: number;
+  reasons: string[];
+  version: 1;
+}
+
+// Self-improvement foundation: qualitySignal is raw, observation-only telemetry.
+// It must not alter price estimates, ranking, provider search, cache identity, or UI totals.
+// Future learning should aggregate repeated query/product signals into stable, scoped
+// preferences before any guarded ranking influence consumes them.
 export interface PricingMatchEvent {
   chain: PricingBasketRequest["chain"];
   storeId?: string;
@@ -39,6 +52,7 @@ export interface PricingMatchEvent {
   topCandidates: Array<{ productId: string; productName: string }>;
   approximatePriceSek?: number;
   priceExplanation?: PricingMatchPriceExplanation;
+  qualitySignal: PricingMatchQualitySignal;
   resultSource: "auto_match";
   timestamp: string;
 }
@@ -109,18 +123,132 @@ const buildPriceExplanation = (match: ListItemPriceMatch): PricingMatchPriceExpl
   };
 };
 
+const readyMealRequestTerms =
+  /\b(?:fardigratt|fardigmat|middag|lunch|portion|maltid|matlada|gryta|gratang|paj|soppa|sallad|meal|ready)\b/;
+
+const preparedOrProcessedProductTerms =
+  /(?:\b(?:fardigratt|fardigratter|fardigmat|middag|portion|portionsratt|maltid|gryta|gratang|paj|soppa|sallad|dillstuvad\s+potatis|meal|ready|godis|godispase|toffee|kola|chips|snacks|barnsnacks|barnmat|mellis|fruktmellis|smoothie|fruktsmoothie|grotsmoothie|dryck|drickyoghurt|yoghurt|grot|pure|dessert|bar|proteinbar|juice|nektar|glass|kaka|kex|marmelad|sylt)\b|(?:godispase|barnsnacks|barnmat|fruktmellis|mellis|fruktsmoothie|grotsmoothie|drickyoghurt|smoothie))/;
+
+const isSimpleIngredientQuery = (normalizedQuery: string) => {
+  if (!normalizedQuery || readyMealRequestTerms.test(normalizedQuery)) return false;
+  const words = normalizedQuery.split(" ").filter(Boolean);
+  return words.length > 0 && words.length <= 4;
+};
+
+const normalizeProductText = (product: ProductPrice) =>
+  normalizePriceQuery(
+    [product.productName, product.category, ...(product.categoryPath ?? [])]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+const hasReason = (match: ListItemPriceMatch, reason: string) =>
+  match.preferenceReasons?.includes(reason) ||
+  match.rankedCandidates?.some((candidate) => candidate.reasons.includes(reason)) ||
+  false;
+
+const createQualitySignal = (
+  label: PricingMatchQualityLabel,
+  strength: number,
+  reasons: string[],
+): PricingMatchQualitySignal => ({
+  label,
+  strength: Math.round(Math.max(0, Math.min(1, strength)) * 100) / 100,
+  reasons: [...new Set(reasons)],
+  version: 1,
+});
+
+export const buildPricingMatchQualitySignal = (
+  normalizedQuery: string,
+  match: ListItemPriceMatch,
+  priceExplanation?: PricingMatchPriceExplanation,
+): PricingMatchQualitySignal => {
+  const reasons: string[] = [];
+
+  if (!match.product) {
+    reasons.push("no_selected_product");
+    if (match.confidence === "none") reasons.push("confidence_none");
+    if (!match.rankedCandidates || match.rankedCandidates.length === 0) {
+      reasons.push("no_ranked_candidates");
+    }
+    return createQualitySignal("uncertain", 0.7, reasons);
+  }
+
+  if (match.confidence === "none") {
+    return createQualitySignal("suspicious", 0.85, ["product_selected_with_no_confidence"]);
+  }
+
+  const packagePlanExplained =
+    match.priceBasis === "package_plan" ||
+    Boolean(match.purchasePlan) ||
+    Boolean(priceExplanation?.packagePlan);
+  if (packagePlanExplained) reasons.push("package_plan_explained");
+
+  const simpleIngredientQuery = isSimpleIngredientQuery(normalizedQuery);
+  const productText = normalizeProductText(match.product);
+  const productLooksPreparedOrProcessed = preparedOrProcessedProductTerms.test(productText);
+  const strongPreparedFoodPenalty = hasReason(match, "prepared_food_penalty_for_simple_query");
+  const strongProcessedPenalty =
+    hasReason(match, "processed_or_flavor_product_penalty") && simpleIngredientQuery;
+  const strongProductPenalty = (match.scoreBreakdown?.productPenalty ?? 0) <= -20;
+
+  if (simpleIngredientQuery && productLooksPreparedOrProcessed) {
+    reasons.push("simple_query_matched_prepared_or_processed_product");
+  }
+  if (strongPreparedFoodPenalty) reasons.push("prepared_food_penalty_for_simple_query");
+  if (strongProcessedPenalty) reasons.push("processed_or_flavor_product_penalty_for_simple_query");
+  if (strongProductPenalty) reasons.push("strong_product_penalty");
+
+  const suspiciousReasons = reasons.filter(
+    (reason) =>
+      reason !== "package_plan_explained" &&
+      (reason.includes("prepared") ||
+        reason.includes("processed") ||
+        reason === "strong_product_penalty"),
+  );
+  if (suspiciousReasons.length > 0) {
+    return createQualitySignal("suspicious", 0.9, reasons);
+  }
+
+  if (packagePlanExplained) {
+    return createQualitySignal("good", 0.82, reasons);
+  }
+
+  if (
+    (match.confidence === "high" || match.confidence === "medium") &&
+    (match.priceBasis === undefined || match.priceBasis === "product_price")
+  ) {
+    return createQualitySignal("good", match.confidence === "high" ? 0.9 : 0.78, [
+      "normal_direct_product_match",
+      ...(match.confidence === "high" ? ["high_confidence"] : ["medium_confidence"]),
+    ]);
+  }
+
+  if (match.confidence === "low") {
+    return createQualitySignal("uncertain", 0.65, ["low_confidence"]);
+  }
+
+  return createQualitySignal("uncertain", 0.6, ["unclassified_match_shape"]);
+};
+
 export const buildPricingMatchEvent = (
   request: PricingBasketRequest,
   item: PricingBasketItem,
   match: ListItemPriceMatch,
   timestamp = new Date().toISOString(),
 ): PricingMatchEvent => {
+  const normalizedQuery = normalizePriceQuery(buildPricingSearchQuery(item.name));
   const priceExplanation = buildPriceExplanation(match);
+  const qualitySignal = buildPricingMatchQualitySignal(
+    normalizedQuery,
+    match,
+    priceExplanation,
+  );
 
   return {
     chain: request.chain,
     ...(request.storeId ? { storeId: request.storeId } : {}),
-    normalizedQuery: normalizePriceQuery(buildPricingSearchQuery(item.name)),
+    normalizedQuery,
     ...(match.product?.id ? { selectedProductId: match.product.id } : {}),
     ...(match.product?.productName ? { selectedProductName: match.product.productName } : {}),
     selectedConfidence: match.confidence,
@@ -136,6 +264,7 @@ export const buildPricingMatchEvent = (
       ? {}
       : { approximatePriceSek: match.estimatedCheckoutPriceSek ?? match.product?.priceSek }),
     ...(priceExplanation ? { priceExplanation } : {}),
+    qualitySignal,
     resultSource: "auto_match",
     timestamp,
   };
@@ -160,7 +289,11 @@ export const emitPricingMatchEventsFireAndForget = (
 
   setTimeout(() => {
     events.forEach((event) => {
-      Promise.resolve(logger.logMatchEvent(event)).catch(onError);
+      try {
+        Promise.resolve(logger.logMatchEvent(event)).catch(onError);
+      } catch (error) {
+        onError(error);
+      }
     });
   }, 0);
 };
