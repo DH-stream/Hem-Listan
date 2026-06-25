@@ -26,6 +26,9 @@ interface QuickTemplate {
   [key: string]: unknown; // Tillåter extra fält om det behövs
 }
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 interface DashboardViewProps {
   lists: List[];
   stats: Stats;
@@ -36,6 +39,8 @@ interface DashboardViewProps {
   onAddListFromTemplate: (template: QuickTemplate) => void; // Ändrad från any
   onOpenSettings: () => void;
   onDeleteList: (listId: string) => void;
+  isLoggedIn: boolean;
+  onEnsureCloudList: (list: List) => Promise<string | null>;
 }
 
 export default function DashboardView({
@@ -48,6 +53,8 @@ export default function DashboardView({
   onAddListFromTemplate,
   onOpenSettings,
   onDeleteList,
+  isLoggedIn,
+  onEnsureCloudList,
 }: DashboardViewProps) {
   const [logoLoaded, setLogoLoaded] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
@@ -149,7 +156,15 @@ export default function DashboardView({
 
   const handleShareList = async (): Promise<string | null> => {
     if (!pendingActionsList) return null;
-    const token = await createListInvite(pendingActionsList.id);
+
+    let listId = pendingActionsList.id;
+    if (!isUuid(listId)) {
+      const cloudListId = await onEnsureCloudList(pendingActionsList);
+      if (!cloudListId) return null;
+      listId = cloudListId;
+    }
+
+    const token = await createListInvite(listId);
     return token ? `${window.location.origin}/invite/${token}` : null;
   };
 
@@ -599,7 +614,11 @@ export default function DashboardView({
         onClose={() => setPendingActionsList(null)}
         onSendCopy={handleSendList}
         onShareList={handleShareList}
-        canInviteCollaborators={Boolean(pendingActionsList && pendingActionsList.membershipRole !== "member" && /^[0-9a-f-]{36}$/i.test(pendingActionsList.id))}
+        canInviteCollaborators={Boolean(
+          isLoggedIn &&
+          pendingActionsList &&
+          pendingActionsList.membershipRole !== "member"
+        )}
         selectedAppearance={
           pendingActionsList ? listAppearance[pendingActionsList.id] || {} : {}
         }

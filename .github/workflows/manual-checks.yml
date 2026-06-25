@@ -31,12 +31,10 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: |
-          npm test 2>&1 | tee test.log
+        run: npm test 2>&1 | tee test.log
 
       - name: Run TypeScript lint
-        run: |
-          npm run lint 2>&1 | tee lint.log
+        run: npm run lint 2>&1 | tee lint.log
 
       - name: Upload check logs
         if: always()
