@@ -3,6 +3,7 @@ import type { PricingMatchEvent, PricingMatchEventLogger } from "./pricingMatchE
 export interface PricingMatchEventActor {
   authorizationHeader?: string;
   anonymousInstallationId?: string;
+  onTelemetryError?: (error: unknown) => void;
 }
 
 const getEnv = (key: string) =>
@@ -101,10 +102,12 @@ export const createSupabasePricingMatchEventLogger = (
 
       if (!response.ok) {
         const responseText = await response.text().catch(() => "");
-        throw new Error(
-          `pricing_match_event_insert_failed:${response.status}${
-            responseText ? `:${responseText.slice(0, 200)}` : ""
-          }`,
+        actor.onTelemetryError?.(
+          new Error(
+            `pricing_match_event_insert_failed:${response.status}${
+              responseText ? `:${responseText.slice(0, 200)}` : ""
+            }`,
+          ),
         );
       }
     },

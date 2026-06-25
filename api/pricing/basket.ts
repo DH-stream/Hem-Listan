@@ -224,6 +224,7 @@ export function createBasketPricingHandler(
       const matchEventLogger = createSupabasePricingMatchEventLogger({
         authorizationHeader,
         anonymousInstallationId,
+        onTelemetryError: (error) => pricingApiLog(debug, "match event logging failed", error),
       });
       const result = await calculateBasket(
         validation.request,

@@ -35,6 +35,10 @@ export interface PricingMatchQualitySignal {
   version: 1;
 }
 
+// Self-improvement foundation: qualitySignal is raw, observation-only telemetry.
+// It must not alter price estimates, ranking, provider search, cache identity, or UI totals.
+// Future learning should aggregate repeated query/product signals into stable, scoped
+// preferences before any guarded ranking influence consumes them.
 export interface PricingMatchEvent {
   chain: PricingBasketRequest["chain"];
   storeId?: string;
@@ -285,7 +289,11 @@ export const emitPricingMatchEventsFireAndForget = (
 
   setTimeout(() => {
     events.forEach((event) => {
-      Promise.resolve(logger.logMatchEvent(event)).catch(onError);
+      try {
+        Promise.resolve(logger.logMatchEvent(event)).catch(onError);
+      } catch (error) {
+        onError(error);
+      }
     });
   }, 0);
 };
