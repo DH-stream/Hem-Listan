@@ -3,6 +3,7 @@ import type { PricingMatchEvent, PricingMatchEventLogger } from "./pricingMatchE
 export interface PricingMatchEventActor {
   authorizationHeader?: string;
   anonymousInstallationId?: string;
+  onTelemetryError?: (error: unknown) => void;
 }
 
 const getEnv = (key: string) =>
@@ -64,6 +65,7 @@ const toEventRow = (
   candidate_snapshot: event.topCandidates,
   approximate_price: event.approximatePriceSek ?? null,
   price_explanation: event.priceExplanation ?? null,
+  quality_signal: event.qualitySignal,
   result_type: event.resultSource,
 });
 
@@ -100,10 +102,12 @@ export const createSupabasePricingMatchEventLogger = (
 
       if (!response.ok) {
         const responseText = await response.text().catch(() => "");
-        throw new Error(
-          `pricing_match_event_insert_failed:${response.status}${
-            responseText ? `:${responseText.slice(0, 200)}` : ""
-          }`,
+        actor.onTelemetryError?.(
+          new Error(
+            `pricing_match_event_insert_failed:${response.status}${
+              responseText ? `:${responseText.slice(0, 200)}` : ""
+            }`,
+          ),
         );
       }
     },
