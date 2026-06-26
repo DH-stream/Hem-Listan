@@ -556,11 +556,18 @@ export async function calculateBasketPriceEstimate(
     matches,
   );
   if (noCandidateDiagnostics.length > 0) {
-    console.info("[pricing-api] no ranked candidates", {
-      chain: request.chain,
-      storeId: request.storeId ?? null,
-      items: noCandidateDiagnostics,
-    });
+    console.info(
+      "[pricing-api] no ranked candidates",
+      JSON.stringify(
+        {
+          chain: request.chain,
+          storeId: request.storeId ?? null,
+          items: noCandidateDiagnostics,
+        },
+        null,
+        2,
+      ),
+    );
   }
   const providerAttempts =
     debug && request.chain === "ica"
