@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { List, ListMember, TaskItem } from "../types";
 import { addDaysToDateKey, createDateLogEntry, formatDateLogHeading, formatDateLogTime, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "../lib/dateLog";
 import LucideIcon from "./LucideIcon";
@@ -34,6 +35,7 @@ export default function ListDetailDateLog({
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
   const [entryText, setEntryText] = useState("");
   const [notes, setNotes] = useState("");
+  const [weekDirection, setWeekDirection] = useState(1);
 
   const selectedDate = useMemo(() => new Date(`${selectedDateKey}T00:00:00`), [selectedDateKey]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
@@ -43,9 +45,18 @@ export default function ListDetailDateLog({
     [list.tasks, selectedDateKey],
   );
 
-  const handlePreviousWeek = () => setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, -7));
-  const handleNextWeek = () => setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, 7));
-  const handleToday = () => setSelectedDateKey(todayKey);
+  const handlePreviousWeek = () => {
+    setWeekDirection(-1);
+    setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, -7));
+  };
+  const handleNextWeek = () => {
+    setWeekDirection(1);
+    setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, 7));
+  };
+  const handleToday = () => {
+    setWeekDirection(selectedDateKey > todayKey ? -1 : 1);
+    setSelectedDateKey(todayKey);
+  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -83,35 +94,44 @@ export default function ListDetailDateLog({
         </div>
       </section>
 
-      <section className="mb-5 rounded-2xl bg-white/80 p-3 shadow-sm ring-1 ring-outline/10 backdrop-blur">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <button type="button" onClick={handlePreviousWeek} className="flex h-9 items-center gap-1.5 rounded-full bg-surface-container-low px-3 text-xs font-bold text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Föregående vecka">
-            <LucideIcon name="arrow_back" className="h-3.5 w-3.5" />
-            <span>Vecka</span>
+      <section className="mb-5 rounded-2xl bg-white/70 p-3 shadow-sm ring-1 ring-outline/10 backdrop-blur">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button type="button" onClick={handlePreviousWeek} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Föregående vecka">
+            <LucideIcon name="arrow_back" className="h-4 w-4" />
           </button>
-          <button type="button" onClick={handleToday} disabled={selectedDateKey === todayKey} className="h-9 rounded-full bg-primary/10 px-4 text-xs font-bold text-primary transition-all hover:bg-primary/15 active:scale-95 disabled:pointer-events-none disabled:opacity-45">
+          <button type="button" onClick={handleToday} disabled={selectedDateKey === todayKey} className="px-2 py-1 text-xs font-bold text-primary transition-opacity active:scale-95 disabled:pointer-events-none disabled:opacity-45">
             Idag
           </button>
-          <button type="button" onClick={handleNextWeek} className="flex h-9 items-center gap-1.5 rounded-full bg-surface-container-low px-3 text-xs font-bold text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Nästa vecka">
-            <span>Vecka</span>
-            <LucideIcon name="chevron_right" className="h-3.5 w-3.5" />
+          <button type="button" onClick={handleNextWeek} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Nästa vecka">
+            <LucideIcon name="chevron_right" className="h-4 w-4" />
           </button>
         </div>
-        <div className="grid grid-cols-7 gap-1.5">
-          {weekDays.map((day, index) => {
-            const dateKey = toLocalDateKey(day);
-            const isSelected = selectedDateKey === dateKey;
-            const isToday = todayKey === dateKey;
-            const hasEntries = entryDates.has(dateKey);
-            return (
-              <button key={dateKey} type="button" onClick={() => setSelectedDateKey(dateKey)} className={`relative rounded-2xl px-1 py-2 text-center transition-all active:scale-95 ${isSelected ? "bg-primary text-white shadow-md" : "bg-surface-container-low text-on-surface hover:bg-surface-muted"}`}>
-                <span className="block text-[10px] font-bold uppercase opacity-75">{WEEKDAY_LABELS[index]}</span>
-                <span className="mt-1 block font-display text-lg font-bold leading-none">{day.getDate()}</span>
-                {isToday && <span className={`mt-1 block text-[9px] font-bold ${isSelected ? "text-white" : "text-primary"}`}>Idag</span>}
-                {hasEntries && <span className={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${isSelected ? "bg-white" : "bg-primary"}`} />}
-              </button>
-            );
-          })}
+        <div className="overflow-hidden">
+          <AnimatePresence initial={false} custom={weekDirection} mode="popLayout">
+            <motion.div
+              key={weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}
+              initial={{ opacity: 0, x: weekDirection * 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: weekDirection * -24 }}
+              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              className="grid grid-cols-7 gap-1.5"
+            >
+              {weekDays.map((day, index) => {
+                const dateKey = toLocalDateKey(day);
+                const isSelected = selectedDateKey === dateKey;
+                const isToday = todayKey === dateKey;
+                const hasEntries = entryDates.has(dateKey);
+                return (
+                  <button key={dateKey} type="button" onClick={() => setSelectedDateKey(dateKey)} className={`relative min-h-[58px] rounded-2xl px-1 py-2 text-center transition-all active:scale-95 ${isSelected ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-surface-muted/60"}`}>
+                    <span className={`block text-[10px] font-bold uppercase ${isSelected ? "opacity-80" : "opacity-60"}`}>{WEEKDAY_LABELS[index]}</span>
+                    <span className={`mt-1 block font-display text-lg font-bold leading-none ${isSelected ? "text-white" : "text-text-main/80"}`}>{day.getDate()}</span>
+                    {isToday && <span className={`mt-1 block text-[9px] font-bold ${isSelected ? "text-white" : "text-primary"}`}>Idag</span>}
+                    {hasEntries && <span className={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${isSelected ? "bg-white" : "bg-primary"}`} />}
+                  </button>
+                );
+              })}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </section>
 

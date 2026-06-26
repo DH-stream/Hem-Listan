@@ -105,7 +105,7 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
             <legend className="font-sans text-xs font-bold text-on-surface-variant px-1 scale-95 origin-left">
               Vad vill du skapa?
             </legend>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[
                 {
                   value: "general" as const,
@@ -133,23 +133,23 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => setSelectedListType(listType.value)}
-                    className={`relative min-h-28 rounded-2xl border p-4 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.98] ${
+                    className={`relative min-h-24 rounded-2xl border p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.98] ${
                       isActive
                         ? "border-primary bg-primary/5 shadow-[0_0_0_1px_var(--color-primary),0_8px_24px_rgba(0,59,5,0.06)]"
                         : "border-outline/15 bg-surface-container-low hover:border-primary/25 hover:bg-surface-muted"
                     }`}
                   >
                     <span
-                      className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${
+                      className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${
                         isActive ? "bg-primary text-white" : "bg-white text-on-surface-variant shadow-sm"
                       }`}
                     >
-                      <LucideIcon name={listType.icon} className="h-5 w-5" />
+                      <LucideIcon name={listType.icon} className="h-4 w-4" />
                     </span>
-                    <span className="block pr-7 font-display text-sm font-bold text-text-main">
+                    <span className="block pr-6 font-display text-sm font-bold text-text-main">
                       {listType.title}
                     </span>
-                    <span className="mt-1 block pr-3 text-xs leading-relaxed text-on-surface-variant">
+                    <span className="mt-1 block pr-1 text-[11px] leading-snug text-on-surface-variant">
                       {listType.subtitle}
                     </span>
                     {isActive && (
