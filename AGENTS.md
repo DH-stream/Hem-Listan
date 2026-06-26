@@ -12,6 +12,9 @@ This repository is the Hem-Listan app. Follow these rules for all code changes.
 - Do not change Supabase schema unless explicitly requested.
 - Do not change pricing, auth, sync, invite, or sharing behavior unless the task is specifically about that area.
 - Preserve existing behavior unless the task explicitly asks for a behavior change.
+- Prefer reuse over duplication. Search for existing helpers, hooks, utilities, components, and tests before creating new ones.
+- Avoid parallel implementations of the same behavior under different names. If existing code is close, prefer a small extension or refactor when it stays within scope.
+- Keep reuse practical. Do not force reuse when it would make the code harder to understand or expand the task beyond its intended scope.
 
 ## File size and structure
 
@@ -78,6 +81,7 @@ For pricing bugs:
 - First determine whether the problem is provider search, candidate filtering, ranking, learning, caching, or UI display.
 - Add diagnostics before broadening matching.
 - Prefer narrow, test-covered fixes over broad heuristics.
+- Reuse existing normalization, search-query, scoring, penalty, diagnostics, and quality-signal helpers before introducing new pricing heuristics.
 
 ## Supabase rules
 
