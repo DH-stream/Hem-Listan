@@ -78,6 +78,14 @@ interface NoCandidateDiagnostic {
   providerReturnedProductsFilteredOut: boolean;
   productCountBeforeFiltering: number;
   candidateCountAfterFiltering: number;
+  filteredOutProducts: Array<{
+    productName: string;
+    productId: string;
+    category?: string;
+    unitLabel: string;
+    searchTerms: string[];
+    reason: string;
+  }>;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -248,6 +256,7 @@ const buildNoCandidateDiagnostics = (
           productCountBeforeFiltering > 0 && candidateCountAfterFiltering === 0,
         productCountBeforeFiltering,
         candidateCountAfterFiltering,
+        filteredOutProducts: match?.rejectedCandidates ?? [],
       };
     })
     .filter((diagnostic) => diagnostic.candidateCountAfterFiltering === 0);

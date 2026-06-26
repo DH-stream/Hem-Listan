@@ -235,3 +235,88 @@ test("learning can rerank but does not directly change basket totals", async () 
   assert.equal(result.matches[0].preferenceReasons?.includes("learned_preference_boost"), true);
   assert.equal(result.approximateTotalSek, result.matches[0].product?.priceSek);
 });
+
+test("basmatiris matches compound and spaced basmati rice names", () => {
+  const spaced = rankProductMatches({ name: "basmatiris" }, [
+    product({
+      id: "basmati-spaced",
+      productName: "Basmati Ris 1kg",
+      priceSek: 39,
+      unitLabel: "1 kg",
+      searchTerms: ["Basmati Ris 1kg ICA"],
+      category: "Ris",
+    }),
+  ]);
+  const compound = rankProductMatches({ name: "basmati ris" }, [
+    product({
+      id: "basmati-compound",
+      productName: "Basmatiris",
+      priceSek: 39,
+      unitLabel: "1 kg",
+      searchTerms: ["Basmatiris ICA"],
+      category: "Ris",
+    }),
+  ]);
+
+  assert.equal(spaced.selected?.product.id, "basmati-spaced");
+  assert.notEqual(spaced.selected?.confidence, "none");
+  assert.equal(compound.selected?.product.id, "basmati-compound");
+  assert.notEqual(compound.selected?.confidence, "none");
+});
+
+test("basmatiris rejects rice pudding and ready-meal rice products", () => {
+  const ranking = rankProductMatches({ name: "basmatiris" }, [
+    product({
+      id: "rice-pudding",
+      productName: "Risgrynsgröt",
+      priceSek: 18,
+      unitLabel: "500 g",
+      searchTerms: ["Risgrynsgröt"],
+      category: "Gröt",
+    }),
+    product({
+      id: "ready-meal-rice",
+      productName: "Kyckling med ris färdigrätt",
+      priceSek: 45,
+      unitLabel: "400 g",
+      searchTerms: ["ris", "färdigrätt"],
+      category: "Färdigmat",
+    }),
+  ]);
+
+  assert.equal(ranking.selected, null);
+  assert.equal(ranking.rankedCandidates.length, 0);
+  assert.deepEqual(
+    ranking.rejectedCandidates.map((candidate) => candidate.productId),
+    ["rice-pudding", "ready-meal-rice"],
+  );
+});
+
+test("filtered-out diagnostics include product names and rejection reasons", async () => {
+  const result = await calculateBasketPriceEstimate(
+    { chain: "ica", storeId: "1004392", items: [{ id: "basmati", name: "basmatiris" }] },
+    {
+      debug: true,
+      searchProducts: async () => [
+        product({
+          id: "rice-pudding",
+          productName: "Risgrynsgröt",
+          priceSek: 18,
+          unitLabel: "500 g",
+          searchTerms: ["Risgrynsgröt"],
+          category: "Gröt",
+        }),
+      ],
+      learningSummaries: new Map(),
+    },
+  );
+  const debug = JSON.parse(result.debugMessage ?? "{}");
+  const diagnostic = debug.noCandidateDiagnostics[0];
+
+  assert.equal(diagnostic.filteredOutProducts[0].productName, "Risgrynsgröt");
+  assert.equal(diagnostic.filteredOutProducts[0].productId, "rice-pudding");
+  assert.equal(diagnostic.filteredOutProducts[0].category, "Gröt");
+  assert.equal(diagnostic.filteredOutProducts[0].unitLabel, "500 g");
+  assert.deepEqual(diagnostic.filteredOutProducts[0].searchTerms, ["Risgrynsgröt"]);
+  assert.equal(diagnostic.filteredOutProducts[0].reason, "no_semantic_match");
+});
