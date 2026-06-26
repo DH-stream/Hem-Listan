@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import { motion } from "motion/react";
 import LucideIcon from "./LucideIcon";
-import type { WeekdayKey } from "../types";
+import type { List, WeekdayKey } from "../types";
 import { WEEKDAYS } from "../lib/weekdays";
 
 interface CreateListViewProps {
   onCancel: () => void;
-  onCreateList: (name: string, icon: string, themeColor: string, category: "renovation" | "grocery" | "general", mealPlanStartDay?: WeekdayKey) => void;
+  onCreateList: (name: string, icon: string, themeColor: string, category: List["category"], mealPlanStartDay?: WeekdayKey) => void;
 }
 
 export default function CreateListView({ onCancel, onCreateList }: CreateListViewProps) {
   const [listName, setListName] = useState("");
-  const [selectedListType, setSelectedListType] = useState<"general" | "grocery">("general");
+  const [selectedListType, setSelectedListType] = useState<List["category"]>("general");
   const [selectedIcon, setSelectedIcon] = useState("home");
   const [selectedColor, setSelectedColor] = useState("#003b05"); // default primary green
   const [mealPlanStartDay, setMealPlanStartDay] = useState<WeekdayKey>("monday");
@@ -25,7 +25,8 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     { name: "book", label: "Läsa" },
     { name: "restaurant", label: "Mat" },
     { name: "fitness_center", label: "Träna" },
-    { name: "flight", label: "Resa" }
+    { name: "flight", label: "Resa" },
+    { name: "calendar", label: "Datum" }
   ];
 
   // Colors aligned with brand kit
@@ -117,6 +118,12 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
                   title: "Matlista",
                   subtitle: "Inköp, varor och måltidsplanering",
                   icon: "shopping_cart"
+                },
+                {
+                  value: "date_log" as const,
+                  title: "Datumlista",
+                  subtitle: "Logga händelser och anteckningar per dag",
+                  icon: "calendar"
                 }
               ].map((listType) => {
                 const isActive = selectedListType === listType.value;

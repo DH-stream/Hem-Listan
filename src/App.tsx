@@ -6,6 +6,7 @@ import { INITIAL_LISTS } from "./data";
 import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
 import ListDetailGrocery from "./components/ListDetailGrocery";
+import ListDetailDateLog from "./components/ListDetailDateLog";
 import CreateListView from "./components/CreateListView";
 import DebugPanel, { getInitialMockPresenceEnabled } from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
@@ -138,6 +139,9 @@ const taskFingerprint = (task: TaskItem) => JSON.stringify({
   type: task.type || 'task',
   url: task.url || undefined,
   progress: task.progress ?? undefined,
+  scheduledDate: task.scheduledDate || undefined,
+  logDate: task.logDate || undefined,
+  loggedAt: task.loggedAt || undefined,
 });
 
 const mealFingerprint = (meal: { day: string; type: string; name: string }) => JSON.stringify({
@@ -835,7 +839,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
   const handleAddTask = async (
     listId: string, text: string, categoryName?: string,
     taskType?: "task" | "note" | "progress" | "link",
-    url?: string, notes?: string, progress?: number
+    url?: string, notes?: string, progress?: number, metadata?: Pick<TaskItem, "scheduledDate" | "logDate" | "loggedAt">
   ) => {
     const cloudListId = resolveCloudListId(listId);
     const optimisticListId = cloudListId ?? listId;
@@ -844,7 +848,10 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
       id: tempId, text, checked: false,
       notes: notes || categoryName,
       type: taskType || "task",
-      url, progress
+      url, progress,
+      scheduledDate: metadata?.scheduledDate,
+      logDate: metadata?.logDate,
+      loggedAt: metadata?.loggedAt,
     };
     const updated = lists.map(l => l.id !== optimisticListId ? l : { ...l, tasks: [newTask, ...l.tasks] });
     applyAndSync(updated);
@@ -869,6 +876,24 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
         console.error("cloud_add_task_error", { listId: cloudListId, taskId: tempId });
       }
     }
+  };
+
+
+  const handleAddDateLogEntry = async (listId: string, entry: Omit<TaskItem, "id">) => {
+    await handleAddTask(
+      listId,
+      entry.text,
+      undefined,
+      entry.type,
+      entry.url,
+      entry.notes,
+      entry.progress,
+      {
+        scheduledDate: entry.scheduledDate,
+        logDate: entry.logDate,
+        loggedAt: entry.loggedAt,
+      },
+    );
   };
 
   const handleUpdateTask = async (listId: string, taskId: string, updates: Partial<TaskItem>) => {
@@ -1137,7 +1162,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
 
   const handleAddNewList = async (
     name: string, icon: string, themeColor: string,
-    category: "renovation" | "grocery" | "general",
+    category: List["category"],
     mealPlanStartDay?: WeekdayKey
   ) => {
     const tempId = `list-${Date.now()}`;
@@ -1489,6 +1514,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     if (currentView === "create") return { blob1: "bg-[#FFE4E1]/40", blob2: "bg-[#E0F2F1]/50", scale: 1.15 };
     if (currentView === "detail" && activeList) {
       if (activeList.category === "grocery") return { blob1: "bg-[#A5D6A7]/30", blob2: "bg-[#80DEEA]/35", scale: 1.25 };
+      if (activeList.category === "date_log") return { blob1: "bg-[#E0F2F1]/45", blob2: "bg-[#FFE4E1]/35", scale: 1.15 };
       if (activeList.category === "renovation") return { blob1: "bg-[#FFCC80]/25", blob2: "bg-[#FFE082]/25", scale: 1.1 };
     }
     return { blob1: "bg-[#C8E6C9]/25", blob2: "bg-[#FFE0B2]/30", scale: 1.0 };
@@ -1598,6 +1624,17 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onDeleteMeal={handleDeleteMeal}
                   onMoveMeal={handleMoveMeal}
                   onBulkAddGroceryDetails={handleBulkAddGroceryDetails}
+                />
+              ) : activeList.category === "date_log" ? (
+                <ListDetailDateLog
+                  list={activeList}
+                  members={listMembers}
+                  presentUsers={displayedPresentUsers}
+                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
+                  onToggleTask={handleToggleTask}
+                  onAddDateLogEntry={handleAddDateLogEntry}
+                  onDeleteTask={handleDeleteTask}
+                  onRenameList={handleRenameList}
                 />
               ) : (
                 <ListDetailRenovation

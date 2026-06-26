@@ -1033,6 +1033,10 @@ export const fetchLists = async (): Promise<List[] | null> => {
           type: (taskRow.type || 'task') as TaskItem["type"],
           url: taskRow.url || undefined,
           progress: taskRow.progress !== null ? taskRow.progress : undefined,
+          scheduledDate: taskRow.scheduled_date || undefined,
+          logDate: taskRow.log_date || undefined,
+          loggedAt: taskRow.logged_at || undefined,
+          createdAt: taskRow.created_at || undefined,
         })),
       meals: mealsBody
         .filter((mealRow: any) => mealRow.list_id === listRow.id)
@@ -1833,6 +1837,9 @@ type AddTaskRpcPayload = {
   p_type: NonNullable<TaskItem['type']>;
   p_url: string | null;
   p_progress: number | null;
+  p_scheduled_date?: string | null;
+  p_log_date?: string | null;
+  p_logged_at?: string | null;
 };
 
 type AddTaskRpcSafeDetails = {
@@ -1844,6 +1851,7 @@ type AddTaskRpcSafeDetails = {
   type: TaskItem['type'];
   hasUrl: boolean;
   progress: number | null;
+  hasDateMetadata?: boolean;
 };
 
 type AddTaskDiagnosticContext = {
@@ -1861,6 +1869,9 @@ type UpdateTaskRpcPayload = {
   p_notes?: string;
   p_progress?: number;
   p_url?: string;
+  p_scheduled_date?: string;
+  p_log_date?: string;
+  p_logged_at?: string;
 };
 
 type UpdateTaskRpcSafeDetails = {
@@ -1870,6 +1881,7 @@ type UpdateTaskRpcSafeDetails = {
   hasNotes: boolean;
   progress?: number;
   hasUrl: boolean;
+  hasDateMetadata?: boolean;
   keys: string[];
 };
 
@@ -2041,6 +2053,9 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     p_type: task.type ?? 'task',
     p_url: task.url || null,
     p_progress: task.progress !== undefined ? task.progress : null,
+    p_scheduled_date: task.scheduledDate || null,
+    p_log_date: task.logDate || null,
+    p_logged_at: task.loggedAt || null,
   };
 
   const safeRpcDetails: AddTaskRpcSafeDetails = {
@@ -2052,6 +2067,7 @@ export const addTask = async (listId: string, task: Omit<TaskItem, 'id'> & { id?
     type: rpcPayload.p_type,
     hasUrl: Boolean(rpcPayload.p_url),
     progress: rpcPayload.p_progress,
+    hasDateMetadata: Boolean(rpcPayload.p_scheduled_date || rpcPayload.p_log_date || rpcPayload.p_logged_at),
   };
 
   const rawRpcContext: AddTaskDiagnosticContext = {
@@ -2362,6 +2378,9 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
     ...(updates.notes !== undefined && { notes: updates.notes }),
     ...(updates.progress !== undefined && { progress: updates.progress }),
     ...(updates.url !== undefined && { url: updates.url }),
+    ...(updates.scheduledDate !== undefined && { scheduled_date: updates.scheduledDate }),
+    ...(updates.logDate !== undefined && { log_date: updates.logDate }),
+    ...(updates.loggedAt !== undefined && { logged_at: updates.loggedAt }),
   };
 
   const safeUpdateDetails = {
@@ -2370,6 +2389,7 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
     hasNotes: updates.notes !== undefined,
     progress: updateData.progress,
     hasUrl: updates.url !== undefined,
+    hasDateMetadata: updates.scheduledDate !== undefined || updates.logDate !== undefined || updates.loggedAt !== undefined,
     keys: Object.keys(updateData),
   };
 
@@ -2380,6 +2400,9 @@ export const updateTask = async (taskId: string, updates: Partial<TaskItem>): Pr
     ...(updates.notes !== undefined && { p_notes: updates.notes }),
     ...(updates.progress !== undefined && { p_progress: updates.progress }),
     ...(updates.url !== undefined && { p_url: updates.url }),
+    ...(updates.scheduledDate !== undefined && { p_scheduled_date: updates.scheduledDate }),
+    ...(updates.logDate !== undefined && { p_log_date: updates.logDate }),
+    ...(updates.loggedAt !== undefined && { p_logged_at: updates.loggedAt }),
   };
 
   const rawRpcContext: UpdateTaskDiagnosticContext = {
