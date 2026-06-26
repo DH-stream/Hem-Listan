@@ -18,6 +18,12 @@ export const toLocalDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+export const addDaysToDateKey = (dateKey: string, days: number): string => {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return toLocalDateKey(date);
+};
+
 export const getWeekStart = (date: Date): Date => {
   const start = new Date(date);
   const day = start.getDay();

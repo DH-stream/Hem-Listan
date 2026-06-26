@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDateLogEntry, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "./src/lib/dateLog";
+import { addDaysToDateKey, createDateLogEntry, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "./src/lib/dateLog";
 import type { List, TaskItem } from "./src/types";
 
 test("date_log is a valid list category", () => {
@@ -26,6 +26,35 @@ test("week selector uses Monday through Sunday", () => {
     "2026-06-26",
     "2026-06-27",
     "2026-06-28",
+  ]);
+});
+
+test("week navigation moves selected dates by whole weeks across month boundaries", () => {
+  assert.equal(addDaysToDateKey("2026-03-02", -7), "2026-02-23");
+  assert.equal(addDaysToDateKey("2026-01-29", 7), "2026-02-05");
+});
+
+test("selected week changes correctly across month boundaries", () => {
+  const previousWeek = getWeekDays(new Date(`${addDaysToDateKey("2026-03-02", -7)}T12:00:00`));
+  const nextWeek = getWeekDays(new Date(`${addDaysToDateKey("2026-01-29", 7)}T12:00:00`));
+
+  assert.deepEqual(previousWeek.map(toLocalDateKey), [
+    "2026-02-23",
+    "2026-02-24",
+    "2026-02-25",
+    "2026-02-26",
+    "2026-02-27",
+    "2026-02-28",
+    "2026-03-01",
+  ]);
+  assert.deepEqual(nextWeek.map(toLocalDateKey), [
+    "2026-02-02",
+    "2026-02-03",
+    "2026-02-04",
+    "2026-02-05",
+    "2026-02-06",
+    "2026-02-07",
+    "2026-02-08",
   ]);
 });
 

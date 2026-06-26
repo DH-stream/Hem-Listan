@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { List, ListMember, TaskItem } from "../types";
-import { createDateLogEntry, formatDateLogHeading, formatDateLogTime, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "../lib/dateLog";
+import { addDaysToDateKey, createDateLogEntry, formatDateLogHeading, formatDateLogTime, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "../lib/dateLog";
 import LucideIcon from "./LucideIcon";
 import ListNameEditor from "./ListNameEditor";
 import PresenceAvatarStack from "./PresenceAvatarStack";
@@ -43,6 +43,10 @@ export default function ListDetailDateLog({
     [list.tasks, selectedDateKey],
   );
 
+  const handlePreviousWeek = () => setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, -7));
+  const handleNextWeek = () => setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, 7));
+  const handleToday = () => setSelectedDateKey(todayKey);
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const text = entryText.trim();
@@ -80,6 +84,19 @@ export default function ListDetailDateLog({
       </section>
 
       <section className="mb-5 rounded-2xl bg-white/80 p-3 shadow-sm ring-1 ring-outline/10 backdrop-blur">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <button type="button" onClick={handlePreviousWeek} className="flex h-9 items-center gap-1.5 rounded-full bg-surface-container-low px-3 text-xs font-bold text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Föregående vecka">
+            <LucideIcon name="arrow_back" className="h-3.5 w-3.5" />
+            <span>Vecka</span>
+          </button>
+          <button type="button" onClick={handleToday} disabled={selectedDateKey === todayKey} className="h-9 rounded-full bg-primary/10 px-4 text-xs font-bold text-primary transition-all hover:bg-primary/15 active:scale-95 disabled:pointer-events-none disabled:opacity-45">
+            Idag
+          </button>
+          <button type="button" onClick={handleNextWeek} className="flex h-9 items-center gap-1.5 rounded-full bg-surface-container-low px-3 text-xs font-bold text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Nästa vecka">
+            <span>Vecka</span>
+            <LucideIcon name="chevron_right" className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div className="grid grid-cols-7 gap-1.5">
           {weekDays.map((day, index) => {
             const dateKey = toLocalDateKey(day);
