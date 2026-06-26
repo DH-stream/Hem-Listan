@@ -71,6 +71,15 @@ export interface ProductMatchCandidateSnapshot {
   reasons: string[];
 }
 
+export interface RejectedProductCandidateSnapshot {
+  productId: string;
+  productName: string;
+  category?: string;
+  unitLabel: string;
+  searchTerms: string[];
+  reason: string;
+}
+
 export interface ListItemPriceMatch {
   listItemId: string;
   listItemName: string;
@@ -85,6 +94,7 @@ export interface ListItemPriceMatch {
   preferenceReasons?: string[];
   scoreBreakdown?: ProductMatchScoreBreakdown;
   rankedCandidates?: ProductMatchCandidateSnapshot[];
+  rejectedCandidates?: RejectedProductCandidateSnapshot[];
 }
 
 export interface BasketPriceEstimate {

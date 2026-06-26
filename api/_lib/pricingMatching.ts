@@ -35,6 +35,15 @@ export interface RankedProductCandidate {
   reasons: string[];
 }
 
+export interface RejectedProductCandidate {
+  productId: string;
+  productName: string;
+  category?: string;
+  unitLabel: string;
+  searchTerms: string[];
+  reason: string;
+}
+
 
 export const normalizePriceQuery = (value: string) =>
   value
@@ -183,6 +192,9 @@ const confidenceFor = (
 
   const queryWords = query.split(" ");
   const candidateWords = new Set(candidate.split(" "));
+  const compactQuery = queryWords.join("");
+  const compactCandidate = Array.from(candidateWords).join("");
+  if (compactQuery.length >= 6 && compactQuery === compactCandidate) return "high";
   if (queryWords.every((word) => candidateWords.has(word))) return "medium";
 
   const essentialQueryWords = queryWords.filter(
@@ -485,7 +497,7 @@ export const rankProductMatches = (
   const queryVariants = normalizedPricingQueryVariants(item.name);
   const candidates = products.map((product) => {
     if (queryVariants.some((variant) => isClearlyIncompatibleProduct(variant, product))) {
-      return { product, confidence: "none" as const };
+      return { product, confidence: "none" as const, rejectionReason: "clearly_incompatible_product" };
     }
     const productConfidence = [product.productName, ...product.searchTerms]
       .map(normalizePriceQuery)
@@ -504,7 +516,11 @@ export const rankProductMatches = (
           : best;
       }, "none");
 
-    return { product, confidence: productConfidence };
+    return {
+      product,
+      confidence: productConfidence,
+      rejectionReason: productConfidence === "none" ? "no_semantic_match" : undefined,
+    };
   });
   const comparableMedianPrice = medianPrice(
     candidates
@@ -593,6 +609,16 @@ export const rankProductMatches = (
     normalizedQuery: query,
     selected: rankedCandidates[0] ?? null,
     rankedCandidates,
+    rejectedCandidates: candidates
+      .filter((candidate) => candidate.confidence === "none")
+      .map((candidate) => ({
+        productId: candidate.product.id,
+        productName: candidate.product.productName,
+        ...(candidate.product.category ? { category: candidate.product.category } : {}),
+        unitLabel: candidate.product.unitLabel,
+        searchTerms: candidate.product.searchTerms,
+        reason: candidate.rejectionReason ?? "not_ranked",
+      })),
     packagePlan,
     requested,
   };
@@ -649,7 +675,9 @@ export const matchListItem = (
             reasons: candidate.reasons,
           })),
         }
-      : {}),
+      : {
+          rejectedCandidates: ranked.rejectedCandidates.slice(0, 10),
+        }),
     ...(ranked.requested
       ? {
           requestedQuantity: {
