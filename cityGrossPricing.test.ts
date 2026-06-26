@@ -828,7 +828,13 @@ test("basket pricing uses conservative fallback for basmatiris after no usable p
     },
   );
 
-  assert.deepEqual(searchedQueries, ["basmatiris", "basmati ris"]);
+  assert.deepEqual(searchedQueries, [
+    "basmatiris",
+    "basmati ris",
+    "basmati",
+    "ris basmati",
+    "basmati rice",
+  ]);
   assert.equal(result.matches[0]?.product?.id, "basmati");
 });
 
@@ -864,7 +870,12 @@ test("basket pricing can match citron and does not attempt fallback when primary
 });
 
 test("fallback search terms are attempted only after primary has no usable candidates", async () => {
-  assert.deepEqual(buildPricingFallbackSearchQueries("basmatiris"), ["basmati ris"]);
+  assert.deepEqual(buildPricingFallbackSearchQueries("basmatiris"), [
+    "basmati ris",
+    "basmati",
+    "ris basmati",
+    "basmati rice",
+  ]);
   assert.deepEqual(buildPricingFallbackSearchQueries("citron"), ["citroner"]);
   const searchedQueries: string[] = [];
   const incompatiblePrimary: ProductPrice = {
