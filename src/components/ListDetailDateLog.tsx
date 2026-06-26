@@ -37,6 +37,7 @@ export default function ListDetailDateLog({
   const [notes, setNotes] = useState("");
   const [weekDirection, setWeekDirection] = useState(1);
 
+  const hasLogEntries = list.tasks.length > 0;
   const selectedDate = useMemo(() => new Date(`${selectedDateKey}T00:00:00`), [selectedDateKey]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
   const entryDates = useMemo(() => getEntryDates(list.tasks), [list.tasks]);
@@ -85,13 +86,25 @@ export default function ListDetailDateLog({
         </div>
       </header>
 
-      <section className="mb-5 rounded-2xl bg-primary-container p-5 text-on-primary shadow-[0px_4px_20px_rgba(0,59,5,0.04)]" style={{ backgroundColor: list.themeColor || "#1a5319" }}>
-        <p className="mb-1 font-sans text-[10px] font-bold uppercase leading-none tracking-widest text-[#b3f3a6]">Datumlista</p>
-        <h2 className="mb-3 font-display text-2xl font-bold tracking-tight">Logga små händelser per dag</h2>
-        <div className="flex w-fit items-center gap-2 rounded-full bg-white/20 px-3 py-1.5 backdrop-blur-md">
-          <LucideIcon name="calendar" className="h-4 w-4 text-white" />
-          <span className="font-sans text-xs font-semibold">{list.tasks.length} loggar sparade</span>
-        </div>
+      <section className={`mb-5 rounded-2xl bg-primary-container text-on-primary shadow-[0px_4px_20px_rgba(0,59,5,0.04)] ${hasLogEntries ? "px-4 py-3" : "p-5"}`} style={{ backgroundColor: list.themeColor || "#1a5319" }}>
+        {hasLogEntries ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-sans text-[10px] font-bold uppercase leading-none tracking-widest text-[#b3f3a6]">Datumlista</p>
+            <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 backdrop-blur-md">
+              <LucideIcon name="calendar" className="h-3.5 w-3.5 text-white" />
+              <span className="font-sans text-xs font-semibold">{list.tasks.length} loggar sparade</span>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="mb-1 font-sans text-[10px] font-bold uppercase leading-none tracking-widest text-[#b3f3a6]">Datumlista</p>
+            <h2 className="mb-3 font-display text-2xl font-bold tracking-tight">Logga små händelser per dag</h2>
+            <div className="flex w-fit items-center gap-2 rounded-full bg-white/20 px-3 py-1.5 backdrop-blur-md">
+              <LucideIcon name="calendar" className="h-4 w-4 text-white" />
+              <span className="font-sans text-xs font-semibold">0 loggar sparade</span>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="mb-5 rounded-2xl bg-white/70 p-3 shadow-sm ring-1 ring-outline/10 backdrop-blur">
@@ -110,10 +123,10 @@ export default function ListDetailDateLog({
           <AnimatePresence initial={false} custom={weekDirection} mode="popLayout">
             <motion.div
               key={weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}
-              initial={{ opacity: 0, x: weekDirection * 24 }}
+              initial={{ opacity: 0.88, x: weekDirection * 120 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: weekDirection * -24 }}
-              transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+              exit={{ opacity: 0.88, x: weekDirection * -120 }}
+              transition={{ duration: 0.42, ease: [0.23, 1, 0.32, 1] }}
               className="grid grid-cols-7 gap-1.5"
             >
               {weekDays.map((day, index) => {
