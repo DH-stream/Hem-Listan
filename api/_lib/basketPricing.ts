@@ -1,11 +1,13 @@
 import {
   buildPricingSearchQueries,
+  buildPricingFallbackSearchQueries,
   buildPricingSearchQuery,
   matchListItem,
   normalizePriceQuery,
 } from "./pricingMatching.js";
 import type {
   BasketPriceEstimate,
+  ListItemPriceMatch,
   ProductPrice,
 } from "../../src/lib/pricing/types";
 import { searchCityGrossProducts } from "./cityGrossPricing.js";
@@ -56,6 +58,7 @@ interface BasketPricingOptions {
 interface PricingQueryDiagnostic {
   normalizedQuery: string;
   searchQuery: string;
+  phase: "primary" | "fallback";
   providerProductCount: number;
   topProviderProducts: Array<{
     productName: string;
@@ -63,6 +66,18 @@ interface PricingQueryDiagnostic {
     unitLabel: string;
     category?: string;
   }>;
+}
+
+interface NoCandidateDiagnostic {
+  itemName: string;
+  normalizedQuery: string;
+  chain: PricingBasketRequest["chain"];
+  storeId: string | null;
+  providerSearchTermsAttempted: string[];
+  providerReturnedZeroProducts: boolean;
+  providerReturnedProductsFilteredOut: boolean;
+  productCountBeforeFiltering: number;
+  candidateCountAfterFiltering: number;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -163,6 +178,7 @@ const defaultSearchProductsFor = (request: PricingBasketRequest) =>
 const summarizeDiagnostics = (
   request: PricingBasketRequest,
   diagnostics: PricingQueryDiagnostic[],
+  matches: ListItemPriceMatch[],
   pricedCount: number,
   matchCount: number,
   providerAttempts?: Array<IcaProviderDiagnostic | WillysProviderDiagnostic>,
@@ -175,6 +191,7 @@ const summarizeDiagnostics = (
     matchCount,
     coverageRatio: matchCount > 0 ? pricedCount / matchCount : 0,
     queries: diagnostics,
+    noCandidateDiagnostics: buildNoCandidateDiagnostics(request, diagnostics, matches),
     ...(providerAttempts && providerAttempts.length > 0
       ? {
           providerAttemptSummary:
@@ -201,6 +218,39 @@ const summarizeGenericProviderAttempts = (
     emptyAttemptCount: resultTypeCounts.empty ?? 0,
     errorAttemptCount: resultTypeCounts.error ?? 0,
   };
+};
+
+const buildNoCandidateDiagnostics = (
+  request: PricingBasketRequest,
+  diagnostics: PricingQueryDiagnostic[],
+  matches: ListItemPriceMatch[],
+): NoCandidateDiagnostic[] => {
+  return request.items
+    .map((item) => {
+      const match = matches.find((candidateMatch) => candidateMatch.listItemId === item.id);
+      const candidateCountAfterFiltering = match?.rankedCandidates?.length ?? 0;
+      const normalizedQuery = normalizePriceQuery(buildPricingSearchQuery(item.name));
+      const attempts = diagnostics.filter(
+        (diagnostic) => diagnostic.normalizedQuery === normalizedQuery,
+      );
+      const productCountBeforeFiltering = attempts.reduce(
+        (total, attempt) => total + attempt.providerProductCount,
+        0,
+      );
+      return {
+        itemName: item.name,
+        normalizedQuery,
+        chain: request.chain,
+        storeId: request.storeId ?? null,
+        providerSearchTermsAttempted: attempts.map((attempt) => attempt.searchQuery),
+        providerReturnedZeroProducts: attempts.length > 0 && productCountBeforeFiltering === 0,
+        providerReturnedProductsFilteredOut:
+          productCountBeforeFiltering > 0 && candidateCountAfterFiltering === 0,
+        productCountBeforeFiltering,
+        candidateCountAfterFiltering,
+      };
+    })
+    .filter((diagnostic) => diagnostic.candidateCountAfterFiltering === 0);
 };
 
 export const summarizeIcaProviderAttempts = (attempts: IcaProviderDiagnostic[]) => {
@@ -325,19 +375,18 @@ export async function calculateBasketPriceEstimate(
           category: product.category,
         })),
       });
-      if (debug) {
-        diagnostics.push({
-          normalizedQuery,
-          searchQuery,
-          providerProductCount: products.length,
-          topProviderProducts: products.slice(0, 5).map((product) => ({
-            productName: product.productName,
-            priceSek: product.priceSek,
-            unitLabel: product.unitLabel,
-            ...(product.category ? { category: product.category } : {}),
-          })),
-        });
-      }
+      diagnostics.push({
+        normalizedQuery,
+        searchQuery,
+        phase: "primary",
+        providerProductCount: products.length,
+        topProviderProducts: products.slice(0, 5).map((product) => ({
+          productName: product.productName,
+          priceSek: product.priceSek,
+          unitLabel: product.unitLabel,
+          ...(product.category ? { category: product.category } : {}),
+        })),
+      });
       productEntries.push([normalizedQuery, products] as const);
     }
   };
@@ -423,6 +472,64 @@ export async function calculateBasketPriceEstimate(
     );
   }
 
+  const fallbackQueries = request.items.flatMap((item) => {
+    const normalizedQuery = queryByItemId.get(item.id) ?? "";
+    const match = matches.find((candidateMatch) => candidateMatch.listItemId === item.id);
+    if (!normalizedQuery || (match?.rankedCandidates?.length ?? 0) > 0) return [];
+    return buildPricingFallbackSearchQueries(item.name).map(
+      (searchQuery) => [item.id, normalizedQuery, searchQuery] as const,
+    );
+  });
+  if (fallbackQueries.length > 0) {
+    const fallbackEntries = await Promise.all(
+      fallbackQueries.map(async ([, normalizedQuery, searchQuery]) => {
+        pricingApiLog(debug, "fallback search start", {
+          chain: request.chain,
+          normalizedQuery,
+          searchQuery,
+          storeId: request.storeId,
+        });
+        const products = await searchProducts(searchQuery, request.storeId);
+        pricingApiLog(debug, "fallback search result", {
+          chain: request.chain,
+          normalizedQuery,
+          searchQuery,
+          productCount: products.length,
+        });
+        diagnostics.push({
+          normalizedQuery,
+          searchQuery,
+          phase: "fallback",
+          providerProductCount: products.length,
+          topProviderProducts: products.slice(0, 5).map((product) => ({
+            productName: product.productName,
+            priceSek: product.priceSek,
+            unitLabel: product.unitLabel,
+            ...(product.category ? { category: product.category } : {}),
+          })),
+        });
+        return [normalizedQuery, products] as const;
+      }),
+    );
+    fallbackEntries.forEach(([normalizedQuery, products]) => {
+      const existingProducts = productsByQuery.get(normalizedQuery) ?? [];
+      const productsById = new Map(
+        existingProducts.map((product) => [product.id, product] as const),
+      );
+      products.forEach((product) => {
+        if (!productsById.has(product.id)) productsById.set(product.id, product);
+      });
+      productsByQuery.set(normalizedQuery, Array.from(productsById.values()));
+    });
+    matches = request.items.map((item) =>
+      matchListItem(
+        item,
+        productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
+        { debug, learningSummaries },
+      ),
+    );
+  }
+
   const approximateTotalSek =
     Math.round(
       matches.reduce(
@@ -434,6 +541,18 @@ export async function calculateBasketPriceEstimate(
     ) / 100;
 
   const pricedCount = matches.filter((match) => match.product).length;
+  const noCandidateDiagnostics = buildNoCandidateDiagnostics(
+    request,
+    diagnostics,
+    matches,
+  );
+  if (noCandidateDiagnostics.length > 0) {
+    console.info("[pricing-api] no ranked candidates", {
+      chain: request.chain,
+      storeId: request.storeId ?? null,
+      items: noCandidateDiagnostics,
+    });
+  }
   const providerAttempts =
     debug && request.chain === "ica"
       ? consumeIcaPricingDiagnostics()
@@ -449,6 +568,7 @@ export async function calculateBasketPriceEstimate(
           debugMessage: summarizeDiagnostics(
             request,
             diagnostics.sort((a, b) => a.normalizedQuery.localeCompare(b.normalizedQuery)),
+            matches,
             pricedCount,
             matches.length,
             providerAttempts,
