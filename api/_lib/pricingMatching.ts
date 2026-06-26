@@ -13,6 +13,8 @@ import {
   selectPackagePurchasePlan,
 } from "../../shared/pricingQuantity.js";
 import { evaluateReceiptInformedPreference } from "./productPreferenceRules.js";
+import { findPricingMatchLearningSummary } from "./pricingMatchLearningSummaries.js";
+import type { PricingMatchLearningSummaryLookup } from "./pricingMatchLearningSummaries.js";
 
 export interface ProductMatchScoreBreakdown {
   semantic: number;
@@ -20,7 +22,7 @@ export interface ProductMatchScoreBreakdown {
   quantityPackageFit: number;
   priceSanity: number;
   productPenalty: number;
-  learnedPreference: number;
+  learningScore: number;
   packagePlan: number;
   total: number;
 }
@@ -453,6 +455,7 @@ const confidenceScore: Record<PriceMatchConfidence, number> = {
 export const rankProductMatches = (
   item: { name: string },
   products: ProductPrice[],
+  options: { learningSummaries?: PricingMatchLearningSummaryLookup } = {},
 ) => {
   const query = normalizedPricingQuery(item.name);
   const queryVariants = normalizedPricingQueryVariants(item.name);
@@ -508,13 +511,35 @@ export const rankProductMatches = (
         comparableMedianPrice,
       );
       const planScore = plannedProductIds.has(candidate.product.id) ? 100 : 0;
+      const learningSummary = findPricingMatchLearningSummary(
+        options.learningSummaries,
+        query,
+        candidate.product.id,
+      );
+      const canApplyLearning =
+        Boolean(learningSummary) &&
+        (productPenalty.score > -20 || learningSummary!.confidenceScore < 0);
+      const learningScore =
+        learningSummary && learningSummary.sampleCount >= 3 && canApplyLearning
+          ? learningSummary.confidenceScore >= 0.6
+            ? Math.min(6, Math.max(3, learningSummary.confidenceScore * 6))
+            : learningSummary.confidenceScore <= -0.75 && learningSummary.suspiciousCount >= 2
+              ? Math.max(-15, Math.min(-8, learningSummary.confidenceScore * 15))
+              : 0
+          : 0;
+      const learningReasons =
+        learningScore > 0
+          ? ["learned_preference_boost"]
+          : learningScore < 0
+            ? ["learned_suspicious_penalty"]
+            : [];
       const scoreBreakdown: ProductMatchScoreBreakdown = {
         semantic: confidenceScore[candidate.confidence],
         categoryAffinity: categoryAffinity.score,
         quantityPackageFit: preference.score,
         priceSanity: pricePreference.score,
         productPenalty: productPenalty.score,
-        learnedPreference: 0,
+        learningScore,
         packagePlan: planScore,
         total: 0,
       };
@@ -533,6 +558,7 @@ export const rankProductMatches = (
             ...pricePreference.reasons,
             ...productPenalty.reasons,
             ...(planScore > 0 ? ["package_plan_selected"] : []),
+            ...learningReasons,
           ]),
         ],
       };
@@ -551,10 +577,11 @@ export const rankProductMatches = (
 export const matchListItem = (
   item: { id: string; name: string; sourceTaskIds?: string[] },
   products: ProductPrice[],
-  options: { debug?: boolean } = {},
+  options: { debug?: boolean; learningSummaries?: PricingMatchLearningSummaryLookup } = {},
 ): ListItemPriceMatch => {
-  void options;
-  const ranked = rankProductMatches(item, products);
+  const ranked = rankProductMatches(item, products, {
+    learningSummaries: options.learningSummaries,
+  });
   const product = ranked.selected?.product ?? null;
   const weightedPrice = product
     ? estimateWeightedCheckoutPrice(ranked.requested, product)

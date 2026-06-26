@@ -20,7 +20,7 @@ export interface ProductMatchScoreBreakdown {
   quantityPackageFit: number;
   priceSanity: number;
   productPenalty: number;
-  learnedPreference: number;
+  learningScore: number;
   packagePlan: number;
   total: number;
 }
@@ -514,7 +514,7 @@ export const rankProductMatches = (
         quantityPackageFit: preference.score,
         priceSanity: pricePreference.score,
         productPenalty: productPenalty.score,
-        learnedPreference: 0,
+        learningScore: 0,
         packagePlan: planScore,
         total: 0,
       };

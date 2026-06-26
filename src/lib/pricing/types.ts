@@ -57,7 +57,7 @@ export interface ProductMatchScoreBreakdown {
   quantityPackageFit: number;
   priceSanity: number;
   productPenalty: number;
-  learnedPreference: number;
+  learningScore: number;
   packagePlan: number;
   total: number;
 }

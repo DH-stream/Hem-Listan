@@ -135,3 +135,103 @@ test("Supabase match logger writes anonymous event rows without list item names"
   assert.equal(insertedBody.price_explanation, null);
   assert.equal(Object.hasOwn(insertedBody, "list_item_name"), false);
 });
+
+const learningLookup = (...summaries: Array<{
+  normalizedQuery?: string;
+  selectedProductId: string;
+  sampleCount: number;
+  suspiciousCount?: number;
+  confidenceScore: number;
+}>) =>
+  new Map(
+    summaries.map((summary) => [
+      `${summary.normalizedQuery ?? "apple"}\0${summary.selectedProductId}`,
+      {
+        chain: "city_gross" as const,
+        normalizedQuery: summary.normalizedQuery ?? "apple",
+        selectedProductId: summary.selectedProductId,
+        sampleCount: summary.sampleCount,
+        suspiciousCount: summary.suspiciousCount ?? 0,
+        confidenceScore: summary.confidenceScore,
+      },
+    ]),
+  );
+
+const appleCandidates = () => [
+  product({ id: "apple-a", productName: "Äpple Klass 1", priceSek: 4 }),
+  product({ id: "apple-b", productName: "Äpple Eko", priceSek: 4.2 }),
+];
+
+test("learning summaries are inert when absent or below sample thresholds", () => {
+  const baseline = rankProductMatches({ name: "äpple" }, appleCandidates());
+  const oneGood = rankProductMatches({ name: "äpple" }, appleCandidates(), {
+    learningSummaries: learningLookup({ selectedProductId: "apple-b", sampleCount: 1, confidenceScore: 0.9 }),
+  });
+  const oneSuspicious = rankProductMatches({ name: "äpple" }, appleCandidates(), {
+    learningSummaries: learningLookup({ selectedProductId: "apple-a", sampleCount: 1, suspiciousCount: 1, confidenceScore: -0.9 }),
+  });
+
+  assert.equal(oneGood.selected?.product.id, baseline.selected?.product.id);
+  assert.equal(oneGood.selected?.scoreBreakdown.learningScore, 0);
+  assert.equal(oneSuspicious.selected?.product.id, baseline.selected?.product.id);
+  assert.equal(oneSuspicious.selected?.scoreBreakdown.learningScore, 0);
+  assert.ok(!oneGood.rankedCandidates.some((candidate) => candidate.reasons.includes("learned_preference_boost")));
+  assert.ok(!oneSuspicious.rankedCandidates.some((candidate) => candidate.reasons.includes("learned_suspicious_penalty")));
+});
+
+test("repeated positive learning gives a small boost to compatible candidates", () => {
+  const ranking = rankProductMatches({ name: "äpple" }, appleCandidates(), {
+    learningSummaries: learningLookup({ selectedProductId: "apple-b", sampleCount: 3, confidenceScore: 0.8 }),
+  });
+
+  const learned = ranking.rankedCandidates.find((candidate) => candidate.product.id === "apple-b");
+  assert.ok(learned);
+  assert.equal(learned.scoreBreakdown.learningScore, 4.800000000000001);
+  assert.ok(learned.reasons.includes("learned_preference_boost"));
+});
+
+test("repeated suspicious learning applies a guarded penalty", () => {
+  const ranking = rankProductMatches({ name: "äpple" }, appleCandidates(), {
+    learningSummaries: learningLookup({ selectedProductId: "apple-a", sampleCount: 4, suspiciousCount: 2, confidenceScore: -0.9 }),
+  });
+
+  const penalized = ranking.rankedCandidates.find((candidate) => candidate.product.id === "apple-a");
+  assert.ok(penalized);
+  assert.equal(penalized.scoreBreakdown.learningScore, -13.5);
+  assert.ok(penalized.reasons.includes("learned_suspicious_penalty"));
+});
+
+test("learning cannot rescue a prepared-food mismatch for a simple ingredient query", () => {
+  const ranking = rankProductMatches(
+    { name: "potatis" },
+    [
+      product({ id: "plain-potato", productName: "Potatis Fast", searchTerms: ["potatis"], category: "Frukt & grönt" }),
+      product({ id: "ready-potato", productName: "Dillstuvad potatis", searchTerms: ["potatis"], category: "Färdigmat" }),
+    ],
+    {
+      learningSummaries: learningLookup({ normalizedQuery: "potatis", selectedProductId: "ready-potato", sampleCount: 20, confidenceScore: 1 }),
+    },
+  );
+
+  const mismatch = ranking.rankedCandidates.find((candidate) => candidate.product.id === "ready-potato");
+  assert.equal(ranking.selected?.product.id, "plain-potato");
+  assert.equal(mismatch?.scoreBreakdown.learningScore, 0);
+  assert.ok(!mismatch?.reasons.includes("learned_preference_boost"));
+});
+
+test("learning can rerank but does not directly change basket totals", async () => {
+  const result = await calculateBasketPriceEstimate(
+    { chain: "city_gross", storeId: "store-1", items: [{ id: "apple", name: "äpple" }] },
+    {
+      searchProducts: async () => [
+        product({ id: "apple-a", productName: "Äpple", priceSek: 4 }),
+        product({ id: "apple-b", productName: "Äpple", priceSek: 4.2 }),
+      ],
+      learningSummaries: learningLookup({ selectedProductId: "apple-b", sampleCount: 3, confidenceScore: 0.9 }),
+    },
+  );
+
+  assert.equal(result.matches[0].product?.id, "apple-b");
+  assert.equal(result.matches[0].preferenceReasons?.includes("learned_preference_boost"), true);
+  assert.equal(result.approximateTotalSek, result.matches[0].product?.priceSek);
+});

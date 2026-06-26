@@ -20,7 +20,7 @@ const scoreBreakdown = (overrides: Partial<ProductMatchScoreBreakdown> = {}): Pr
   quantityPackageFit: 0,
   priceSanity: 0,
   productPenalty: 0,
-  learnedPreference: 0,
+  learningScore: 0,
   packagePlan: 0,
   total: 40,
   ...overrides,

@@ -23,6 +23,8 @@ import type { IcaProviderDiagnostic } from "./icaPricing.js";
 import type { WillysProviderDiagnostic } from "./willysPricing.js";
 import { emitPricingMatchEventsFireAndForget } from "./pricingMatchEvents.js";
 import type { PricingMatchEventLogger } from "./pricingMatchEvents.js";
+import { loadPricingMatchLearningSummaries } from "./pricingMatchLearningSummaries.js";
+import type { PricingMatchLearningSummaryLookup } from "./pricingMatchLearningSummaries.js";
 
 export const MAX_BASKET_ITEMS = 100;
 
@@ -48,6 +50,7 @@ interface BasketPricingOptions {
   searchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
   refreshSearchProducts?: (query: string, storeId?: string) => Promise<ProductPrice[]>;
   matchEventLogger?: PricingMatchEventLogger;
+  learningSummaries?: PricingMatchLearningSummaryLookup;
 }
 
 interface PricingQueryDiagnostic {
@@ -290,6 +293,12 @@ export async function calculateBasketPriceEstimate(
     })),
     ...(queries.length > 10 ? { omittedCount: queries.length - 10 } : {}),
   });
+  const learningSummaries = options.learningSummaries ?? await loadPricingMatchLearningSummaries({
+    chain: request.chain,
+    storeId: request.storeId,
+    normalizedQueries: Array.from(searchQueriesByNormalizedQuery.keys()),
+    onError: (error) => pricingApiLog(debug, "learning summaries unavailable", error),
+  });
   const productEntries: Array<readonly [string, ProductPrice[]]> = [];
   const diagnostics: PricingQueryDiagnostic[] = [];
   let nextQueryIndex = 0;
@@ -352,7 +361,7 @@ export async function calculateBasketPriceEstimate(
     matchListItem(
       item,
       productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
-      { debug },
+      { debug, learningSummaries },
     ),
   );
 
@@ -409,7 +418,7 @@ export async function calculateBasketPriceEstimate(
       matchListItem(
         item,
         productsByQuery.get(queryByItemId.get(item.id) ?? "") ?? [],
-        { debug },
+        { debug, learningSummaries },
       ),
     );
   }
