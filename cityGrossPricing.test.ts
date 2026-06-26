@@ -19,6 +19,7 @@ import {
 import { parsePriceSek } from "./api/_lib/pricingProviderUtils";
 import type { ProductPrice } from "./src/lib/pricing/types";
 import {
+  buildPricingFallbackSearchQueries,
   buildPricingSearchQueries,
   cleanGrocerySearchQuery,
   matchListItem,
@@ -798,4 +799,170 @@ test("basket pricing searches provider variants and merges products for one inte
   );
   assert.equal(result.matches.find((match) => match.listItemId === "fat")?.product?.id, "butter");
   assert.equal(result.matches.find((match) => match.listItemId === "toast")?.product?.id, "toast");
+});
+
+test("basket pricing uses conservative fallback for basmatiris after no usable primary candidates", async () => {
+  const searchedQueries: string[] = [];
+  const basmatiProduct: ProductPrice = {
+    id: "basmati",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Basmati Ris 1kg",
+    priceSek: 39.9,
+    unitLabel: "1 kg",
+    category: "Ris",
+    searchTerms: ["basmati ris", "basmatiris"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "rice", name: "basmatiris" }],
+    },
+    {
+      searchProducts: async (query) => {
+        searchedQueries.push(query);
+        return query === "basmati ris" ? [basmatiProduct] : [];
+      },
+    },
+  );
+
+  assert.deepEqual(searchedQueries, ["basmatiris", "basmati ris"]);
+  assert.equal(result.matches[0]?.product?.id, "basmati");
+});
+
+test("basket pricing can match citron and does not attempt fallback when primary has candidates", async () => {
+  const searchedQueries: string[] = [];
+  const citronProduct: ProductPrice = {
+    id: "citron",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Citron Klass 1",
+    priceSek: 6.95,
+    unitLabel: "st",
+    category: "Frukt & grönt",
+    searchTerms: ["citron"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "lemon", name: "citron" }],
+    },
+    {
+      searchProducts: async (query) => {
+        searchedQueries.push(query);
+        return query === "citron" ? [citronProduct] : [];
+      },
+    },
+  );
+
+  assert.deepEqual(searchedQueries, ["citron"]);
+  assert.equal(result.matches[0]?.product?.id, "citron");
+});
+
+test("fallback search terms are attempted only after primary has no usable candidates", async () => {
+  assert.deepEqual(buildPricingFallbackSearchQueries("basmatiris"), ["basmati ris"]);
+  assert.deepEqual(buildPricingFallbackSearchQueries("citron"), ["citroner"]);
+  const searchedQueries: string[] = [];
+  const incompatiblePrimary: ProductPrice = {
+    id: "citron-tonic",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Citron Tonic",
+    priceSek: 19.9,
+    unitLabel: "50 cl",
+    category: "Dryck",
+    searchTerms: ["citron tonic"],
+  };
+  const compatibleFallback: ProductPrice = {
+    id: "citron",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Citron Klass 1",
+    priceSek: 6.95,
+    unitLabel: "st",
+    category: "Frukt & grönt",
+    searchTerms: ["citron"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "lemon", name: "citron" }],
+    },
+    {
+      searchProducts: async (query) => {
+        searchedQueries.push(query);
+        if (query === "citron") return [incompatiblePrimary];
+        if (query === "citroner") return [compatibleFallback];
+        return [];
+      },
+    },
+  );
+
+  assert.deepEqual(searchedQueries, ["citron", "citroner"]);
+  assert.equal(result.matches[0]?.product?.id, "citron");
+});
+
+test("fallback does not override hard mismatch penalties", async () => {
+  const tonic: ProductPrice = {
+    id: "citron-tonic",
+    chainId: "ica",
+    storeId: "1004392",
+    productName: "Citron Tonic",
+    priceSek: 19.9,
+    unitLabel: "50 cl",
+    category: "Dryck",
+    searchTerms: ["citron tonic"],
+  };
+
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "lemon", name: "citron" }],
+    },
+    {
+      searchProducts: async () => [tonic],
+    },
+  );
+
+  assert.equal(result.matches[0]?.product, null);
+  assert.equal(result.matches[0]?.rankedCandidates, undefined);
+});
+
+test("no-candidate debug diagnostics include provider result counts", async () => {
+  const result = await calculateBasketPriceEstimate(
+    {
+      chain: "ica",
+      storeId: "1004392",
+      items: [{ id: "lemon", name: "citron" }],
+    },
+    {
+      debug: true,
+      searchProducts: async (query) =>
+        query === "citron"
+          ? [{
+              id: "tonic",
+              chainId: "ica",
+              storeId: "1004392",
+              productName: "Citron Tonic",
+              priceSek: 19.9,
+              unitLabel: "50 cl",
+              category: "Dryck",
+              searchTerms: ["citron tonic"],
+            }]
+          : [],
+    },
+  );
+
+  const debugMessage = JSON.parse(result.debugMessage ?? "{}");
+  assert.equal(debugMessage.noCandidateDiagnostics[0].normalizedQuery, "citron");
+  assert.equal(debugMessage.noCandidateDiagnostics[0].productCountBeforeFiltering, 1);
+  assert.equal(debugMessage.noCandidateDiagnostics[0].candidateCountAfterFiltering, 0);
+  assert.equal(debugMessage.noCandidateDiagnostics[0].providerReturnedProductsFilteredOut, true);
 });

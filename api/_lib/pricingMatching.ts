@@ -62,6 +62,11 @@ const searchQueryVariantAliases: Array<{ pattern: RegExp; replacements: string[]
   { pattern: /^smör\s+margarin$/i, replacements: ["smör", "margarin"] },
 ];
 
+const conservativeFallbackSearchTerms: Record<string, string[]> = {
+  basmatiris: ["basmati ris"],
+  citron: ["citroner"],
+};
+
 const applySearchAliases = (value: string) =>
   explicitQueryAliases.reduce(
     (current, alias) => current.replace(alias.pattern, alias.replacement),
@@ -100,6 +105,25 @@ export const buildPricingSearchQueries = (value: string) => {
     alias.pattern.test(searchQuery),
   );
   return [...new Set((variant?.replacements ?? [searchQuery]).filter(Boolean))];
+};
+
+export const buildPricingFallbackSearchQueries = (value: string) => {
+  const searchQuery = buildPricingSearchQuery(value);
+  const normalized = normalizePriceQuery(searchQuery);
+  const fallbackTerms = conservativeFallbackSearchTerms[normalized] ?? [];
+  return [
+    ...new Set(
+      fallbackTerms
+        .filter(Boolean)
+        .filter(
+          (fallback) =>
+            normalizePriceQuery(fallback) !== normalized &&
+            !buildPricingSearchQueries(value).some(
+              (primary) => normalizePriceQuery(primary) === normalizePriceQuery(fallback),
+            ),
+        ),
+    ),
+  ];
 };
 
 const normalizedPricingQuery = (value: string) =>
