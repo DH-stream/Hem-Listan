@@ -172,3 +172,48 @@ test("ICA diagnostics identify the historical Banan Eko direct product fallback"
   assert.equal(successfulAttempt?.directProductFallback, true);
   assert.equal(successfulAttempt?.failureType, undefined);
 });
+
+
+test("ICA diagnostics identify the basmatiris direct product fallback", async () => {
+  clearIcaPricingCache();
+  resetIcaPricingDiagnostics();
+  const requestedUrls: string[] = [];
+
+  const products = await searchIcaProducts("basmatiris", "1004219", {
+    debug: true,
+    liveEnabled: true,
+    now: () => 0,
+    fetchImpl: async (input) => {
+      const url = new URL(input.toString());
+      requestedUrls.push(url.pathname);
+      if (url.pathname.includes("/products/basmatiris-1kg-ica-asia/1331022")) {
+        return new Response(
+          `<article>
+            <h1>Basmatiris 1kg ICA Asia</h1>
+            <p>1kg (39,95 kr/kg)</p>
+            <span>Pris 39,95 kr</span>
+          </article>`,
+          { status: 200, headers: { "content-type": "text/html" } },
+        );
+      }
+      return new Response(JSON.stringify({ products: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  assert.equal(products[0]?.productName, "Basmatiris 1kg ICA Asia");
+  assert.equal(products[0]?.productUrl, undefined);
+  assert.ok(
+    requestedUrls.some((path) =>
+      path.includes("/stores/1004219/products/basmatiris-1kg-ica-asia/1331022"),
+    ),
+  );
+  const successfulAttempt = consumeIcaPricingDiagnostics().find(
+    (attempt) => attempt.normalizedProductCount === 1,
+  );
+  assert.equal(successfulAttempt?.resultType, "direct_product_success");
+  assert.equal(successfulAttempt?.directProductFallback, true);
+  assert.equal(successfulAttempt?.failureType, undefined);
+});

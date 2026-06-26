@@ -72,7 +72,7 @@ const searchQueryVariantAliases: Array<{ pattern: RegExp; replacements: string[]
 ];
 
 const conservativeFallbackSearchTerms: Record<string, string[]> = {
-  basmatiris: ["basmati ris"],
+  basmatiris: ["basmati ris", "basmati", "ris basmati", "basmati rice"],
   citron: ["citroner"],
 };
 

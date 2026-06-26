@@ -136,7 +136,13 @@ test("ICA search aliases recipe wording to grocery search terms", () => {
   assert.deepEqual(getIcaSearchQueries("stort skalat och hackat äpple"), ["äpple"]);
   assert.deepEqual(getIcaSearchQueries("finhackad röd paprika"), ["röd paprika"]);
   assert.deepEqual(getIcaSearchQueries("keso cottage cheese"), ["keso", "cottage cheese"]);
-  assert.deepEqual(getIcaSearchQueries("basmatiris"), ["basmatiris", "basmati ris"]);
+  assert.deepEqual(getIcaSearchQueries("basmatiris"), [
+    "basmatiris",
+    "basmati ris",
+    "basmati",
+    "ris basmati",
+    "basmati rice",
+  ]);
   assert.deepEqual(getIcaSearchQueries("stora ägg"), ["ägg", "ägg 10-p", "ägg 6-p"]);
   assert.deepEqual(getIcaSearchQueries("mjöl"), ["vetemjöl", "mjöl"]);
   assert.deepEqual(getIcaSearchQueries("riven ost"), ["riven ost", "ost riven"]);

@@ -9,7 +9,7 @@ import { cleanGrocerySearchQuery } from "./pricingMatching.js";
 const ICA_ORIGIN = "https://handlaprivatkund.ica.se";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const NEGATIVE_CACHE_TTL_MS = 60 * 1000;
-const ICA_STRATEGY_VERSION = "v5";
+const ICA_STRATEGY_VERSION = "v6";
 const MIN_VALID_HTML_LENGTH = 1_000;
 const MIN_SUBSTANTIVE_HTML_LENGTH = 5_000;
 const REQUEST_TIMEOUT_MS = 7_000;
@@ -391,7 +391,7 @@ const normalizeIcaLookupKey = (value: string) =>
 
 const ICA_QUERY_ALIASES: Record<string, string[]> = {
   "keso cottage cheese": ["keso", "cottage cheese"],
-  basmatiris: ["basmatiris", "basmati ris"],
+  basmatiris: ["basmatiris", "basmati ris", "basmati", "ris basmati", "basmati rice"],
   "smor- & rapsolja": ["smör rapsolja", "flytande smör rapsolja"],
   agg: ["ägg", "ägg 10-p", "ägg 6-p"],
   mjol: ["vetemjöl", "mjöl"],
@@ -629,6 +629,7 @@ const ICA_CATEGORY_FALLBACKS = [
 
 const ICA_DIRECT_PRODUCT_FALLBACKS: Record<string, string[]> = {
   banan: ["banan-eko-ca-180g-klass-1/1477872"],
+  basmatiris: ["basmatiris-1kg-ica-asia/1331022"],
 };
 
 const ICA_TARGETED_SEARCH_QUERIES: Record<string, string[]> = {
@@ -804,9 +805,9 @@ const fetchIcaProductsFromUrl = async (
         attempt.resultType = "html_no_product_data";
         attempt.failureType = "html_no_product_data";
       } else {
-        attempt.directProductFallback = products.some((product) =>
-          product.id.startsWith("ica-direct:"),
-        );
+        attempt.directProductFallback =
+          searchUrl.pathname.includes("/products/") ||
+          products.some((product) => product.id.startsWith("ica-direct:"));
         attempt.resultType = attempt.directProductFallback
           ? "direct_product_success"
           : searchUrl.pathname.includes("/categories")
