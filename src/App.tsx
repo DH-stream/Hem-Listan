@@ -88,7 +88,7 @@ const loadLocalLists = (): List[] => {
 
 const loadLocalActiveLists = (): List[] =>
   loadLocalLists()
-    .filter(list => !getListDeletedAt(list) || isUuid(list.id))
+    .filter(list => !getListDeletedAt(list))
     .map(stripDeletedFields);
 
 const loadLocalDeletedLists = (): DeletedList[] =>
