@@ -84,3 +84,4 @@ Viktiga gränser:
 - [ ] Homeboard-widget (läs lista via Supabase Realtime)
 - [ ] Swipe-to-delete på listitems
 - [ ] Veckonavigering (← Vecka 23 →)
+

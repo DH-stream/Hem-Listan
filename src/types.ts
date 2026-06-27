@@ -10,6 +10,10 @@ export interface TaskItem {
   progress?: number; // percentage, e.g., 66 for Window Installation
   type?: "task" | "note" | "progress" | "link";
   url?: string;
+  scheduledDate?: string;
+  logDate?: string;
+  loggedAt?: string;
+  createdAt?: string;
 }
 
 export type MealType = "frukost" | "lunch" | "middag";
@@ -67,7 +71,7 @@ export interface List {
   name: string;
   icon: string; // home, shopping_cart, construction, favorite, book, restaurant, fitness_center, flight etc.
   themeColor: string; // hex or CSS class
-  category: "renovation" | "grocery" | "general";
+  category: "renovation" | "grocery" | "general" | "date_log";
   tasks: TaskItem[];
   meals?: MealSlot[]; // for grocery/schema lists
   mealPlanStartDay?: WeekdayKey;
