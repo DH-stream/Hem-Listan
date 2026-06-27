@@ -66,6 +66,8 @@ export const getMonthGrid = (selectedDate: Date): Array<DateLogMonthCell | null>
   const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
   const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
   const leadingBlanks = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+  const visibleDays = leadingBlanks + daysInMonth;
+  const trailingBlanks = 42 - visibleDays;
 
   return [
     ...Array.from({ length: leadingBlanks }, () => null),
@@ -73,6 +75,7 @@ export const getMonthGrid = (selectedDate: Date): Array<DateLogMonthCell | null>
       const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), index + 1);
       return { dateKey: toLocalDateKey(date), day: index + 1, isCurrentMonth: true };
     }),
+    ...Array.from({ length: trailingBlanks }, () => null),
   ];
 };
 

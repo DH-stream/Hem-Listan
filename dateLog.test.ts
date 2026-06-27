@@ -62,7 +62,7 @@ test("selected week changes correctly across month boundaries", () => {
 test("month grid starts on Monday with leading blanks", () => {
   const grid = getMonthGrid(new Date("2026-02-14T12:00:00"));
 
-  assert.equal(grid.length, 34);
+  assert.equal(grid.length, 42);
   assert.equal(grid[0], null);
   assert.equal(grid[6]?.dateKey, "2026-02-01");
   assert.equal(grid[7]?.dateKey, "2026-02-02");

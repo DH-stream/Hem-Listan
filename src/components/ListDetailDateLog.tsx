@@ -20,6 +20,11 @@ interface ListDetailDateLogProps {
 }
 
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
+const CALENDAR_VARIANTS = {
+  enter: (direction: number) => ({ x: `${direction * 100}%`, opacity: 1 }),
+  center: { x: "0%", opacity: 1 },
+  exit: (direction: number) => ({ x: `${direction * -100}%`, opacity: 1 }),
+};
 type DateLogViewMode = "week" | "month";
 
 export default function ListDetailDateLog({
@@ -132,10 +137,10 @@ export default function ListDetailDateLog({
           </button>
         </div>
         {viewMode === "month" && <p className="mb-2 px-1 text-center font-display text-base font-bold capitalize text-text-main">{formatMonthHeading(selectedDateKey)}</p>}
-        <div className="overflow-hidden">
-          <AnimatePresence initial={false} custom={navigationDirection} mode="wait">
+        <div className={`relative overflow-hidden ${viewMode === "week" ? "h-[58px]" : "h-[276px]"}`}>
+          <AnimatePresence initial={false} custom={navigationDirection}>
             {viewMode === "week" ? (
-              <motion.div key={`week-${weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}`} initial={{ opacity: 0.88, x: navigationDirection * 120 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0.88, x: navigationDirection * -120 }} transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }} className="grid grid-cols-7 gap-1.5">
+              <motion.div key={`week-${weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}`} custom={navigationDirection} variants={CALENDAR_VARIANTS} initial="enter" animate="center" exit="exit" transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }} className="absolute inset-0 grid w-full grid-cols-7 gap-1.5">
                 {weekDays.map((day, index) => {
                   const dateKey = toLocalDateKey(day);
                   const isSelected = selectedDateKey === dateKey;
@@ -152,7 +157,7 @@ export default function ListDetailDateLog({
                 })}
               </motion.div>
             ) : (
-              <motion.div key={`month-${selectedDate.getFullYear()}-${selectedDate.getMonth()}`} initial={{ opacity: 0.88, x: navigationDirection * 80 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0.88, x: navigationDirection * -80 }} transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }}>
+              <motion.div key={`month-${selectedDate.getFullYear()}-${selectedDate.getMonth()}`} custom={navigationDirection} variants={CALENDAR_VARIANTS} initial="enter" animate="center" exit="exit" transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }} className="absolute inset-0 w-full">
                 <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-on-surface-variant/70">{WEEKDAY_LABELS.map((label) => <span key={label}>{label}</span>)}</div>
                 <div className="grid grid-cols-7 gap-1">
                   {monthDays.map((day, index) => {
