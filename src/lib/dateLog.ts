@@ -11,6 +11,11 @@ const TIME_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
   minute: "2-digit",
 });
 
+const MONTH_FORMATTER = new Intl.DateTimeFormat("sv-SE", {
+  month: "long",
+  year: "numeric",
+});
+
 export const toLocalDateKey = (date: Date): string => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -22,6 +27,15 @@ export const addDaysToDateKey = (dateKey: string, days: number): string => {
   const date = new Date(`${dateKey}T00:00:00`);
   date.setDate(date.getDate() + days);
   return toLocalDateKey(date);
+};
+
+export const addMonthsToDateKey = (dateKey: string, months: number): string => {
+  const date = new Date(`${dateKey}T00:00:00`);
+  const day = date.getDate();
+  const target = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return toLocalDateKey(target);
 };
 
 export const getWeekStart = (date: Date): Date => {
@@ -41,6 +55,28 @@ export const getWeekDays = (selectedDate: Date): Date[] => {
     return day;
   });
 };
+
+export type DateLogMonthCell = {
+  dateKey: string;
+  day: number;
+  isCurrentMonth: boolean;
+};
+
+export const getMonthGrid = (selectedDate: Date): Array<DateLogMonthCell | null> => {
+  const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+  const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+  const leadingBlanks = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+
+  return [
+    ...Array.from({ length: leadingBlanks }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), index + 1);
+      return { dateKey: toLocalDateKey(date), day: index + 1, isCurrentMonth: true };
+    }),
+  ];
+};
+
+export const getMonthDays = getMonthGrid;
 
 export const getTaskLogDate = (task: TaskItem): string | undefined => task.logDate ?? task.scheduledDate;
 
@@ -63,6 +99,11 @@ export const getEntryDates = (tasks: TaskItem[]): Set<string> =>
 export const formatDateLogHeading = (dateKey: string): string => {
   const date = new Date(`${dateKey}T00:00:00`);
   return DATE_FORMATTER.format(date);
+};
+
+export const formatMonthHeading = (dateKey: string): string => {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return MONTH_FORMATTER.format(date);
 };
 
 export const formatDateLogTime = (entry: TaskItem): string => {
