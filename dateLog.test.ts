@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addDaysToDateKey, createDateLogEntry, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "./src/lib/dateLog";
+import { addDaysToDateKey, addMonthsToDateKey, createDateLogEntry, formatMonthHeading, getEntriesForDate, getEntryDates, getMonthGrid, getWeekDays, toLocalDateKey } from "./src/lib/dateLog";
 import type { List, TaskItem } from "./src/types";
 
 test("date_log is a valid list category", () => {
@@ -58,6 +58,26 @@ test("selected week changes correctly across month boundaries", () => {
   ]);
 });
 
+
+test("month grid starts on Monday with leading blanks", () => {
+  const grid = getMonthGrid(new Date("2026-02-14T12:00:00"));
+
+  assert.equal(grid.length, 42);
+  assert.equal(grid[0], null);
+  assert.equal(grid[6]?.dateKey, "2026-02-01");
+  assert.equal(grid[7]?.dateKey, "2026-02-02");
+});
+
+test("month navigation moves across year boundaries", () => {
+  assert.equal(addMonthsToDateKey("2026-12-15", 1), "2027-01-15");
+  assert.equal(addMonthsToDateKey("2027-01-15", -1), "2026-12-15");
+  assert.equal(addMonthsToDateKey("2026-01-31", 1), "2026-02-28");
+});
+
+test("month heading uses Swedish month and year", () => {
+  assert.equal(formatMonthHeading("2026-12-15"), "december 2026");
+});
+
 test("adding a log entry stores the selected date metadata", () => {
   const entry = createDateLogEntry("Smort med Mildison", "2026-06-26", "På kinden");
 
@@ -68,7 +88,7 @@ test("adding a log entry stores the selected date metadata", () => {
   assert.equal(typeof entry.loggedAt, "string");
 });
 
-test("entries only show for the selected date and expose marker dates", () => {
+test("selected date filtering still works and marker dates are available in month view", () => {
   const tasks: TaskItem[] = [
     { id: "1", text: "Smort med Mildison", checked: false, logDate: "2026-06-26", loggedAt: "2026-06-26T08:00:00.000Z" },
     { id: "2", text: "Bad", checked: false, logDate: "2026-06-27", loggedAt: "2026-06-27T08:00:00.000Z" },

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { List, ListMember, TaskItem } from "../types";
-import { addDaysToDateKey, createDateLogEntry, formatDateLogHeading, formatDateLogTime, getEntriesForDate, getEntryDates, getWeekDays, toLocalDateKey } from "../lib/dateLog";
+import { addDaysToDateKey, addMonthsToDateKey, createDateLogEntry, formatDateLogHeading, formatDateLogTime, formatMonthHeading, getEntriesForDate, getEntryDates, getMonthGrid, getWeekDays, toLocalDateKey } from "../lib/dateLog";
 import LucideIcon from "./LucideIcon";
 import ListNameEditor from "./ListNameEditor";
 import PresenceAvatarStack from "./PresenceAvatarStack";
@@ -20,6 +20,12 @@ interface ListDetailDateLogProps {
 }
 
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
+const CALENDAR_VARIANTS = {
+  enter: (direction: number) => ({ x: `${direction * 100}%`, opacity: 1 }),
+  center: { x: "0%", opacity: 1 },
+  exit: (direction: number) => ({ x: `${direction * -100}%`, opacity: 1 }),
+};
+type DateLogViewMode = "week" | "month";
 
 export default function ListDetailDateLog({
   list,
@@ -35,27 +41,29 @@ export default function ListDetailDateLog({
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
   const [entryText, setEntryText] = useState("");
   const [notes, setNotes] = useState("");
-  const [weekDirection, setWeekDirection] = useState(1);
+  const [viewMode, setViewMode] = useState<DateLogViewMode>("week");
+  const [navigationDirection, setNavigationDirection] = useState(1);
 
   const hasLogEntries = list.tasks.length > 0;
   const selectedDate = useMemo(() => new Date(`${selectedDateKey}T00:00:00`), [selectedDateKey]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+  const monthDays = useMemo(() => getMonthGrid(selectedDate), [selectedDate]);
   const entryDates = useMemo(() => getEntryDates(list.tasks), [list.tasks]);
   const selectedEntries = useMemo(
     () => getEntriesForDate(list.tasks, selectedDateKey),
     [list.tasks, selectedDateKey],
   );
 
-  const handlePreviousWeek = () => {
-    setWeekDirection(-1);
-    setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, -7));
+  const handlePreviousPeriod = () => {
+    setNavigationDirection(-1);
+    setSelectedDateKey((dateKey) => viewMode === "week" ? addDaysToDateKey(dateKey, -7) : addMonthsToDateKey(dateKey, -1));
   };
-  const handleNextWeek = () => {
-    setWeekDirection(1);
-    setSelectedDateKey((dateKey) => addDaysToDateKey(dateKey, 7));
+  const handleNextPeriod = () => {
+    setNavigationDirection(1);
+    setSelectedDateKey((dateKey) => viewMode === "week" ? addDaysToDateKey(dateKey, 7) : addMonthsToDateKey(dateKey, 1));
   };
   const handleToday = () => {
-    setWeekDirection(selectedDateKey > todayKey ? -1 : 1);
+    setNavigationDirection(selectedDateKey > todayKey ? -1 : 1);
     setSelectedDateKey(todayKey);
   };
 
@@ -108,42 +116,65 @@ export default function ListDetailDateLog({
       </section>
 
       <section className="mb-5 rounded-2xl bg-white/70 p-3 shadow-sm ring-1 ring-outline/10 backdrop-blur">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <button type="button" onClick={handlePreviousWeek} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Föregående vecka">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <button type="button" onClick={handlePreviousPeriod} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label={viewMode === "week" ? "Föregående vecka" : "Föregående månad"}>
             <LucideIcon name="arrow_back" className="h-4 w-4" />
           </button>
-          <button type="button" onClick={handleToday} disabled={selectedDateKey === todayKey} className="px-2 py-1 text-xs font-bold text-primary transition-opacity active:scale-95 disabled:pointer-events-none disabled:opacity-45">
-            Idag
-          </button>
-          <button type="button" onClick={handleNextWeek} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label="Nästa vecka">
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-full bg-surface-muted p-0.5 text-[11px] font-bold text-on-surface-variant">
+              {(["week", "month"] as const).map((mode) => (
+                <button key={mode} type="button" onClick={() => setViewMode(mode)} className={`rounded-full px-3 py-1 transition-all ${viewMode === mode ? "bg-white text-primary shadow-sm" : "hover:text-text-main"}`}>
+                  {mode === "week" ? "Vecka" : "Månad"}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={handleToday} disabled={selectedDateKey === todayKey} className="px-2 py-1 text-xs font-bold text-primary transition-opacity active:scale-95 disabled:pointer-events-none disabled:opacity-45">
+              Idag
+            </button>
+          </div>
+          <button type="button" onClick={handleNextPeriod} className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-all hover:bg-surface-muted active:scale-95" aria-label={viewMode === "week" ? "Nästa vecka" : "Nästa månad"}>
             <LucideIcon name="chevron_right" className="h-4 w-4" />
           </button>
         </div>
-        <div className="overflow-hidden">
-          <AnimatePresence initial={false} custom={weekDirection} mode="popLayout">
-            <motion.div
-              key={weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}
-              initial={{ opacity: 0.88, x: weekDirection * 120 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0.88, x: weekDirection * -120 }}
-              transition={{ duration: 0.42, ease: [0.23, 1, 0.32, 1] }}
-              className="grid grid-cols-7 gap-1.5"
-            >
-              {weekDays.map((day, index) => {
-                const dateKey = toLocalDateKey(day);
-                const isSelected = selectedDateKey === dateKey;
-                const isToday = todayKey === dateKey;
-                const hasEntries = entryDates.has(dateKey);
-                return (
-                  <button key={dateKey} type="button" onClick={() => setSelectedDateKey(dateKey)} className={`relative min-h-[58px] rounded-2xl px-1 py-2 text-center transition-all active:scale-95 ${isSelected ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-surface-muted/60"}`}>
-                    <span className={`block text-[10px] font-bold uppercase ${isSelected ? "opacity-80" : "opacity-60"}`}>{WEEKDAY_LABELS[index]}</span>
-                    <span className={`mt-1 block font-display text-lg font-bold leading-none ${isSelected ? "text-white" : "text-text-main/80"}`}>{day.getDate()}</span>
-                    {isToday && <span className={`mt-1 block text-[9px] font-bold ${isSelected ? "text-white" : "text-primary"}`}>Idag</span>}
-                    {hasEntries && <span className={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${isSelected ? "bg-white" : "bg-primary"}`} />}
-                  </button>
-                );
-              })}
-            </motion.div>
+        {viewMode === "month" && <p className="mb-2 px-1 text-center font-display text-base font-bold capitalize text-text-main">{formatMonthHeading(selectedDateKey)}</p>}
+        <div className={`relative overflow-hidden ${viewMode === "week" ? "h-[58px]" : "h-[276px]"}`}>
+          <AnimatePresence initial={false} custom={navigationDirection}>
+            {viewMode === "week" ? (
+              <motion.div key={`week-${weekDays[0] ? toLocalDateKey(weekDays[0]) : selectedDateKey}`} custom={navigationDirection} variants={CALENDAR_VARIANTS} initial="enter" animate="center" exit="exit" transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }} className="absolute inset-0 grid w-full grid-cols-7 gap-1.5">
+                {weekDays.map((day, index) => {
+                  const dateKey = toLocalDateKey(day);
+                  const isSelected = selectedDateKey === dateKey;
+                  const isToday = todayKey === dateKey;
+                  const hasEntries = entryDates.has(dateKey);
+                  return (
+                    <button key={dateKey} type="button" onClick={() => setSelectedDateKey(dateKey)} className={`relative min-h-[58px] rounded-2xl px-1 py-2 text-center transition-all active:scale-95 ${isSelected ? "bg-primary text-white shadow-md" : "text-on-surface-variant hover:bg-surface-muted/60"}`}>
+                      <span className={`block text-[10px] font-bold uppercase ${isSelected ? "opacity-80" : "opacity-60"}`}>{WEEKDAY_LABELS[index]}</span>
+                      <span className={`mt-1 block font-display text-lg font-bold leading-none ${isSelected ? "text-white" : "text-text-main/80"}`}>{day.getDate()}</span>
+                      {isToday && <span className={`mt-1 block text-[9px] font-bold ${isSelected ? "text-white" : "text-primary"}`}>Idag</span>}
+                      {hasEntries && <span className={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${isSelected ? "bg-white" : "bg-primary"}`} />}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            ) : (
+              <motion.div key={`month-${selectedDate.getFullYear()}-${selectedDate.getMonth()}`} custom={navigationDirection} variants={CALENDAR_VARIANTS} initial="enter" animate="center" exit="exit" transition={{ duration: 0.24, ease: [0.23, 1, 0.32, 1] }} className="absolute inset-0 w-full">
+                <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase text-on-surface-variant/70">{WEEKDAY_LABELS.map((label) => <span key={label}>{label}</span>)}</div>
+                <div className="grid grid-cols-7 gap-1">
+                  {monthDays.map((day, index) => {
+                    if (!day) return <span key={`blank-${index}`} className="min-h-10" />;
+                    const isSelected = selectedDateKey === day.dateKey;
+                    const isToday = todayKey === day.dateKey;
+                    const hasEntries = entryDates.has(day.dateKey);
+                    return (
+                      <button key={day.dateKey} type="button" onClick={() => setSelectedDateKey(day.dateKey)} className={`relative min-h-10 rounded-xl text-center font-display text-sm font-bold transition-all active:scale-95 ${isSelected ? "bg-primary text-white shadow-md" : isToday ? "bg-primary/10 text-primary" : "text-text-main/80 hover:bg-surface-muted/70"}`}>
+                        {day.day}
+                        {hasEntries && <span className={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${isSelected ? "bg-white" : "bg-primary"}`} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </section>
