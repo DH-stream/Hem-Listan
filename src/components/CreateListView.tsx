@@ -26,7 +26,8 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     { name: "restaurant", label: "Mat" },
     { name: "fitness_center", label: "Träna" },
     { name: "flight", label: "Resa" },
-    { name: "calendar", label: "Datum" }
+    { name: "calendar", label: "Datum" },
+    { name: "architecture", label: "Bygg" }
   ];
 
   // Colors aligned with brand kit
@@ -35,7 +36,8 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
     { value: "#346a2f", label: "Skogsgrön" },
     { value: "#ffb0c9", label: "Rosa" },
     { value: "#7C2E00", label: "Eldbrun" },
-    { value: "#9ad68e", label: "Ljusgrön" }
+    { value: "#9ad68e", label: "Ljusgrön" },
+    { value: "#2F5F73", label: "Blåprint" }
   ];
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -124,6 +126,12 @@ export default function CreateListView({ onCancel, onCreateList }: CreateListVie
                   title: "Datumlista",
                   subtitle: "Logga händelser och anteckningar per dag",
                   icon: "calendar"
+                },
+                {
+                  value: "build_sketch" as const,
+                  title: "Byggskiss",
+                  subtitle: "Skissa rum och väggmått",
+                  icon: "architecture"
                 }
               ].map((listType) => {
                 const isActive = selectedListType === listType.value;
