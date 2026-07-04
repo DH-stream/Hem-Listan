@@ -71,7 +71,7 @@ export interface List {
   name: string;
   icon: string; // home, shopping_cart, construction, favorite, book, restaurant, fitness_center, flight etc.
   themeColor: string; // hex or CSS class
-  category: "renovation" | "grocery" | "general" | "date_log";
+  category: "renovation" | "grocery" | "general" | "date_log" | "build_sketch";
   tasks: TaskItem[];
   meals?: MealSlot[]; // for grocery/schema lists
   mealPlanStartDay?: WeekdayKey;

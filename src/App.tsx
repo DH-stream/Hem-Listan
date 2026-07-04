@@ -7,6 +7,7 @@ import DashboardView from "./components/DashboardView";
 import ListDetailRenovation from "./components/ListDetailRenovation";
 import ListDetailGrocery from "./components/ListDetailGrocery";
 import ListDetailDateLog from "./components/ListDetailDateLog";
+import ListDetailBuildSketch from "./components/ListDetailBuildSketch";
 import CreateListView from "./components/CreateListView";
 import DebugPanel, { getInitialMockPresenceEnabled } from "./components/DebugPanel";
 import PublicShareView from "./components/PublicShareView";
@@ -1515,6 +1516,7 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
     if (currentView === "detail" && activeList) {
       if (activeList.category === "grocery") return { blob1: "bg-[#A5D6A7]/30", blob2: "bg-[#80DEEA]/35", scale: 1.25 };
       if (activeList.category === "date_log") return { blob1: "bg-[#E0F2F1]/45", blob2: "bg-[#FFE4E1]/35", scale: 1.15 };
+      if (activeList.category === "build_sketch") return { blob1: "bg-[#B8DDE8]/35", blob2: "bg-[#F3C77B]/25", scale: 1.12 };
       if (activeList.category === "renovation") return { blob1: "bg-[#FFCC80]/25", blob2: "bg-[#FFE082]/25", scale: 1.1 };
     }
     return { blob1: "bg-[#C8E6C9]/25", blob2: "bg-[#FFE0B2]/30", scale: 1.0 };
@@ -1634,6 +1636,16 @@ function MainApp({ inviteToken }: { inviteToken: string | null }) {
                   onToggleTask={handleToggleTask}
                   onAddDateLogEntry={handleAddDateLogEntry}
                   onDeleteTask={handleDeleteTask}
+                  onRenameList={handleRenameList}
+                />
+              ) : activeList.category === "build_sketch" ? (
+                <ListDetailBuildSketch
+                  list={activeList}
+                  members={listMembers}
+                  presentUsers={displayedPresentUsers}
+                  onBack={() => startTransition(() => setCurrentView("dashboard"))}
+                  onAddTask={handleAddTask}
+                  onUpdateTask={handleUpdateTask}
                   onRenameList={handleRenameList}
                 />
               ) : (
